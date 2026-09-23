@@ -1,7 +1,9 @@
 // Stand-alone demo for the ported layout engine (layout-demo.html).
 
 import { decodeImage, parseAvatar, type AvatarFile, type DecodedBitmap } from "../avb";
-import { bodyForText } from "../composite";
+import { bodyForText, composeChoice } from "../composite";
+import { createEmotionWheel, posesForWheel } from "../emotion-wheel";
+import type { PoseChoice } from "../expression";
 import { newPoseMemory, type PoseMemory } from "../expression";
 import { balloonFontMetrics, type BalloonMode } from "./balloon";
 import { ComicPage, type ComicLine } from "./page";
@@ -63,9 +65,16 @@ async function load(file: string): Promise<ArrayBuffer> {
   return response.arrayBuffer();
 }
 
-async function poseFor(id: string, text: string): Promise<{ image: HTMLCanvasElement; faceX: number; key: string }> {
+/** Poses chosen on the emotion wheel, used for that character's next line (AF_TEMPFROZEN). */
+const frozen = new Map<string, PoseChoice>();
+
+async function poseFor(id: string, text: string, useWheel = false): Promise<{ image: HTMLCanvasElement; faceX: number; key: string }> {
   const entry = cast.get(id)!;
-  const body = await bodyForText(entry.buffer, entry.avatar, text, entry.memory);
+  const wheelChoice = useWheel ? frozen.get(id) : undefined;
+  if (wheelChoice) frozen.delete(id);
+  const body = wheelChoice
+    ? await composeChoice(entry.buffer, entry.avatar, wheelChoice)
+    : await bodyForText(entry.buffer, entry.avatar, text, entry.memory);
   let image = entry.poses.get(body.key);
   if (!image) {
     image = toCanvas(body.bitmap);
@@ -80,7 +89,7 @@ async function lineFor(speakerId: string, raw: string, mode: BalloonMode = "say"
   const target = match && CAST.find((c) => c.id.toLowerCase() === match[1].toLowerCase());
   talkTo.set(speakerId, target && target.id !== speakerId ? [target.id] : []);
   const text = target ? match![2] : raw;
-  const { image, faceX, key } = await poseFor(speakerId, text);
+  const { image, faceX, key } = await poseFor(speakerId, text, true);
   return { speakerId, text, mode, pose: { width: image.width, height: image.height, faceX }, poseRef: key };
 }
 
@@ -166,6 +175,43 @@ async function main(): Promise<void> {
 
   const speaker = document.querySelector<HTMLSelectElement>("#speaker")!;
   speaker.replaceChildren(...CAST.map(({ id }) => new Option(id, id)));
+
+  // Emotion wheel + character preview, as in the 2.5 window's lower-right corner.
+  const preview = document.createElement("canvas");
+  preview.width = 120;
+  preview.height = 159;
+  preview.className = "preview";
+  const showPreview = async (choice: PoseChoice) => {
+    const entry = cast.get(speaker.value)!;
+    const body = await composeChoice(entry.buffer, entry.avatar, choice);
+    const context = preview.getContext("2d")!;
+    context.fillStyle = "#fff";
+    context.fillRect(0, 0, preview.width, preview.height);
+    const k = Math.min(preview.width / body.bitmap.width, preview.height / body.bitmap.height);
+    context.drawImage(toCanvas(body.bitmap), (preview.width - body.bitmap.width * k) / 2, preview.height - body.bitmap.height * k, body.bitmap.width * k, body.bitmap.height * k);
+  };
+  const wheelStatus = document.createElement("span");
+  const wheel = createEmotionWheel({
+    onChange: (emotion, name) => {
+      const entry = cast.get(speaker.value)!;
+      const choice = posesForWheel(entry.avatar, emotion, entry.memory);
+      frozen.set(speaker.value, choice);
+      wheelStatus.textContent = `Emotion is ${name} · used for ${speaker.value}'s next line`;
+      void showPreview(choice);
+    },
+  });
+  const tools = document.createElement("div");
+  tools.className = "tools";
+  tools.append(preview, wheel.element, wheelStatus);
+  document.querySelector("header")!.append(tools);
+  speaker.addEventListener("change", () => {
+    wheel.set({ emotion: 0, intensity: 0 });
+    frozen.delete(speaker.value);
+    wheelStatus.textContent = "";
+    const entry = cast.get(speaker.value)!;
+    void showPreview(posesForWheel(entry.avatar, { emotion: 0, intensity: 0 }, entry.memory));
+  });
+  speaker.dispatchEvent(new Event("change"));
   document.querySelector<HTMLFormElement>("#say")!.addEventListener("submit", async (event) => {
     event.preventDefault();
     const input = document.querySelector<HTMLInputElement>("#text")!;
