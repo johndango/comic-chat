@@ -82,6 +82,25 @@ The final image contains only the compiled static app, bundled gateway, and
 production WebSocket dependency. It runs as an unprivileged user and exposes a
 `/health` check for the hosting platform.
 
+## cPanel / Passenger deployment
+
+For a CloudLinux **Setup Node.js App** deployment, build locally and upload the
+prebuilt application rather than compiling the repository on shared hosting.
+Create the application with:
+
+- Application mode: `Production`
+- Application root: `webcomicchat-app`
+- Application URL: the root of `webcomicchat.com`
+- Application startup file: `app.js`
+- Node.js: the newest available version that is 20 or later
+
+Upload `app.js`, `package.json`, `package-lock.json`, `dist/`, and
+`dist-server/` into the application root. Run npm install from the application
+screen, then set `NODE_ENV=production` and
+`PUBLIC_ORIGIN=https://webcomicchat.com`. Do not enable `TRUST_PROXY` until the
+host's forwarding behavior has been verified. Restart the application after
+each upload or environment change.
+
 ## Gateway safety boundary
 
 - Listens on loopback by default.
