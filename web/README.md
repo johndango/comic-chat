@@ -15,6 +15,12 @@ thought bubbles, whispers, and action boxes follow the original source. The
 default balloon font is Comic Sans MS 12 pt when installed, with the OFL-licensed
 Comic Neue bundled as the cross-platform fallback.
 
+In a live room, select a member before sending to address the line to them;
+Cmd-click on macOS or Ctrl-click elsewhere selects several people. The original
+layout logic then brings those listeners into the panel and turns the speaker
+toward them. Messages from other IRC clients also recognize a leading `Name:`
+as an addressee hint.
+
 Room links use the page URL to prefill a supported IRC network and channel, so a
 room can be shared without including anyone's nickname. Opening a link never
 joins automatically: the visitor still chooses their nickname and confirms the

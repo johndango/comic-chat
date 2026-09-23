@@ -140,9 +140,15 @@ button:disabled { color: #808080; text-shadow: 1px 1px #fff; cursor: not-allowed
 .controls { min-width: 0; display: grid; grid-template-rows: 190px 1fr; background: var(--face); }
 .member-pane, .character-pane { min-height: 0; border-bottom: 2px solid #808080; }
 .member-pane > header, .character-pane > header { padding: 5px 7px; font-weight: 700; border-bottom: 1px solid #808080; }
+.member-pane > header { display: flex; align-items: baseline; justify-content: space-between; gap: 5px; }
+.member-pane > header small { max-width: 125px; overflow: hidden; color: #444; font-weight: 400; text-overflow: ellipsis; white-space: nowrap; }
 .member-list { height: 160px; padding: 5px; overflow: auto; background: #fff; border-top: 2px solid #404040; border-left: 2px solid #404040; }
 .member-list > p { color: #666; }
-.member-row { padding: 3px; display: flex; gap: 6px; align-items: center; }
+.member-row { width: 100%; min-height: 31px; padding: 3px; display: flex; gap: 6px; align-items: center; border: 0; box-shadow: none; background: transparent; color: #000; text-align: left; }
+.member-row:hover:not(:disabled) { background: #d7e3f4; }
+.member-row.selected { background: #000080; color: #fff; }
+.member-row:disabled { color: #666; }
+.member-row:focus-visible { outline: 1px dotted currentColor; outline-offset: -2px; }
 .member-icon { width: 24px; height: 24px; flex: 0 0 24px; border: 1px solid #c0c0c0; background: #fff; image-rendering: pixelated; }
 .character-pane { padding: 0 8px 8px; overflow: auto; }
 .character-pane > header { margin: 0 -8px 7px; }

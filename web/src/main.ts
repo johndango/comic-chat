@@ -157,7 +157,7 @@ app.innerHTML = `
 
         <aside class="controls">
           <section class="member-pane">
-            <header>Members</header>
+            <header><span>Members</span><small id="member-target-summary">Select who you are talking to</small></header>
             <div id="member-list" class="member-list"><p>Connect to see room members.</p></div>
           </section>
           <section class="character-pane">
@@ -236,6 +236,7 @@ const roomFilter = element<HTMLInputElement>("#room-filter");
 const roomSummary = element<HTMLElement>("#room-summary");
 const refreshRoomsButton = element<HTMLButtonElement>("#refresh-rooms");
 const memberList = element<HTMLElement>("#member-list");
+const memberTargetSummary = element<HTMLElement>("#member-target-summary");
 const roomTabLabel = element<HTMLElement>("#room-tab-label");
 const windowRoom = element<HTMLElement>("#window-room");
 const characterPreview = element<HTMLCanvasElement>("#character-preview");
@@ -256,6 +257,7 @@ let liveState: LiveState = "offline";
 let remoteQueue = Promise.resolve();
 const publicRooms = new Map<string, LiveRoomEvent>();
 const knownMembers = new Set<string>();
+const selectedAddressees = new Set<string>();
 let totalPublicRooms = 0;
 let currentWheelEmotion: WheelEmotion = { emotion: 0, intensity: 0 };
 let suppressWheelChange = false;
@@ -333,7 +335,9 @@ async function avatarIcon(avatar: LoadedAvatar): Promise<HTMLCanvasElement | und
   return avatar.icon;
 }
 
-function addressedPeople(message: string, speaker: string): string[] {
+function addressedPeople(message: string, speaker: string, selected: readonly string[] = []): string[] {
+  const explicit = selected.filter((name) => name.toLocaleLowerCase() !== speaker.toLocaleLowerCase());
+  if (explicit.length > 0) return explicit;
   const prefix = message.match(/^([^:]{1,32}):\s/iu)?.[1]?.toLocaleLowerCase();
   if (!prefix) return [];
   const candidates = new Set([...conversation.map((line) => line.characterName), ...knownMembers]);
@@ -350,6 +354,7 @@ async function createConversationLine(
   message: string,
   displayName?: string,
   mode: BalloonMode = "say",
+  selected: readonly string[] = [],
 ): Promise<ConversationLine> {
   const avatar = await loadAvatar(characterFile);
   const frozen = frozenPoses.get(characterFile);
@@ -368,7 +373,7 @@ async function createConversationLine(
     body,
     poseRef: `${characterFile}|${body.key}`,
     expression: frozen ? "wheel selection" : describeOptions(options),
-    talkTo: addressedPeople(message, characterName),
+    talkTo: addressedPeople(message, characterName, selected),
   };
 }
 
@@ -430,22 +435,61 @@ function renderMembers(): void {
   memberList.dataset.generation = String(generation);
   memberList.replaceChildren();
   if (knownMembers.size === 0) {
+    selectedAddressees.clear();
+    memberTargetSummary.textContent = "Select who you are talking to";
     const empty = document.createElement("p");
     empty.textContent = liveState === "joined" ? "Waiting for room activity…" : "Connect to see room members.";
     memberList.append(empty);
     return;
   }
+  for (const nickname of selectedAddressees) {
+    if (![...knownMembers].some((member) => member.toLocaleLowerCase() === nickname.toLocaleLowerCase())) {
+      selectedAddressees.delete(nickname);
+    }
+  }
+  const updateTargetSummary = (): void => {
+    const names = [...selectedAddressees];
+    memberTargetSummary.textContent = names.length === 0
+      ? "Select who you are talking to"
+      : `Talking to: ${names.join(", ")}`;
+  };
+  updateTargetSummary();
   for (const nickname of [...knownMembers].sort((left, right) => left.localeCompare(right))) {
-    const row = document.createElement("div");
+    const row = document.createElement("button");
+    row.type = "button";
     row.className = "member-row";
+    const isSelf = nickname.toLocaleLowerCase() === nicknameInput.value.trim().toLocaleLowerCase();
+    row.disabled = isSelf;
+    row.classList.toggle("selected", selectedAddressees.has(nickname));
+    row.setAttribute("aria-pressed", String(selectedAddressees.has(nickname)));
+    row.title = isSelf ? "This is you" : "Address your next lines to this member";
     const icon = document.createElement("canvas");
     icon.className = "member-icon";
     icon.width = 24;
     icon.height = 24;
     icon.setAttribute("aria-hidden", "true");
     const label = document.createElement("strong");
-    label.textContent = nickname;
+    label.textContent = isSelf ? `${nickname} (you)` : nickname;
     row.append(icon, label);
+    row.addEventListener("click", (event) => {
+      const extend = event.metaKey || event.ctrlKey;
+      const wasSelected = selectedAddressees.has(nickname);
+      if (extend) {
+        if (wasSelected) selectedAddressees.delete(nickname);
+        else selectedAddressees.add(nickname);
+      } else if (wasSelected && selectedAddressees.size === 1) {
+        selectedAddressees.clear();
+      } else {
+        selectedAddressees.clear();
+        selectedAddressees.add(nickname);
+      }
+      renderMembers();
+      messageInput.focus();
+      const names = [...selectedAddressees];
+      setStatus(names.length === 0
+        ? "No addressee selected. The next line can establish a new shot."
+        : `The next line will be addressed to ${names.join(", ")}.`);
+    });
     memberList.append(row);
     void loadAvatar(characterForNickname(nickname)).then(avatarIcon).then((source) => {
       if (!source || memberList.dataset.generation !== String(generation)) return;
@@ -814,7 +858,7 @@ async function addPanel(): Promise<void> {
   setStatus("Reading the line and choosing a pose…");
   try {
     const mode = messageMode.value as BalloonMode;
-    const line = await createConversationLine(characterSelect.value, message, undefined, mode);
+    const line = await createConversationLine(characterSelect.value, message, undefined, mode, [...selectedAddressees]);
     if (liveState === "joined") liveClient.say(message, mode === "action");
     appendConversationLine(line, liveState === "joined");
     messageInput.value = "";
