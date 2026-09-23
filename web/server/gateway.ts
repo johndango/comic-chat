@@ -1,5 +1,6 @@
 import { createServer, type IncomingMessage, type Server } from "node:http";
 import { readFile, stat } from "node:fs/promises";
+import { isIP } from "node:net";
 import { extname, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { connect as connectTls, type TLSSocket } from "node:tls";
@@ -43,7 +44,10 @@ class IrcBridge {
   private closed = false;
   private recentMessages: number[] = [];
 
-  constructor(private readonly webSocket: WebSocket) {}
+  constructor(
+    private readonly webSocket: WebSocket,
+    private readonly onConnect: () => void,
+  ) {}
 
   handleBrowserMessage(raw: Buffer | ArrayBuffer | Buffer[]): void {
     try {
@@ -65,6 +69,7 @@ class IrcBridge {
 
   connect(request: ConnectRequest): void {
     if (this.socket) throw new Error("Already connected to IRC");
+    this.onConnect();
     this.request = request;
     const network = IRC_NETWORKS[request.network];
     sendJson(this.webSocket, { type: "status", state: "connecting", message: `Connecting securely to ${network.label}…` });
@@ -200,15 +205,39 @@ class IrcBridge {
 
 function originAllowed(request: IncomingMessage, publicOrigin?: string): boolean {
   const origin = request.headers.origin;
-  if (!origin) return true;
+  if (!origin) return publicOrigin === undefined;
   try {
     const url = new URL(origin);
-    if (url.hostname === "127.0.0.1" || url.hostname === "localhost") return true;
-    if (publicOrigin && url.origin === new URL(publicOrigin).origin) return true;
+    const requestHost = request.headers.host?.split(":")[0];
+    const loopback = url.hostname === "127.0.0.1" || url.hostname === "localhost";
+    if (loopback && (requestHost === "127.0.0.1" || requestHost === "localhost")) return true;
+    if (publicOrigin) return url.origin === new URL(publicOrigin).origin;
     return url.host === request.headers.host;
   } catch {
     return false;
   }
+}
+
+function normalizeAddress(address: string): string {
+  return address.startsWith("::ffff:") ? address.slice(7) : address;
+}
+
+function clientAddress(request: IncomingMessage, trustProxy: boolean): string {
+  const directAddress = normalizeAddress(request.socket.remoteAddress ?? "unknown");
+  if (!trustProxy) return directAddress;
+  const forwarded = request.headers["x-forwarded-for"];
+  const first = (Array.isArray(forwarded) ? forwarded[0] : forwarded)?.split(",")[0]?.trim();
+  return first && isIP(first) ? normalizeAddress(first) : directAddress;
+}
+
+function rejectUpgrade(
+  socket: { write(chunk: string): unknown; destroy(): unknown },
+  status: 403 | 429 | 503,
+  message: string,
+): void {
+  const statusText = status === 403 ? "Forbidden" : status === 429 ? "Too Many Requests" : "Service Unavailable";
+  socket.write(`HTTP/1.1 ${status} ${statusText}\r\nConnection: close\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: ${Buffer.byteLength(message)}\r\n\r\n${message}`);
+  socket.destroy();
 }
 
 async function serveStatic(request: IncomingMessage, response: import("node:http").ServerResponse, distDirectory: string): Promise<void> {
@@ -256,36 +285,83 @@ export interface GatewayServer {
   close(): Promise<void>;
 }
 
+export interface GatewaySecurityOptions {
+  trustProxy?: boolean;
+  maxClients?: number;
+  maxClientsPerAddress?: number;
+  maxUpgradesPerWindow?: number;
+  upgradeWindowMs?: number;
+  connectDeadlineMs?: number;
+}
+
 export function createGatewayServer(
   distDirectory = fileURLToPath(new URL("../dist", import.meta.url)),
   publicOrigin = process.env.PUBLIC_ORIGIN,
+  security: GatewaySecurityOptions = {},
 ): GatewayServer {
+  const trustProxy = security.trustProxy ?? process.env.TRUST_PROXY === "1";
+  const maxClients = security.maxClients ?? 50;
+  const maxClientsPerAddress = security.maxClientsPerAddress ?? 3;
+  const maxUpgradesPerWindow = security.maxUpgradesPerWindow ?? 10;
+  const upgradeWindowMs = security.upgradeWindowMs ?? 60_000;
+  const connectDeadlineMs = security.connectDeadlineMs ?? 15_000;
   const webSockets = new WebSocketServer({ noServer: true, maxPayload: 4096 });
   const bridges = new Set<IrcBridge>();
+  const clientsByAddress = new Map<string, number>();
+  const upgradesByAddress = new Map<string, number[]>();
   const httpServer = createServer((request, response) => {
     void serveStatic(request, response, distDirectory);
   });
 
   httpServer.on("upgrade", (request, socket, head) => {
     const pathname = new URL(request.url ?? "/", "http://localhost").pathname;
-    if (pathname !== "/irc" || !originAllowed(request, publicOrigin) || webSockets.clients.size >= 50) {
-      socket.write("HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n");
-      socket.destroy();
-      return;
+    if (pathname !== "/irc" || !originAllowed(request, publicOrigin)) return rejectUpgrade(socket, 403, "WebSocket origin rejected");
+
+    const address = clientAddress(request, trustProxy);
+    const now = Date.now();
+    const recentUpgrades = (upgradesByAddress.get(address) ?? []).filter((timestamp) => now - timestamp < upgradeWindowMs);
+    if (recentUpgrades.length >= maxUpgradesPerWindow) return rejectUpgrade(socket, 429, "Too many connection attempts");
+    recentUpgrades.push(now);
+    upgradesByAddress.set(address, recentUpgrades);
+
+    if (webSockets.clients.size >= maxClients) return rejectUpgrade(socket, 503, "Gateway connection limit reached");
+    if ((clientsByAddress.get(address) ?? 0) >= maxClientsPerAddress) {
+      return rejectUpgrade(socket, 429, "Too many connections from this address");
     }
     webSockets.handleUpgrade(request, socket, head, (webSocket) => webSockets.emit("connection", webSocket, request));
   });
 
-  webSockets.on("connection", (webSocket) => {
-    const bridge = new IrcBridge(webSocket);
+  webSockets.on("connection", (webSocket, request) => {
+    const address = clientAddress(request, trustProxy);
+    clientsByAddress.set(address, (clientsByAddress.get(address) ?? 0) + 1);
+    const connectDeadline = setTimeout(() => {
+      sendJson(webSocket, { type: "error", message: "Connection setup timed out" });
+      webSocket.close(1008, "Connection setup timed out");
+    }, connectDeadlineMs);
+    connectDeadline.unref();
+    const bridge = new IrcBridge(webSocket, () => clearTimeout(connectDeadline));
     bridges.add(bridge);
     sendJson(webSocket, { type: "status", state: "offline", message: "Gateway ready" });
     webSocket.on("message", (data) => bridge.handleBrowserMessage(data as Buffer));
     webSocket.on("close", () => {
+      clearTimeout(connectDeadline);
       bridge.close();
       bridges.delete(bridge);
+      const remaining = (clientsByAddress.get(address) ?? 1) - 1;
+      if (remaining > 0) clientsByAddress.set(address, remaining);
+      else clientsByAddress.delete(address);
     });
   });
+
+  const rateLimitSweep = setInterval(() => {
+    const cutoff = Date.now() - upgradeWindowMs;
+    for (const [address, timestamps] of upgradesByAddress) {
+      const recent = timestamps.filter((timestamp) => timestamp > cutoff);
+      if (recent.length > 0) upgradesByAddress.set(address, recent);
+      else upgradesByAddress.delete(address);
+    }
+  }, upgradeWindowMs);
+  rateLimitSweep.unref();
 
   return {
     httpServer,
@@ -300,6 +376,7 @@ export function createGatewayServer(
       });
     },
     close() {
+      clearInterval(rateLimitSweep);
       for (const bridge of bridges) bridge.close();
       for (const client of webSockets.clients) client.terminate();
       return new Promise((resolveClose, reject) => {

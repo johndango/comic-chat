@@ -56,14 +56,20 @@ a TLS reverse proxy that preserves WebSocket upgrades:
 
 ```sh
 npm run build
-HOST=0.0.0.0 PORT=8787 PUBLIC_ORIGIN=https://webcomicchat.com npm start
+HOST=0.0.0.0 PORT=8787 PUBLIC_ORIGIN=https://webcomicchat.com TRUST_PROXY=1 npm start
 ```
 
 Route both normal HTTP requests and `/irc` WebSocket upgrades from
 `webcomicchat.com` to port `8787`. Keep that application port private; public TLS
 should terminate at the reverse proxy or hosting platform. `PUBLIC_ORIGIN` adds
 the production origin to the WebSocket origin check and does not weaken the
-loopback or same-origin development paths.
+loopback development path.
+
+Set `TRUST_PROXY=1` only when the application is private behind a trusted proxy
+that replaces client-supplied `X-Forwarded-For` headers. This lets the gateway
+apply its per-address limits to the real visitor instead of the proxy. Leave it
+unset when exposing the Node process directly; forwarded headers are ignored by
+default so visitors cannot spoof their address.
 
 A production container can be built from the repository root:
 
@@ -83,7 +89,11 @@ production WebSocket dependency. It runs as an unprivileged user and exposes a
 - Rejects arbitrary hosts, unsafe nicknames/channels, control characters, and
   oversized payloads.
 - Limits each browser session to five outgoing messages per ten seconds.
-- Enforces same-origin WebSocket upgrades and a small maximum payload.
+- Requires the exact production origin and rejects originless WebSocket clients.
+- Allows at most three simultaneous sessions and ten upgrade attempts per minute
+  from one address, with a 50-session global ceiling.
+- Closes clients that do not start IRC setup within 15 seconds.
+- Enforces a small maximum WebSocket payload.
 - Does not accept, log, or store IRC credentials.
 
 ## Verify it
