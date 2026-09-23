@@ -5,6 +5,7 @@ import {
   parseIrcLine,
   validateChatMessage,
   validateConnectRequest,
+  validateJoinRequest,
 } from "./protocol";
 
 describe("IRC protocol boundary", () => {
@@ -27,9 +28,15 @@ describe("IRC protocol boundary", () => {
 
   it("allows only preset networks and safe identity fields", () => {
     expect(validateConnectRequest({ type: "connect", network: "libera", nickname: "ComicFan", channel: "#comic-chat" })).toMatchObject({ network: "libera" });
+    expect(validateConnectRequest({ type: "connect", network: "oftc", nickname: "ComicFan" })).toEqual({ type: "connect", network: "oftc", nickname: "ComicFan" });
     expect(() => validateConnectRequest({ type: "connect", network: "internal", nickname: "ComicFan", channel: "#chat" })).toThrow("Unsupported");
     expect(() => validateConnectRequest({ type: "connect", network: "libera", nickname: "bad nick", channel: "#chat" })).toThrow("Nickname");
     expect(() => validateConnectRequest({ type: "connect", network: "libera", nickname: "GoodNick", channel: "not-a-channel" })).toThrow("Channel");
+  });
+
+  it("validates room joins independently from registration", () => {
+    expect(validateJoinRequest({ type: "join", channel: "#comic-chat" })).toBe("#comic-chat");
+    expect(() => validateJoinRequest({ type: "join", channel: "bad room" })).toThrow("Channel");
   });
 
   it("blocks command injection and oversized messages", () => {

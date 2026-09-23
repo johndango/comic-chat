@@ -70,4 +70,23 @@ describe("browser IRC client", () => {
     expect(JSON.parse(socket.sent[1])).toEqual({ type: "say", message: "Hello!" });
     expect(events.at(-1)).toMatchObject({ type: "status", state: "joined" });
   });
+
+  it("can browse and then join a room", () => {
+    vi.stubGlobal("window", { location: { protocol: "https:", host: "webcomicchat.com" } });
+    vi.stubGlobal("WebSocket", FakeWebSocket);
+    const events: LiveEvent[] = [];
+    const client = new IrcWebClient((event) => events.push(event));
+
+    client.connect({ network: "oftc", nickname: "RoomFan" });
+    const socket = FakeWebSocket.instances[0];
+    expect(socket.url).toBe("wss://webcomicchat.com/irc");
+    socket.open();
+    expect(JSON.parse(socket.sent[0])).toEqual({ type: "connect", network: "oftc", nickname: "RoomFan" });
+
+    socket.receive({ type: "status", state: "browsing", message: "Loading public rooms…" });
+    client.join("#comics");
+    expect(JSON.parse(socket.sent[1])).toEqual({ type: "join", channel: "#comics" });
+    client.listRooms();
+    expect(JSON.parse(socket.sent[2])).toEqual({ type: "list" });
+  });
 });

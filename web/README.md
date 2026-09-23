@@ -1,9 +1,10 @@
 # Comic Chat web prototype
 
-This is a web-based first slice of a modern Comic Chat client. It decodes the
-original version 2 `.avb` avatars and `.bgb` backdrops directly, builds a
-multi-panel conversation strip on Canvas, exports the result as a PNG, and can
-render a live IRC channel through a small local gateway.
+This is a web-based Comic Chat client with a desktop modeled after the original
+Microsoft Comic Chat 2.5 interface. It decodes all 25 original version 2 `.avb`
+avatars and the bundled `.bgb` backdrops directly, builds a multi-panel
+conversation strip on Canvas, exports the result as a PNG, and can render a live
+IRC channel through a small local gateway.
 
 The browser also ports the original 2.5 text-expression rules. Caps and repeated
 exclamation marks shout, laughter cues laugh, emoticons smile or frown,
@@ -18,8 +19,9 @@ connection.
 
 Browsers cannot open raw IRC sockets, so `server/` provides a same-origin
 WebSocket-to-IRC bridge. It connects with verified TLS to one of two preset
-public networks, handles IRC registration, joins one channel, and converts
-channel messages into a narrow JSON event stream for the browser.
+public networks, handles IRC registration, retrieves a searchable public-room
+directory, joins the room selected by the visitor, tracks its member list, and
+converts channel messages into a narrow JSON event stream for the browser.
 
 ## Run it
 
@@ -44,9 +46,10 @@ npm start
 ```
 
 Then open `http://127.0.0.1:8787`. Live mode intentionally supports no IRC
-passwords or account credentials. Choose a preset network, enter a nickname and
-public channel, and connect. Offline strip composition remains available without
-the gateway. After entering a channel, **Copy room link** creates a link such as
+passwords or account credentials. Choose a preset network and nickname, then
+browse and search its popular public rooms; entering a known channel directly
+also works. Offline strip composition remains available without the gateway.
+After entering or joining a channel, **Copy room link** creates a link such as
 `https://webcomicchat.com/?network=libera&channel=%23comic-chat`.
 
 ## Production origin

@@ -12,10 +12,12 @@ import {
   parseIrcLine,
   validateChatMessage,
   validateConnectRequest,
+  validateJoinRequest,
   type ConnectRequest,
 } from "./protocol";
 
 type JsonObject = Record<string, unknown>;
+interface ListedRoom { channel: string; users: number; topic: string }
 
 const mimeTypes: Record<string, string> = {
   ".css": "text/css; charset=utf-8",
@@ -40,9 +42,16 @@ class IrcBridge {
   private socket?: TLSSocket;
   private request?: ConnectRequest;
   private buffer = "";
+  private registered = false;
   private joined = false;
+  private activeChannel?: string;
   private closed = false;
   private recentMessages: number[] = [];
+  private members = new Set<string>();
+  private listingRooms = false;
+  private listedRooms = 0;
+  private roomResults: ListedRoom[] = [];
+  private lastRoomListAt = 0;
 
   constructor(
     private readonly webSocket: WebSocket,
@@ -59,6 +68,8 @@ class IrcBridge {
       const value = JSON.parse(bytes.toString("utf8")) as unknown;
       const type = value && typeof value === "object" ? (value as Record<string, unknown>).type : undefined;
       if (type === "connect") this.connect(validateConnectRequest(value));
+      else if (type === "join") this.joinChannel(validateJoinRequest(value));
+      else if (type === "list") this.requestRooms();
       else if (type === "say") this.say(validateChatMessage(value));
       else if (type === "disconnect") this.disconnect("Disconnected");
       else throw new Error("Unknown browser message type");
@@ -124,25 +135,88 @@ class IrcBridge {
     if (!this.request) return;
 
     if (message.command === "001") {
-      this.write(`JOIN ${this.request.channel}`);
-      sendJson(this.webSocket, { type: "status", state: "joining", message: `Joining ${this.request.channel}…` });
+      this.registered = true;
+      if (this.request.channel) this.joinChannel(this.request.channel);
+      else this.requestRooms();
       return;
     }
     if (message.command === "433") {
       sendJson(this.webSocket, { type: "error", message: "That nickname is already in use" });
       return this.disconnect("Nickname unavailable");
     }
-    if (message.command === "JOIN" && ircCaseFold(nicknameFromPrefix(message.prefix)) === ircCaseFold(this.request.nickname)) {
+    if (message.command === "322" && this.listingRooms) {
+      const channel = message.params[1];
+      const users = Number.parseInt(message.params[2] ?? "0", 10);
+      if (channel?.startsWith("#") && Number.isFinite(users)) {
+        this.listedRooms += 1;
+        this.roomResults.push({ channel, users, topic: message.trailing ?? "" });
+        if (this.roomResults.length > 400) {
+          this.roomResults.sort((left, right) => right.users - left.users);
+          this.roomResults.length = 200;
+        }
+      }
+      return;
+    }
+    if (message.command === "323" && this.listingRooms) {
+      this.listingRooms = false;
+      const rooms = this.roomResults
+        .sort((left, right) => right.users - left.users || left.channel.localeCompare(right.channel))
+        .slice(0, 200);
+      for (const room of rooms) sendJson(this.webSocket, { type: "room", ...room });
+      sendJson(this.webSocket, { type: "rooms", count: rooms.length, total: this.listedRooms });
+      if (!this.joined) {
+        sendJson(this.webSocket, {
+          type: "status",
+          state: "browsing",
+          message: `${rooms.length} popular public rooms available`,
+          nickname: this.request.nickname,
+        });
+      }
+      return;
+    }
+    if (message.command === "353" && this.activeChannel && message.params.some((parameter) => sameChannel(parameter, this.activeChannel!))) {
+      for (const nickname of (message.trailing ?? "").split(/ +/)) {
+        const cleanNickname = nickname.replace(/^[~&@%+]+/, "");
+        if (cleanNickname) this.members.add(cleanNickname);
+      }
+      return;
+    }
+    if (message.command === "JOIN") {
+      const nickname = nicknameFromPrefix(message.prefix);
+      const joinedChannel = message.trailing ?? message.params[0];
+      if (!joinedChannel || !this.activeChannel || !sameChannel(joinedChannel, this.activeChannel)) return;
+      this.members.add(nickname);
+      if (ircCaseFold(nickname) === ircCaseFold(this.request.nickname)) this.markJoined();
+      else this.sendMembers();
+      return;
+    }
+    if (message.command === "366" && this.activeChannel && message.params.some((parameter) => sameChannel(parameter, this.activeChannel!))) {
+      this.sendMembers();
       this.markJoined();
       return;
     }
-    if (message.command === "366" && message.params.some((parameter) => sameChannel(parameter, this.request!.channel))) {
-      this.markJoined();
+    if (message.command === "PART" && this.activeChannel && message.params[0] && sameChannel(message.params[0], this.activeChannel)) {
+      this.members.delete(nicknameFromPrefix(message.prefix));
+      this.sendMembers();
+      return;
+    }
+    if (message.command === "QUIT") {
+      this.members.delete(nicknameFromPrefix(message.prefix));
+      this.sendMembers();
+      return;
+    }
+    if (message.command === "NICK") {
+      const previous = nicknameFromPrefix(message.prefix);
+      if (this.members.delete(previous)) {
+        const next = message.trailing ?? message.params[0];
+        if (next) this.members.add(next);
+        this.sendMembers();
+      }
       return;
     }
     if (message.command === "PRIVMSG") {
       const target = message.params[0];
-      if (!target || !sameChannel(target, this.request.channel) || message.trailing === undefined) return;
+      if (!target || !this.activeChannel || !sameChannel(target, this.activeChannel) || message.trailing === undefined) return;
       const nickname = nicknameFromPrefix(message.prefix);
       if (ircCaseFold(nickname) === ircCaseFold(this.request.nickname)) return;
       sendJson(this.webSocket, {
@@ -156,24 +230,56 @@ class IrcBridge {
   }
 
   private markJoined(): void {
-    if (this.joined || !this.request) return;
+    if (this.joined || !this.request || !this.activeChannel) return;
     this.joined = true;
     sendJson(this.webSocket, {
       type: "status",
       state: "joined",
-      message: `Live in ${this.request.channel}`,
+      message: `Live in ${this.activeChannel}`,
       nickname: this.request.nickname,
-      channel: this.request.channel,
+      channel: this.activeChannel,
     });
   }
 
+  private sendMembers(): void {
+    sendJson(this.webSocket, {
+      type: "members",
+      members: [...this.members].sort((left, right) => left.localeCompare(right)).slice(0, 500),
+    });
+  }
+
+  private requestRooms(): void {
+    if (!this.socket || !this.request || !this.registered) throw new Error("Connect to IRC before browsing rooms");
+    const now = Date.now();
+    if (this.listingRooms) throw new Error("The room list is already loading");
+    if (now - this.lastRoomListAt < 30_000) throw new Error("Wait before refreshing the room list again");
+    this.lastRoomListAt = now;
+    this.listingRooms = true;
+    this.listedRooms = 0;
+    this.roomResults = [];
+    sendJson(this.webSocket, { type: "rooms", count: 0, reset: true });
+    sendJson(this.webSocket, { type: "status", state: "browsing", message: "Loading public rooms…", nickname: this.request.nickname });
+    this.write("LIST >20");
+  }
+
+  private joinChannel(channel: string): void {
+    if (!this.socket || !this.request || !this.registered) throw new Error("Connect to IRC before joining a room");
+    if (this.activeChannel && sameChannel(this.activeChannel, channel) && this.joined) return;
+    if (this.activeChannel && this.joined) this.write(`PART ${this.activeChannel} :Switching rooms`);
+    this.activeChannel = channel;
+    this.joined = false;
+    this.members.clear();
+    this.write(`JOIN ${channel}`);
+    sendJson(this.webSocket, { type: "status", state: "joining", message: `Joining ${channel}…`, channel });
+  }
+
   private say(message: string): void {
-    if (!this.socket || !this.request || !this.joined) throw new Error("Join a channel before sending messages");
+    if (!this.socket || !this.request || !this.activeChannel || !this.joined) throw new Error("Join a channel before sending messages");
     const now = Date.now();
     this.recentMessages = this.recentMessages.filter((timestamp) => now - timestamp < 10_000);
     if (this.recentMessages.length >= 5) throw new Error("Slow down: IRC messages are limited to five per ten seconds");
     this.recentMessages.push(now);
-    this.write(`PRIVMSG ${this.request.channel} :${message}`);
+    this.write(`PRIVMSG ${this.activeChannel} :${message}`);
     sendJson(this.webSocket, {
       type: "message",
       nickname: this.request.nickname,
@@ -193,7 +299,12 @@ class IrcBridge {
       this.socket.destroy();
     }
     this.socket = undefined;
+    this.registered = false;
     this.joined = false;
+    this.activeChannel = undefined;
+    this.listingRooms = false;
+    this.roomResults = [];
+    this.members.clear();
     sendJson(this.webSocket, { type: "status", state: "disconnected", message: reason });
   }
 

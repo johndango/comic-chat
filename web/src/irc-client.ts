@@ -1,4 +1,4 @@
-export type LiveState = "offline" | "connecting" | "joining" | "joined" | "disconnected";
+export type LiveState = "offline" | "connecting" | "browsing" | "joining" | "joined" | "disconnected";
 
 export interface LiveStatusEvent {
   type: "status";
@@ -21,12 +21,31 @@ export interface LiveErrorEvent {
   message: string;
 }
 
-export type LiveEvent = LiveStatusEvent | LiveMessageEvent | LiveErrorEvent;
+export interface LiveRoomEvent {
+  type: "room";
+  channel: string;
+  users: number;
+  topic: string;
+}
+
+export interface LiveRoomsEvent {
+  type: "rooms";
+  count: number;
+  total?: number;
+  reset?: boolean;
+}
+
+export interface LiveMembersEvent {
+  type: "members";
+  members: string[];
+}
+
+export type LiveEvent = LiveStatusEvent | LiveMessageEvent | LiveErrorEvent | LiveRoomEvent | LiveRoomsEvent | LiveMembersEvent;
 
 export interface LiveConnection {
   network: "libera" | "oftc";
   nickname: string;
-  channel: string;
+  channel?: string;
 }
 
 export class IrcWebClient {
@@ -40,7 +59,7 @@ export class IrcWebClient {
   }
 
   get active(): boolean {
-    return this.state === "connecting" || this.state === "joining" || this.state === "joined";
+    return this.state === "connecting" || this.state === "browsing" || this.state === "joining" || this.state === "joined";
   }
 
   connect(connection: LiveConnection): void {
@@ -79,6 +98,20 @@ export class IrcWebClient {
       throw new Error("Join a channel before sending live messages");
     }
     this.socket.send(JSON.stringify({ type: "say", message }));
+  }
+
+  join(channel: string): void {
+    if (!this.socket || this.socket.readyState !== WebSocket.OPEN || !this.active) {
+      throw new Error("Connect to IRC before joining a room");
+    }
+    this.socket.send(JSON.stringify({ type: "join", channel }));
+  }
+
+  listRooms(): void {
+    if (!this.socket || this.socket.readyState !== WebSocket.OPEN || !this.active) {
+      throw new Error("Connect to IRC before browsing rooms");
+    }
+    this.socket.send(JSON.stringify({ type: "list" }));
   }
 
   disconnect(): void {

@@ -9,7 +9,7 @@ export interface ConnectRequest {
   type: "connect";
   network: NetworkId;
   nickname: string;
-  channel: string;
+  channel?: string;
 }
 
 export interface IrcMessage {
@@ -33,15 +33,24 @@ export function validateConnectRequest(value: unknown): ConnectRequest {
   if (typeof candidate.nickname !== "string" || !nicknamePattern.test(candidate.nickname)) {
     throw new Error("Nickname must start with a letter and use 1–16 IRC-safe characters");
   }
-  if (typeof candidate.channel !== "string" || !channelPattern.test(candidate.channel)) {
+  if (candidate.channel !== undefined && (typeof candidate.channel !== "string" || !channelPattern.test(candidate.channel))) {
     throw new Error("Channel must start with # and use IRC-safe characters");
   }
   return {
     type: "connect",
     network: candidate.network as NetworkId,
     nickname: candidate.nickname,
-    channel: candidate.channel,
+    ...(typeof candidate.channel === "string" ? { channel: candidate.channel } : {}),
   };
+}
+
+export function validateJoinRequest(value: unknown): string {
+  if (!value || typeof value !== "object") throw new Error("Invalid room request");
+  const candidate = value as Record<string, unknown>;
+  if (candidate.type !== "join" || typeof candidate.channel !== "string" || !channelPattern.test(candidate.channel)) {
+    throw new Error("Channel must start with # and use IRC-safe characters");
+  }
+  return candidate.channel;
 }
 
 export function validateChatMessage(value: unknown): string {

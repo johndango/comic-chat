@@ -1,18 +1,36 @@
 import "./styles.css";
 import { AvatarType, decodeImage, parseAvatar, type AvatarFile, type DecodedBitmap } from "./avb";
 import { analyzeMessage, selectPose, type EmotionResult } from "./emotion";
-import { IrcWebClient, type LiveEvent, type LiveMessageEvent, type LiveState } from "./irc-client";
+import { IrcWebClient, type LiveEvent, type LiveMessageEvent, type LiveRoomEvent, type LiveState } from "./irc-client";
 import { PANEL_HEIGHT, PANEL_WIDTH, PanelRenderer } from "./panel";
 import { createRoomUrl, normalizeRoomSelection, roomSelectionFromUrl } from "./room-link";
 
 const characters = [
+  { file: "anna.avb", label: "Anna" },
+  { file: "armando.avb", label: "Armando" },
+  { file: "bolo.avb", label: "Bolo" },
+  { file: "buck.avb", label: "Buck" },
   { file: "connor.avb", label: "Connor" },
+  { file: "cro.avb", label: "Cro" },
+  { file: "dan.avb", label: "Dan" },
+  { file: "denise.avb", label: "Denise" },
   { file: "glenda.avb", label: "Glenda" },
+  { file: "hugh.avb", label: "Hugh" },
   { file: "jordan.avb", label: "Jordan" },
+  { file: "kirby.avb", label: "Kirby" },
+  { file: "lance.avb", label: "Lance" },
+  { file: "lynnea.avb", label: "Lynnea" },
+  { file: "margaret.avb", label: "Margaret" },
+  { file: "mike.avb", label: "Mike" },
   { file: "pedagog.avb", label: "Pedagog" },
   { file: "rainbow.avb", label: "Rainbow" },
+  { file: "susan.avb", label: "Susan" },
+  { file: "tiki.avb", label: "Tiki" },
+  { file: "tongtyed.avb", label: "Tongue-Tied" },
   { file: "tux.avb", label: "Tux" },
+  { file: "veronica.avb", label: "Veronica" },
   { file: "waf.avb", label: "Waf" },
+  { file: "xeno.avb", label: "Xeno" },
 ];
 
 const backdrops = [
@@ -45,73 +63,94 @@ const app = document.querySelector<HTMLDivElement>("#app");
 if (!app) throw new Error("Application mount point is missing");
 
 app.innerHTML = `
-  <header class="site-header">
-    <a class="brand" href="#" aria-label="Comic Chat prototype home">
-      <span class="brand-burst">CC!</span>
-      <span><strong>Comic Chat</strong><small>web lab / issue no. 004</small></span>
-    </a>
-    <span class="prototype-stamp">live IRC build</span>
-  </header>
-  <main>
-    <section class="intro">
-      <p class="eyebrow">A real IRC channel, rendered as a living comic strip</p>
-      <h1>Join the chat.<br /><em>Watch it become a comic.</em></h1>
-      <p class="lede">Compose offline or connect through the local TLS gateway. Every channel message becomes a panel using original artwork and expression rules.</p>
-    </section>
-    <section id="live-console" class="live-console" data-state="offline" aria-label="Live IRC connection">
-      <div class="live-heading">
-        <span id="live-dot" class="live-dot"></span>
-        <span><small>live IRC</small><strong id="live-status">Offline composer</strong></span>
-      </div>
-      <label>Network<select id="network"><option value="libera">Libera.Chat</option><option value="oftc">OFTC</option></select></label>
-      <label>Nickname<input id="nickname" maxlength="16" autocomplete="nickname" /></label>
-      <label>Channel<input id="channel" maxlength="52" placeholder="#channel" spellcheck="false" /></label>
-      <div class="live-actions">
-        <button id="connect-live" class="connect-button" type="button">Connect securely</button>
-        <button id="share-room" class="share-room-button" type="button" disabled>Copy room link</button>
-      </div>
-      <p>TLS only · room links contain the network and channel, never your nickname</p>
-    </section>
-    <section class="workspace" aria-label="Comic conversation editor">
-      <aside class="controls">
-        <div class="step"><span>1</span><label for="character">Choose the speaker</label></div>
-        <select id="character">${characters.map(({ file, label }) => `<option value="${file}">${label}</option>`).join("")}</select>
+  <div class="classic-window">
+    <header class="classic-titlebar">
+      <span class="classic-app-icon" aria-hidden="true"></span>
+      <strong>Microsoft Comic Chat - [<span id="window-room">Not connected</span>]</strong>
+      <span class="window-buttons" aria-hidden="true"><i>_</i><i>□</i><i>×</i></span>
+    </header>
+    <nav class="classic-menu" aria-label="Application menu">
+      <span><u>F</u>ile</span><span><u>E</u>dit</span><span><u>V</u>iew</span><span>F<u>o</u>rmat</span><span><u>R</u>oom</span><span><u>M</u>ember</span><span>F<u>a</u>vorites</span><span><u>H</u>elp</span>
+    </nav>
+    <div class="classic-toolbar" aria-label="Classic Comic Chat toolbar">
+      <div class="toolbar-sprite" aria-hidden="true"></div>
+      <span class="toolbar-separator"></span>
+      <button class="toolbar-text" type="button" title="Comic view">A</button>
+      <button class="toolbar-text" type="button" title="Bold"><strong>B</strong></button>
+      <button class="toolbar-text" type="button" title="Italic"><em>I</em></button>
+      <button class="toolbar-text" type="button" title="Underline"><u>U</u></button>
+    </div>
 
-        <div class="step"><span>2</span><label for="backdrop">Set the scene</label></div>
-        <select id="backdrop">${backdrops.map(({ file, label }) => `<option value="${file}">${label}</option>`).join("")}</select>
+    <main class="classic-main">
+      <section id="live-console" class="live-console" data-state="offline" aria-label="IRC connection">
+        <div class="live-heading">
+          <span id="live-dot" class="live-dot"></span>
+          <span><small>Connection</small><strong id="live-status">Not connected</strong></span>
+        </div>
+        <label>Server<select id="network"><option value="libera">Libera.Chat</option><option value="oftc">OFTC</option></select></label>
+        <label>Nickname<input id="nickname" maxlength="16" autocomplete="nickname" /></label>
+        <label>Room (optional)<input id="channel" maxlength="52" placeholder="Browse all rooms" spellcheck="false" /></label>
+        <div class="live-actions">
+          <button id="connect-live" class="connect-button" type="button">Browse rooms</button>
+          <button id="share-room" class="share-room-button" type="button" disabled>Copy room link</button>
+        </div>
+      </section>
 
-        <div class="step"><span>3</span><label for="message">Write the next line</label></div>
-        <textarea id="message" maxlength="180" rows="4" placeholder="Try: Hello there! or LOL!!!"></textarea>
-        <div class="count"><span id="count">0</span> / 180</div>
+      <section id="room-browser" class="room-browser" hidden aria-label="Public room directory">
+        <header><strong>Room List</strong><span id="room-summary">Connecting to server…</span></header>
+        <div class="room-tools">
+          <label for="room-filter">Find:</label><input id="room-filter" type="search" placeholder="Search room names and topics" />
+          <button id="refresh-rooms" type="button">Refresh List</button>
+        </div>
+        <div class="room-columns"><span>Room</span><span>Members</span><span>Topic</span></div>
+        <div id="room-list" class="room-list" role="list"></div>
+        <p>Double-click a room—or use Join—to enter it. You can still type a known room above.</p>
+      </section>
 
-        <div class="tone-card" aria-live="polite">
-          <span class="tone-icon">✦</span>
-          <span><small>automatic expression</small><strong id="tone-value">Neutral</strong><em id="tone-reason">No expression cues</em></span>
+      <div class="room-tab"><span aria-hidden="true">▰</span><strong id="room-tab-label">Offline comic</strong></div>
+      <section class="workspace" aria-label="Comic conversation editor">
+        <div class="stage-wrap conversation-stage">
+          <div class="strip-heading"><span>Comic view</span><strong id="strip-count">0 panels</strong></div>
+          <div id="strip" class="comic-strip" aria-live="polite"></div>
         </div>
 
-        <button id="add-panel" class="add-button" type="button" disabled><span id="add-label">Add panel to strip</span><span>＋</span></button>
+        <aside class="controls">
+          <section class="member-pane">
+            <header>Members</header>
+            <div id="member-list" class="member-list"><p>Connect to see room members.</p></div>
+          </section>
+          <section class="character-pane">
+            <header>Your character</header>
+            <canvas id="character-preview" class="character-figure" width="200" height="108" aria-label="Selected Comic Chat character"></canvas>
+            <label for="character">Character</label>
+            <select id="character">${characters.map(({ file, label }) => `<option value="${file}">${label}</option>`).join("")}</select>
+            <label for="backdrop">Background</label>
+            <select id="backdrop">${backdrops.map(({ file, label }) => `<option value="${file}">${label}</option>`).join("")}</select>
+            <div class="emotion-wheel" aria-label="Automatic expression preview">
+              <i>☺</i><i>☹</i><i>!</i><i>☻</i><strong id="tone-value">Neutral</strong><i>?</i><i>♥</i><i>…</i><i>☺</i>
+            </div>
+            <small id="tone-reason">No expression cues</small>
+          </section>
+        </aside>
+      </section>
 
+      <section class="composer">
+        <label for="message">Message:</label>
+        <textarea id="message" maxlength="180" rows="2" placeholder="Type a message…"></textarea>
+        <span class="count"><span id="count">0</span> / 180</span>
+        <button id="add-panel" class="add-button" type="button" disabled><span id="add-label">Add to comic</span><span>➤</span></button>
         <div class="strip-actions">
-          <button id="undo-panel" class="small-action" type="button">Undo last</button>
-          <button id="clear-strip" class="small-action" type="button">Clear strip</button>
+          <button id="undo-panel" class="small-action" type="button">Undo</button>
+          <button id="clear-strip" class="small-action" type="button">Clear</button>
+          <button id="download" class="download-button" type="button" disabled>Save Comic</button>
         </div>
-        <button id="download" class="download-button" type="button" disabled>Download strip <span>↘</span></button>
+      </section>
+      <footer class="classic-statusbar">
         <p id="status" class="status" role="status">Loading original art…</p>
-      </aside>
-      <div class="stage-wrap conversation-stage">
-        <div class="strip-heading">
-          <span>Your conversation</span>
-          <strong id="strip-count">0 panels</strong>
-        </div>
-        <div id="strip" class="comic-strip" aria-live="polite"></div>
-        <p class="stage-caption">Expressions are selected from rules found in the original 2.5 source.</p>
-      </div>
-    </section>
-  </main>
-  <footer>
-    <span>Live transport · local WebSocket gateway · TLS IRC</span>
-    <span>Original avatar metadata + original text-expression rules</span>
-  </footer>
+        <span>Original Comic Chat 2.5 art and expression rules</span>
+      </footer>
+    </main>
+  </div>
 `;
 
 function element<T extends HTMLElement>(selector: string): T {
@@ -141,6 +180,15 @@ const channelInput = element<HTMLInputElement>("#channel");
 const connectButton = element<HTMLButtonElement>("#connect-live");
 const shareRoomButton = element<HTMLButtonElement>("#share-room");
 const addLabel = element<HTMLElement>("#add-label");
+const roomBrowser = element<HTMLElement>("#room-browser");
+const roomList = element<HTMLElement>("#room-list");
+const roomFilter = element<HTMLInputElement>("#room-filter");
+const roomSummary = element<HTMLElement>("#room-summary");
+const refreshRoomsButton = element<HTMLButtonElement>("#refresh-rooms");
+const memberList = element<HTMLElement>("#member-list");
+const roomTabLabel = element<HTMLElement>("#room-tab-label");
+const windowRoom = element<HTMLElement>("#window-room");
+const characterPreview = element<HTMLCanvasElement>("#character-preview");
 
 const avatarCache = new Map<string, Promise<LoadedAvatar>>();
 const poseCache = new Map<string, Promise<DecodedBitmap>>();
@@ -151,6 +199,9 @@ let backdropGeneration = 0;
 let isAdding = false;
 let liveState: LiveState = "offline";
 let remoteQueue = Promise.resolve();
+const publicRooms = new Map<string, LiveRoomEvent>();
+const knownMembers = new Set<string>();
+let totalPublicRooms = 0;
 
 async function fetchAsset(file: string): Promise<ArrayBuffer> {
   const response = await fetch(`/${file}`);
@@ -242,6 +293,8 @@ function appendConversationPanel(panel: ConversationPanel, rolling = false): voi
 
 async function addRemoteMessage(event: LiveMessageEvent): Promise<void> {
   if (event.self) return;
+  knownMembers.add(event.nickname);
+  renderMembers();
   const message = normalizeIrcText(event.message);
   if (!message) return;
   const characterFile = characterForNickname(event.nickname);
@@ -250,23 +303,132 @@ async function addRemoteMessage(event: LiveMessageEvent): Promise<void> {
   setStatus(`${event.nickname}: ${panel.emotion.label.toLowerCase()} · live IRC`);
 }
 
+function renderMembers(): void {
+  memberList.replaceChildren();
+  if (knownMembers.size === 0) {
+    const empty = document.createElement("p");
+    empty.textContent = liveState === "joined" ? "Waiting for room activity…" : "Connect to see room members.";
+    memberList.append(empty);
+    return;
+  }
+  for (const nickname of [...knownMembers].sort((left, right) => left.localeCompare(right))) {
+    const row = document.createElement("div");
+    row.className = "member-row";
+    const icon = document.createElement("span");
+    icon.textContent = "♟";
+    icon.setAttribute("aria-hidden", "true");
+    const label = document.createElement("strong");
+    label.textContent = nickname;
+    row.append(icon, label);
+    memberList.append(row);
+  }
+}
+
+function joinRoom(channel: string): void {
+  const room = normalizeRoomSelection(networkSelect.value, channel);
+  if (!room) throw new Error("That room name is not IRC-safe");
+  channelInput.value = room.channel;
+  liveClient.join(room.channel);
+  roomBrowser.hidden = true;
+  updateControls();
+}
+
+function renderRoomList(): void {
+  const filter = roomFilter.value.trim().toLocaleLowerCase();
+  const matching = [...publicRooms.values()]
+    .filter((room) => !filter || `${room.channel} ${room.topic}`.toLocaleLowerCase().includes(filter))
+    .sort((left, right) => right.users - left.users || left.channel.localeCompare(right.channel))
+    .slice(0, 200);
+  roomList.replaceChildren();
+
+  if (matching.length === 0) {
+    const empty = document.createElement("p");
+    empty.className = "room-empty";
+    empty.textContent = publicRooms.size === 0 ? "Waiting for the server's public room list…" : "No rooms match that search.";
+    roomList.append(empty);
+  }
+
+  for (const room of matching) {
+    const row = document.createElement("article");
+    row.className = "room-row";
+    row.setAttribute("role", "listitem");
+    const name = document.createElement("strong");
+    name.textContent = room.channel;
+    const users = document.createElement("span");
+    users.textContent = String(room.users);
+    const topic = document.createElement("span");
+    topic.textContent = room.topic || "No topic";
+    const join = document.createElement("button");
+    join.type = "button";
+    join.textContent = "Join";
+    join.addEventListener("click", () => {
+      try {
+        joinRoom(room.channel);
+      } catch (error) {
+        showError(error);
+      }
+    });
+    row.addEventListener("dblclick", () => join.click());
+    row.append(name, users, topic, join);
+    roomList.append(row);
+  }
+  roomSummary.textContent = `${matching.length} shown · ${totalPublicRooms || publicRooms.size} public rooms found`;
+}
+
 function updateLiveUi(state: LiveState, message: string): void {
   liveState = state;
   liveConsole.dataset.state = state;
   liveStatus.textContent = message;
-  const active = state === "connecting" || state === "joining" || state === "joined";
+  const active = state === "connecting" || state === "browsing" || state === "joining" || state === "joined";
   networkSelect.disabled = active;
   nicknameInput.disabled = active;
   channelInput.disabled = active;
-  connectButton.textContent = active ? "Disconnect" : "Connect securely";
-  addLabel.textContent = state === "joined" ? "Send to IRC + add panel" : "Add panel to strip";
+  connectButton.textContent = active ? "Disconnect" : channelInput.value.trim() ? "Connect & join" : "Browse rooms";
+  addLabel.textContent = state === "joined" ? "Send to room" : "Add to comic";
+  roomBrowser.hidden = state !== "browsing";
+  refreshRoomsButton.disabled = state !== "browsing";
+  if (state !== "joined") {
+    roomTabLabel.textContent = state === "browsing" ? "Room list" : "Offline comic";
+    windowRoom.textContent = state === "browsing" ? "Room List" : "Not connected";
+  }
   updateControls();
 }
 
 function handleLiveEvent(event: LiveEvent): void {
   if (event.type === "status") {
     updateLiveUi(event.state, event.message);
-    if (event.state === "joined") setStatus(`${event.message}. New channel messages will become panels.`);
+    if (event.state === "browsing") renderRoomList();
+    if (event.state === "joined") {
+      const channel = event.channel ?? channelInput.value;
+      roomTabLabel.textContent = channel;
+      windowRoom.textContent = channel;
+      knownMembers.clear();
+      if (event.nickname) knownMembers.add(event.nickname);
+      renderMembers();
+      setStatus(`${event.message}. New channel messages will become panels.`);
+    }
+    return;
+  }
+  if (event.type === "room") {
+    publicRooms.set(event.channel, event);
+    if (publicRooms.size % 20 === 0) renderRoomList();
+    return;
+  }
+  if (event.type === "rooms") {
+    if (event.reset) {
+      publicRooms.clear();
+      totalPublicRooms = 0;
+    } else {
+      totalPublicRooms = event.total ?? event.count;
+    }
+    roomSummary.textContent = event.reset ? "Loading rooms…" : `${event.count} popular rooms shown`;
+    renderRoomList();
+    return;
+  }
+  if (event.type === "members") {
+    knownMembers.clear();
+    for (const nickname of event.members) knownMembers.add(nickname);
+    renderMembers();
     return;
   }
   if (event.type === "error") {
@@ -292,6 +454,7 @@ function updateControls(): void {
   clearButton.disabled = conversation.length === 0 || isAdding;
   downloadButton.disabled = conversation.length === 0 || isAdding;
   shareRoomButton.disabled = !normalizeRoomSelection(networkSelect.value, channelInput.value);
+  if (!liveClient.active) connectButton.textContent = channelInput.value.trim() ? "Connect & join" : "Browse rooms";
 }
 
 async function copyText(value: string): Promise<boolean> {
@@ -392,8 +555,31 @@ async function loadBackdrop(): Promise<void> {
   setStatus(`Scene changed · ${bitmap.width}×${bitmap.height}px original art`);
 }
 
+async function updateCharacterPreview(): Promise<void> {
+  const avatar = await loadAvatar(characterSelect.value);
+  const emotion = analyzeMessage(messageInput.value);
+  const poseIndex = selectPose(avatar.metadata.bodies, emotion);
+  const bitmap = await loadPose(characterSelect.value, avatar, poseIndex);
+  const context = characterPreview.getContext("2d");
+  if (!context) return;
+  const source = document.createElement("canvas");
+  source.width = bitmap.width;
+  source.height = bitmap.height;
+  const previewPixels = new Uint8ClampedArray(bitmap.pixels);
+  source.getContext("2d")?.putImageData(new ImageData(previewPixels, bitmap.width, bitmap.height), 0, 0);
+  context.clearRect(0, 0, characterPreview.width, characterPreview.height);
+  context.fillStyle = "#ffffff";
+  context.fillRect(0, 0, characterPreview.width, characterPreview.height);
+  const scale = Math.min((characterPreview.width - 12) / bitmap.width, (characterPreview.height - 8) / bitmap.height);
+  const width = bitmap.width * scale;
+  const height = bitmap.height * scale;
+  context.imageSmoothingEnabled = false;
+  context.drawImage(source, (characterPreview.width - width) / 2, characterPreview.height - height - 3, width, height);
+}
+
 function advanceSpeaker(): void {
   characterSelect.selectedIndex = (characterSelect.selectedIndex + 1) % characterSelect.options.length;
+  void updateCharacterPreview().catch(showError);
 }
 
 async function addPanel(): Promise<void> {
@@ -448,7 +634,8 @@ async function initialLoad(): Promise<void> {
     if (!background.backdrop) throw new Error("The selected backdrop is incomplete");
     backdropBitmap = await decodeImage(backgroundBuffer, background.backdrop, background.palette);
     conversation.push(firstPanel);
-    characterSelect.selectedIndex = 1;
+    characterSelect.value = "glenda.avb";
+    await updateCharacterPreview();
     renderStrip();
     setStatus("Conversation ready. Add the next line.");
   } catch (error) {
@@ -461,6 +648,7 @@ messageInput.addEventListener("keydown", (event) => {
   if ((event.metaKey || event.ctrlKey) && event.key === "Enter") void addPanel().catch(showError);
 });
 backdropSelect.addEventListener("change", () => loadBackdrop().catch(showError));
+characterSelect.addEventListener("change", () => updateCharacterPreview().catch(showError));
 addButton.addEventListener("click", () => addPanel().catch(showError));
 undoButton.addEventListener("click", () => {
   const removed = conversation.pop();
@@ -479,10 +667,10 @@ connectButton.addEventListener("click", () => {
     return;
   }
   const nickname = nicknameInput.value.trim();
+  const requestedChannel = channelInput.value.trim();
   const room = normalizeRoomSelection(networkSelect.value, channelInput.value);
-  const channel = room?.channel ?? "";
   const nicknameIsValid = /^[A-Za-z][A-Za-z0-9_\-[\]\\`^{}]{0,15}$/.test(nickname);
-  const channelIsValid = room !== undefined;
+  const channelIsValid = requestedChannel.length === 0 || room !== undefined;
   if (!nicknameIsValid || !channelIsValid) {
     liveConsole.dataset.state = "error";
     liveStatus.textContent = nicknameIsValid
@@ -490,12 +678,15 @@ connectButton.addEventListener("click", () => {
       : "Nickname must start with a letter and use IRC-safe characters";
     return;
   }
-  channelInput.value = channel;
+  if (room) channelInput.value = room.channel;
+  publicRooms.clear();
+  knownMembers.clear();
+  renderMembers();
   try {
     liveClient.connect({
-      network: room!.network,
+      network: room?.network ?? (networkSelect.value === "oftc" ? "oftc" : "libera"),
       nickname,
-      channel,
+      ...(room ? { channel: room.channel } : {}),
     });
   } catch (error) {
     showError(error);
@@ -504,6 +695,14 @@ connectButton.addEventListener("click", () => {
 shareRoomButton.addEventListener("click", () => copyRoomLink().catch(showError));
 networkSelect.addEventListener("change", updateControls);
 channelInput.addEventListener("input", updateControls);
+roomFilter.addEventListener("input", renderRoomList);
+refreshRoomsButton.addEventListener("click", () => {
+  try {
+    liveClient.listRooms();
+  } catch (error) {
+    showError(error);
+  }
+});
 
 nicknameInput.value = `Comic${Math.floor(1000 + Math.random() * 9000)}`;
 const linkedRoom = roomSelectionFromUrl(new URL(window.location.href));
@@ -514,3 +713,4 @@ if (linkedRoom) {
 }
 updateControls();
 void initialLoad();
+void updateCharacterPreview();
