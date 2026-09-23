@@ -1,13 +1,18 @@
 # Comic Chat web prototype
 
 This is a browser-only first slice of a modern Comic Chat client. It decodes the
-original version 2 `.avb` avatars and `.bgb` backdrops directly, renders a comic
-panel on Canvas, lets you move through character poses, and exports the result as
-a PNG.
+original version 2 `.avb` avatars and `.bgb` backdrops directly, builds a
+multi-panel conversation strip on Canvas, and exports the result as a PNG.
 
-It deliberately does not implement live chat yet. The purpose of this slice is
-to prove that the original art pipeline can move to the web before networking,
-conversation layout, and the expression-selection expert system are ported.
+The browser also ports the original 2.5 text-expression rules. Caps and repeated
+exclamation marks shout, laughter cues laugh, emoticons smile or frown,
+greetings wave, and first- or second-person sentences point to the appropriate
+speaker. The resulting emotion is matched against metadata embedded in each
+avatar to choose the closest available pose.
+
+It deliberately does not implement live chat yet. Networking is the next major
+boundary because browsers require a WebSocket gateway rather than a raw IRC
+socket.
 
 ## Run it
 
@@ -30,4 +35,5 @@ npm test
 npm run build
 ```
 
-The decoder tests exercise every avatar and backdrop offered by the UI.
+The tests exercise every avatar and backdrop offered by the UI, the original
+expression-rule priority, and pose selection.
