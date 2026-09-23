@@ -8,15 +8,15 @@ runtime dependency beyond `secur32.lib`, which ships with Windows.
 
 > TL;DR: A small `CTlsClient` (in `tlssock.cpp`) wraps the SChannel handshake
 > and record encrypt/decrypt. `CIrcSocket` gained a TLS state machine around the
-> existing `OnConnect`/`OnReceive`/`Send`. A "Use SSL (TLS)" checkbox in the
-> Connect dialog turns it on and defaults the port to 6697. Verified end-to-end
-> against Libera (user mode `+Z` = "connected via TLS").
+> existing `OnConnect`/`OnReceive`/`Send`. In 2.5, a per-server **Use TLS
+> encryption** checkbox turns it on and changes an untouched default port to
+> 6697.
 
 ---
 
 ## 1. Why this was a good fit
 
-All IRC traffic funnels through a single object, `static CIrcSocket serverConn`:
+All IRC traffic funnels through a single `CIrcSocket serverConn` object:
 
 - one connect site (`InitializeServerConnection` → `serverConn.Connect`)
 - ~12 `serverConn.Send(...)` call sites
@@ -43,31 +43,33 @@ exposes four operations:
 - `Decrypt(in, plainOut, renegotiate)` — `DecryptMessage`, handling record
   framing and leftovers.
 
-### `ircsock.h` / `irc.cpp` — `CIrcSocket` TLS state machine
-States: `IRC_TLS_NONE` / `IRC_TLS_HANDSHAKING` / `IRC_TLS_CONNECTED`.
+### `ircsock.h` / `ircsock.cpp` — `CIrcSocket` TLS state machine
+States: `tlsNone` / `tlsHandshaking` / `tlsConnected`.
 
 - `OnConnect` (secure): create `CTlsClient`, `Begin`, send the ClientHello, enter
-  HANDSHAKING. The IRC login (`NICK`/`USER`) is **deferred** to `SendLogin()`.
+  HANDSHAKING. The IRC/IRCX probe and login are **deferred** to
+  `StartIrcSession()`.
 - `OnReceive`: read raw bytes with `CAsyncSocket::Receive`, then
-  - HANDSHAKING → `Continue`; send tokens; on `TLS_DONE` call `SendLogin()` and
+  - HANDSHAKING → `Continue`; send tokens; on `TLS_DONE` call
+    `StartIrcSession()` and
     decrypt any early app data.
   - CONNECTED → `Decrypt`, feed plaintext to `FeedPlainBytes` (the line splitter
     that was factored out of the old `OnReceive`).
-- `Send`: when CONNECTED, `Encrypt` then `CAsyncSocket::Send`; while HANDSHAKING,
-  queue plaintext and flush it from `SendLogin()`.
+- `Send`: when CONNECTED, encrypt and queue complete TLS records. `OnSend`
+  flushes partial nonblocking writes without splitting or dropping records.
 
 ### Config + UI
-- `CSetupDialog::m_bUseSSL` with `DDX_Check(IDC_USESSL)`, persisted to the
-  registry as `UseSSL` next to `ShowComicView`.
-- `GetMyUseSSL()` accessor; `InitializeServerConnection` calls
-  `serverConn.SetSecure(GetMyUseSSL())` before `Connect`.
-- A "Use SS&L (TLS)" checkbox in `IDD_SETUPDIALOG`. Toggling it flips the port
-  between 6667 and 6697 (only when it still holds the other default, so a
-  hand-typed port is never clobbered).
+- `CChatServer::m_bUseTLS` is persisted with the existing per-server binary
+  settings.
+- The multi-server connector copies the winning server's TLS setting and DNS
+  name to `serverConn` before handing off its connected socket.
+- A **Use TLS encryption** checkbox on the Servers preferences page toggles the
+  port between 6667 and 6697 only while it still holds the other default, so a
+  hand-entered port is not overwritten.
 
 ### Build
-`chat.mak`: added `"$(INTDIR)\tlssock.obj"` to both `LINK32_OBJS` lists and
-`secur32.lib` to both `LINK32_FLAGS`. The makefile's `.cpp{...}.obj` inference
+`chat.mak`: adds `"$(INTDIR)\tlssock.obj"` to `OBJS` and links `secur32.lib`.
+The makefile's `.cpp{...}.obj` inference
 rule compiles the new file automatically; `tlssock.cpp` includes `stdafx.h`
 first to satisfy the precompiled-header build.
 
@@ -100,11 +102,9 @@ if (ss == SEC_I_INCOMPLETE_CREDENTIALS) {
 
 ## 4. Other notes / limitations (spike scope)
 
-- **Certificate validation is permissive.** `SCH_CRED_MANUAL_CRED_VALIDATION` is
-  set and we do not currently walk/verify the server chain (many IRC servers use
-  community CAs or self-signed certs). For production, validate the chain with
-  `CertGetCertificateChain` / `CertVerifyCertificateChainPolicy` (link
-  `crypt32.lib`) and surface failures to the user.
+- **Certificate validation is strict in 2.5.** SChannel performs its normal
+  certificate-chain and hostname checks using the physical server name as the
+  TLS target. Self-signed or mismatched certificates fail the handshake.
 - **No renegotiation / no client-cert auth (CertFP).** `SEC_I_RENEGOTIATE` is
   flagged but not driven; client-cert SASL EXTERNAL is out of scope.
 - **Async integration.** A single TLS record can span multiple `OnReceive`
@@ -116,8 +116,9 @@ if (ss == SEC_I_INCOMPLETE_CREDENTIALS) {
 ## 5. How to verify
 
 1. Build: `nmake /f chat.mak CFG="chat - Win32 Debug"`.
-2. Run `chat.exe`; in **Connect**, tick **Use SSL (TLS)** (port auto-fills 6697),
-   server `irc.libera.chat`, and connect.
+2. Run `CChat.exe`, open **View → Options → Servers**, add or select
+   `irc.libera.chat`, tick
+   **Use TLS encryption** (port auto-fills 6697), apply, and connect.
 3. You should register normally and be able to join channels. On Libera, confirm
    user mode includes **`+Z`** (TLS) — visible in the DbgView trace as
    `:<nick> MODE <nick> :+Ziw`.

@@ -67,6 +67,7 @@ CChatServer::~CChatServer()
 //		datatypePassword	encoded		Password			none (prompt if needed)
 //		datatypeSecurityPkg
 //							string		Security packages	none
+//		datatypeUseTLS		1			Use TLS transport	FALSE
 
 void 
 CChatServer::ReadFromData(
@@ -166,7 +167,15 @@ UINT nDataLen)
 				}
 				pbData++;
 				nDataLen--;
+				break;
 			}
+
+			case datatypeUseTLS:
+				if (nDataLen >= 1)
+					m_bUseTLS = *pbData;
+				pbData++;
+				nDataLen--;
+				break;
 
 			case datatypeSecurityPkg:
 			{
@@ -252,6 +261,12 @@ UINT * pnDataLen)
 			pbWrite += 2 + lstrlen (m_pszSecurityPackages);
 		}
 	}
+	if (m_bUseTLS)
+	{
+		pbWrite[0] = (BYTE)datatypeUseTLS;
+		pbWrite[1] = 1;
+		pbWrite += 2;
+	}
 
 	*pnDataLen = pbWrite - pbData;
 	if (*pnDataLen == 0)
@@ -298,6 +313,7 @@ CChatServer::SetDefaultSettings()
 	m_nPort 			  = 6667;
 	m_nAuthenticationType = authtypeNone;
 	m_bRememberPassword   = FALSE;
+	m_bUseTLS			  = FALSE;
 }
 
 // Sets server settings to their defaults. In a function because it is used twice.
@@ -1815,6 +1831,11 @@ int nErrorCode)
 		// The connection succeeded.
 		serverConn.SetAuthentication (pServer->m_nAuthenticationType, 
 			pServer->m_pszUserName, pServer->m_pszPassword, pServer->m_pszSecurityPackages);
+		CString strTlsServer;
+		int nTlsPort;
+		TranslateServerNameToServerAndPort(pServer->m_pszName, &strTlsServer,
+			&nTlsPort);
+		serverConn.SetSecure(pServer->m_bUseTLS, strTlsServer);
 
 		// Attach the socket to the global socket we use. When we stop using 
 		// a global socket, we can eliminate this code.
@@ -2388,6 +2409,7 @@ int nPort)
 	data.m_nPort = nPort;
 	data.m_nAuthenticationType = 0;
 	data.m_bRememberPassword = FALSE;
+	data.m_bUseTLS = FALSE;
 
 	TRY
 	{
@@ -2644,6 +2666,7 @@ CChatServiceUI::Apply()
 					pServer->m_pszUserName = pProps->m_strUserName.IsEmpty () ? NULL : strdup (pProps->m_strUserName);
 					pServer->m_pszPassword = pProps->m_strPassword.IsEmpty () ? NULL : strdup (pProps->m_strPassword);
 					pServer->m_bRememberPassword = pProps->m_bRememberPassword;
+					pServer->m_bUseTLS = pProps->m_bUseTLS;
 					pServer->m_pszSecurityPackages = pProps->m_strSecurityPackages.IsEmpty () 
 												? NULL : strdup (pProps->m_strSecurityPackages);
 					HKEY hkeyGroup = CChatServiceList::GetRegistryKey (CHATSVC_HKEY_SRVGROUP, pProps->m_pGroupIn->m_pszName);
@@ -2739,6 +2762,7 @@ const CChatServiceUI::ServerProps &data)
 		m_strPassword 			= data.m_strPassword;
 		m_strSecurityPackages 	= data.m_strSecurityPackages;
 		m_bRememberPassword 	= data.m_bRememberPassword;
+		m_bUseTLS				= data.m_bUseTLS;
 	}
 	return *this;
 }
@@ -2755,6 +2779,7 @@ const CChatServer& Server)
 	m_strPassword 			= Server.m_pszPassword ? Server.m_pszPassword : "";
 	m_strSecurityPackages 	= Server.m_pszSecurityPackages ? Server.m_pszSecurityPackages : "";
 	m_bRememberPassword 	= Server.m_bRememberPassword;
+	m_bUseTLS				= Server.m_bUseTLS;
 	return *this;
 }
 

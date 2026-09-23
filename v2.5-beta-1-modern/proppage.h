@@ -389,6 +389,7 @@ public:
 	int				m_nCurrSelGroup;
 	int				m_nCurrSelServer;
 	//}}AFX_DATA
+	BOOL			m_bUseTLS;
 	static CString  sm_strUnassociatedGroup;
 
 // Overrides
@@ -467,6 +468,7 @@ protected:
 	afx_msg void OnChangeAuthenticationType();
 	afx_msg void OnChangeServerProp();
 	//}}AFX_MSG
+	afx_msg void OnUseTLS();
 	DECLARE_MESSAGE_MAP()
 
 };

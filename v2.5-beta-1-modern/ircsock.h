@@ -3,9 +3,14 @@
 
 #include "UserInfo.H"
 #include "ChatProt.H"
-#include "CSSPI.H"
+#ifndef SECURITY_WIN32
+#define SECURITY_WIN32
+#endif
+#include <security.h>
 #include "Query.H"
 #include "Resource.H"
+
+class CTlsClient;
 
 ///////////////////////////////////////////////////////////////////////////////
 // Constants declaration
@@ -452,10 +457,13 @@ public:
 	void			Reset(void);
 	void			CloseSSPI(void);
 	void 			SetAuthentication(UINT nType, LPCSTR pszUserName = NULL, LPCSTR pszPassword = NULL, LPCSTR pszCustomPkg = NULL);
+	void			SetSecure(BOOL bSecure, LPCSTR pszServerName);
+	int				Send(const void *lpBuf, int nBufLen, int nFlags = 0);
 
 	virtual void	OnConnect(int nErrorCode);
 	virtual void	OnClose(int nErrorCode);
 	virtual void	OnReceive(int nErrorCode);
+	virtual void	OnSend(int nErrorCode);
 	virtual void	OnOutOfBandData(int nErrorCode) { TRACE("Out of Band socket on error %d.\n", nErrorCode); }
 	virtual void	ProcessMessage(char *);
 	virtual void	HandleCommand(CString& strLine, char *szLine, PIRCPARSE pParse, CIrcPrint *pIrcPrint);
@@ -488,6 +496,7 @@ public:
 	BOOL			m_bContext;
 	BOOL			m_bAuthFailed;
 	INT				m_iConnected;
+	BOOL			m_bUseTLS;
 
 	CQueryPtrList	m_queries;
 
@@ -498,6 +507,25 @@ public:
 		authtypeServerPackages = 2,
 		authtypeCustomPackages = 3,
 	};
+
+private:
+	enum TlsState
+	{
+		tlsNone = 0,
+		tlsHandshaking,
+		tlsConnected,
+	};
+
+	void StartIrcSession();
+	BOOL FeedPlainBytes(const BYTE *pData, int nLength);
+	BOOL QueueRawBytes(const BYTE *pData, int nLength);
+	BOOL FlushRawBytes();
+	void FailTlsConnection();
+
+	TlsState m_tlsState;
+	CTlsClient *m_pTls;
+	CString m_strTlsServer;
+	CByteArray m_rawSendQueue;
 };
 
 

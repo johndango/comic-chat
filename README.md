@@ -117,7 +117,13 @@ nmake /f chat.mak CFG="chat - Win32 Release"    REM everyday use
 nmake /f chat.mak CFG="chat - Win32 Debug"      REM asserts + TRACE for DebugView
 ```
 
-It carries the mouse-wheel and panels-per-row work across and runs **DPI-unaware** so Windows scales the whole window uniformly (rather than scaling a few surfaces and leaving the rest tiny). The chief 2.5-specific fixes were dropping the MFC-4.0 common-control struct-tag remap, adding a Common Controls v6 manifest so the rebar toolbar creates, and the runtime fixes needed to connect/join/chat on a present-day IRC network. See [`v2.5-beta-1-modern/README.md`](v2.5-beta-1-modern/README.md).
+It carries the mouse-wheel and panels-per-row work across, adds native SChannel
+TLS for modern IRC networks, and runs **DPI-unaware** so Windows scales the whole
+window uniformly (rather than scaling a few surfaces and leaving the rest tiny).
+The chief 2.5-specific fixes were dropping the MFC-4.0 common-control struct-tag
+remap, adding a Common Controls v6 manifest so the rebar toolbar creates, and the
+runtime fixes needed to connect/join/chat on a present-day IRC network. See
+[`v2.5-beta-1-modern/README.md`](v2.5-beta-1-modern/README.md).
 
 ### Cloud builds
 
@@ -137,7 +143,7 @@ This repository is published primarily as a **historical artifact** — the sour
 - **Uniform display scaling** so the window and its controls are legible on today's high-DPI monitors.
 - A handful of modern-Windows compatibility fixes — Common Controls v6 for the toolbar, modern RichEdit/CRT behavior, IRC parsing that works with present-day servers, and short-circuiting the long-dead Microsoft art-download servers in favor of the bundled art.
 
-These changes are intentionally **left as an exercise for the reader**: they demonstrate an approach and a few representative fixes rather than an exhaustive, production-hardened port. If you'd like to take it further — full per-monitor DPI awareness, TLS to modern IRC networks, the other client versions — the `*-modern` folders are a good place to start.
+These changes are intentionally **left as an exercise for the reader**: they demonstrate an approach and a few representative fixes rather than an exhaustive, production-hardened port. If you'd like to take it further — full per-monitor DPI awareness, additional IRC authentication methods, or the other client versions — the `*-modern` folders are a good place to start.
 
 ### Original build requirements
 
