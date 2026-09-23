@@ -45,10 +45,12 @@ The application connects to standard IRC servers and is fully interoperable with
 
 ## Web prototype
 
-The [`web/`](web/) experiment is a browser-only first slice of a modern client.
+The [`web/`](web/) experiment is a web-based first slice of a modern client.
 It decodes the repository's original `.avb` avatars and `.bgb` backdrops, ports
 the original text-expression rules, composes multi-panel conversation strips on
-Canvas, and exports them as PNG files. Live chat is intentionally a later milestone.
+Canvas, exports them as PNG files, and renders public IRC channels through a
+local TLS WebSocket gateway. Its production home is
+[`webcomicchat.com`](https://webcomicchat.com).
 See the [web prototype README](web/README.md) for local run instructions.
 
 ## Download Comic Chat
@@ -75,7 +77,7 @@ This repository contains source snapshots spanning the full development history 
 | [`artifacts/`](artifacts/) | January 1998 | SDK, companion tools, JChat, documentation |
 | [`v1.0-pre-modern/`](v1.0-pre-modern/) | 2026 | Modernized v1.0-pre: builds with current Visual Studio, DPI-aware UI scaling, native TLS |
 | [`v2.5-beta-1-modern/`](v2.5-beta-1-modern/) | 2026 | Modernized v2.5-beta-1: builds with current Visual Studio (nmake replaces the NT DDK build), uniform display scaling, runs live on modern IRC |
-| [`web/`](web/) | 2026 | Browser prototype: original art, automatic expressions, conversation strips, and PNG export |
+| [`web/`](web/) | 2026 | Web prototype: original art, automatic expressions, live TLS IRC, conversation strips, and PNG export |
 | [`docs/`](docs/) | — | Modernization write-ups and documentation |
 
 See [`file dates.txt`](file%20dates.txt) for the original file modification timestamps from each archive.

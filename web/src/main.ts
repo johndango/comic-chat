@@ -1,6 +1,7 @@
 import "./styles.css";
 import { AvatarType, decodeImage, parseAvatar, type AvatarFile, type DecodedBitmap } from "./avb";
 import { analyzeMessage, selectPose, type EmotionResult } from "./emotion";
+import { IrcWebClient, type LiveEvent, type LiveMessageEvent, type LiveState } from "./irc-client";
 import { PANEL_HEIGHT, PANEL_WIDTH, PanelRenderer } from "./panel";
 
 const characters = [
@@ -46,15 +47,26 @@ app.innerHTML = `
   <header class="site-header">
     <a class="brand" href="#" aria-label="Comic Chat prototype home">
       <span class="brand-burst">CC!</span>
-      <span><strong>Comic Chat</strong><small>web lab / issue no. 002</small></span>
+      <span><strong>Comic Chat</strong><small>web lab / issue no. 003</small></span>
     </a>
-    <span class="prototype-stamp">conversation build</span>
+    <span class="prototype-stamp">live IRC build</span>
   </header>
   <main>
     <section class="intro">
-      <p class="eyebrow">The words direct the cast — just like the 1998 client</p>
-      <h1>Build a chat.<br /><em>Watch it become a comic.</em></h1>
-      <p class="lede">Add lines to a strip and the original Comic Chat rules choose each character's expression. Greetings wave. Emoticons smile. “LOL” actually gets a laugh.</p>
+      <p class="eyebrow">A real IRC channel, rendered as a living comic strip</p>
+      <h1>Join the chat.<br /><em>Watch it become a comic.</em></h1>
+      <p class="lede">Compose offline or connect through the local TLS gateway. Every channel message becomes a panel using original artwork and expression rules.</p>
+    </section>
+    <section id="live-console" class="live-console" data-state="offline" aria-label="Live IRC connection">
+      <div class="live-heading">
+        <span id="live-dot" class="live-dot"></span>
+        <span><small>live IRC</small><strong id="live-status">Offline composer</strong></span>
+      </div>
+      <label>Network<select id="network"><option value="libera">Libera.Chat</option><option value="oftc">OFTC</option></select></label>
+      <label>Nickname<input id="nickname" maxlength="16" autocomplete="nickname" /></label>
+      <label>Channel<input id="channel" maxlength="52" placeholder="#channel" spellcheck="false" /></label>
+      <button id="connect-live" class="connect-button" type="button">Connect securely</button>
+      <p>TLS only · preset public networks · credentials are not supported or stored</p>
     </section>
     <section class="workspace" aria-label="Comic conversation editor">
       <aside class="controls">
@@ -73,7 +85,7 @@ app.innerHTML = `
           <span><small>automatic expression</small><strong id="tone-value">Neutral</strong><em id="tone-reason">No expression cues</em></span>
         </div>
 
-        <button id="add-panel" class="add-button" type="button" disabled>Add panel to strip <span>＋</span></button>
+        <button id="add-panel" class="add-button" type="button" disabled><span id="add-label">Add panel to strip</span><span>＋</span></button>
 
         <div class="strip-actions">
           <button id="undo-panel" class="small-action" type="button">Undo last</button>
@@ -93,7 +105,7 @@ app.innerHTML = `
     </section>
   </main>
   <footer>
-    <span>Proof of concept · browser only · no chat transport yet</span>
+    <span>Live transport · local WebSocket gateway · TLS IRC</span>
     <span>Original avatar metadata + original text-expression rules</span>
   </footer>
 `;
@@ -117,6 +129,13 @@ const addButton = element<HTMLButtonElement>("#add-panel");
 const undoButton = element<HTMLButtonElement>("#undo-panel");
 const clearButton = element<HTMLButtonElement>("#clear-strip");
 const downloadButton = element<HTMLButtonElement>("#download");
+const liveConsole = element<HTMLElement>("#live-console");
+const liveStatus = element<HTMLElement>("#live-status");
+const networkSelect = element<HTMLSelectElement>("#network");
+const nicknameInput = element<HTMLInputElement>("#nickname");
+const channelInput = element<HTMLInputElement>("#channel");
+const connectButton = element<HTMLButtonElement>("#connect-live");
+const addLabel = element<HTMLElement>("#add-label");
 
 const avatarCache = new Map<string, Promise<LoadedAvatar>>();
 const poseCache = new Map<string, Promise<DecodedBitmap>>();
@@ -125,6 +144,8 @@ let panelCanvases: HTMLCanvasElement[] = [];
 let backdropBitmap: DecodedBitmap;
 let backdropGeneration = 0;
 let isAdding = false;
+let liveState: LiveState = "offline";
+let remoteQueue = Promise.resolve();
 
 async function fetchAsset(file: string): Promise<ArrayBuffer> {
   const response = await fetch(`/${file}`);
@@ -159,14 +180,18 @@ function loadPose(file: string, avatar: LoadedAvatar, poseIndex: number): Promis
   return pending;
 }
 
-async function createConversationPanel(characterFile: string, message: string): Promise<ConversationPanel> {
+async function createConversationPanel(
+  characterFile: string,
+  message: string,
+  displayName?: string,
+): Promise<ConversationPanel> {
   const avatar = await loadAvatar(characterFile);
   const emotion = analyzeMessage(message);
   const poseIndex = selectPose(avatar.metadata.bodies, emotion);
   const character = await loadPose(characterFile, avatar, poseIndex);
   return {
     characterFile,
-    characterName: characters.find(({ file }) => file === characterFile)?.label || avatar.metadata.name || "Character",
+    characterName: displayName || characters.find(({ file }) => file === characterFile)?.label || avatar.metadata.name || "Character",
     character,
     emotion,
     message,
@@ -185,12 +210,79 @@ function showError(error: unknown): void {
   status.classList.add("error");
 }
 
+function characterForNickname(nickname: string): string {
+  let hash = 2166136261;
+  for (const character of nickname.toLowerCase()) {
+    hash ^= character.codePointAt(0) ?? 0;
+    hash = Math.imul(hash, 16777619);
+  }
+  return characters[Math.abs(hash) % characters.length].file;
+}
+
+function normalizeIrcText(message: string): string {
+  const action = message.match(/^\u0001ACTION (.*)\u0001$/);
+  const visible = action ? `* ${action[1]}` : message;
+  const clean = visible.replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, "").trim();
+  return clean.length <= 180 ? clean : `${clean.slice(0, 177)}…`;
+}
+
+function appendConversationPanel(panel: ConversationPanel, rolling = false): void {
+  if (conversation.length >= MAX_PANELS) {
+    if (!rolling) throw new Error(`A strip can contain at most ${MAX_PANELS} panels`);
+    conversation.shift();
+  }
+  conversation.push(panel);
+  renderStrip();
+}
+
+async function addRemoteMessage(event: LiveMessageEvent): Promise<void> {
+  if (event.self) return;
+  const message = normalizeIrcText(event.message);
+  if (!message) return;
+  const characterFile = characterForNickname(event.nickname);
+  const panel = await createConversationPanel(characterFile, message, event.nickname);
+  appendConversationPanel(panel, true);
+  setStatus(`${event.nickname}: ${panel.emotion.label.toLowerCase()} · live IRC`);
+}
+
+function updateLiveUi(state: LiveState, message: string): void {
+  liveState = state;
+  liveConsole.dataset.state = state;
+  liveStatus.textContent = message;
+  const active = state === "connecting" || state === "joining" || state === "joined";
+  networkSelect.disabled = active;
+  nicknameInput.disabled = active;
+  channelInput.disabled = active;
+  connectButton.textContent = active ? "Disconnect" : "Connect securely";
+  addLabel.textContent = state === "joined" ? "Send to IRC + add panel" : "Add panel to strip";
+  updateControls();
+}
+
+function handleLiveEvent(event: LiveEvent): void {
+  if (event.type === "status") {
+    updateLiveUi(event.state, event.message);
+    if (event.state === "joined") setStatus(`${event.message}. New channel messages will become panels.`);
+    return;
+  }
+  if (event.type === "error") {
+    liveConsole.dataset.state = "error";
+    liveStatus.textContent = event.message;
+    showError(new Error(event.message));
+    return;
+  }
+  remoteQueue = remoteQueue.then(() => addRemoteMessage(event)).catch(showError);
+}
+
+const liveClient = new IrcWebClient(handleLiveEvent);
+
 function updateControls(): void {
   const emotion = analyzeMessage(messageInput.value);
   countLabel.textContent = String(messageInput.value.length);
   toneValue.textContent = emotion.label;
   toneReason.textContent = emotion.reason;
-  addButton.disabled = isAdding || messageInput.value.trim().length === 0 || conversation.length >= MAX_PANELS;
+  addButton.disabled = isAdding
+    || messageInput.value.trim().length === 0
+    || (conversation.length >= MAX_PANELS && liveState !== "joined");
   undoButton.disabled = conversation.length === 0 || isAdding;
   clearButton.disabled = conversation.length === 0 || isAdding;
   downloadButton.disabled = conversation.length === 0 || isAdding;
@@ -265,17 +357,17 @@ function advanceSpeaker(): void {
 
 async function addPanel(): Promise<void> {
   const message = messageInput.value.trim();
-  if (!message || conversation.length >= MAX_PANELS || isAdding) return;
+  if (!message || (conversation.length >= MAX_PANELS && liveState !== "joined") || isAdding) return;
   isAdding = true;
   updateControls();
   setStatus("Reading the line and choosing a pose…");
   try {
     const panel = await createConversationPanel(characterSelect.value, message);
-    conversation.push(panel);
+    if (liveState === "joined") liveClient.say(message);
+    appendConversationPanel(panel, liveState === "joined");
     messageInput.value = "";
-    advanceSpeaker();
-    renderStrip();
-    setStatus(`${panel.characterName}: ${panel.emotion.label.toLowerCase()} · pose ${panel.poseIndex + 1}`);
+    if (liveState !== "joined") advanceSpeaker();
+    setStatus(`${panel.characterName}: ${panel.emotion.label.toLowerCase()} · ${liveState === "joined" ? "sent to IRC" : `pose ${panel.poseIndex + 1}`}`);
   } finally {
     isAdding = false;
     updateControls();
@@ -340,6 +432,35 @@ clearButton.addEventListener("click", () => {
   setStatus("Strip cleared. Write a line to begin again.");
 });
 downloadButton.addEventListener("click", downloadStrip);
+connectButton.addEventListener("click", () => {
+  if (liveClient.active) {
+    liveClient.disconnect();
+    return;
+  }
+  const nickname = nicknameInput.value.trim();
+  const rawChannel = channelInput.value.trim();
+  const channel = rawChannel.startsWith("#") ? rawChannel : rawChannel ? `#${rawChannel}` : "";
+  const nicknameIsValid = /^[A-Za-z][A-Za-z0-9_\-[\]\\`^{}]{0,15}$/.test(nickname);
+  const channelIsValid = /^#[A-Za-z0-9_+\-]{1,50}$/.test(channel);
+  if (!nicknameIsValid || !channelIsValid) {
+    liveConsole.dataset.state = "error";
+    liveStatus.textContent = nicknameIsValid
+      ? "Enter a valid #channel"
+      : "Nickname must start with a letter and use IRC-safe characters";
+    return;
+  }
+  channelInput.value = channel;
+  try {
+    liveClient.connect({
+      network: networkSelect.value as "libera" | "oftc",
+      nickname,
+      channel,
+    });
+  } catch (error) {
+    showError(error);
+  }
+});
 
+nicknameInput.value = `Comic${Math.floor(1000 + Math.random() * 9000)}`;
 updateControls();
 void initialLoad();
