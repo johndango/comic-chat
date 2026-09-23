@@ -7,6 +7,7 @@
 import { Balloon, TOPBORDER, type BalloonFonts, type BalloonGeometry, type BalloonMode } from "./balloon";
 import type { Rect } from "./geometry";
 import { MsvcRand } from "./rand";
+import { randomTitle } from "./title";
 
 /** Pixel dimensions of one pose bitmap plus its face anchor (avatar pose `x`). */
 export interface PoseSize {
@@ -145,6 +146,14 @@ export class ComicPage {
 
   get layouts(): PanelLayout[] {
     return this.panels.map((p) => p.layout!).filter(Boolean);
+  }
+
+  /**
+   * GetRandomTitle, drawn from the page's rand() stream. Call it before the
+   * first line, as the original did when opening a new conversation.
+   */
+  chooseTitle(): string {
+    return randomTitle(this.rng);
   }
 
   /** CPage::StartNewPanel — the next line opens a fresh panel. */

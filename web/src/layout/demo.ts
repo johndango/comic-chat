@@ -5,7 +5,8 @@ import { bodyForText } from "../composite";
 import { newPoseMemory, type PoseMemory } from "../expression";
 import { balloonFontMetrics, type BalloonMode } from "./balloon";
 import { ComicPage, type ComicLine } from "./page";
-import { canvasMeasurer, drawPanel } from "./render";
+import { canvasMeasurer, drawPanel, drawTitlePanel } from "./render";
+import { layoutTitlePanel } from "./title";
 
 const CAST = [
   { id: "Anna", file: "anna.avb" },
@@ -36,6 +37,7 @@ interface Loaded {
   avatar: AvatarFile;
   poses: Map<string, HTMLCanvasElement>;
   memory: PoseMemory;
+  icon?: HTMLCanvasElement;
 }
 
 const strip = document.querySelector<HTMLDivElement>("#strip")!;
@@ -100,6 +102,7 @@ async function render(): Promise<void> {
       return n && { pose: { width: n.image.width, height: n.image.height, faceX: n.faceX }, poseRef: n.key };
     },
   });
+  const title = page.chooseTitle();
   for (const line of lines) {
     replayTalkTo.set(line.speakerId, (line as ComicLine & { talkTo: string[] }).talkTo);
     page.addLine(line);
@@ -119,7 +122,29 @@ async function render(): Promise<void> {
       return canvas;
     }),
   );
-  strip.replaceChildren(...canvases);
+  const titleCanvas = document.createElement("canvas");
+  {
+    const ratio = Math.min(window.devicePixelRatio || 1, 2);
+    const titleMeasure = document.createElement("canvas").getContext("2d")!;
+    const stars = CAST.map(({ id }, i) => ({
+      id,
+      nickname: id,
+      sends: lines.filter((l) => l.speakerId === id).length,
+      self: i === 0,
+    }));
+    const layout = layoutTitlePanel(title, stars, {
+      measure: (text, height) => {
+        titleMeasure.font = `${height}px "Comic Sans MS", "Comic Neue", cursive`;
+        return titleMeasure.measureText(text).width;
+      },
+    });
+    titleCanvas.width = Math.round(layout.width * scale * ratio);
+    titleCanvas.height = Math.round(layout.height * scale * ratio);
+    const context = titleCanvas.getContext("2d")!;
+    context.scale(ratio, ratio);
+    drawTitlePanel(context, layout, (id) => cast.get(id)?.icon, { scale });
+  }
+  strip.replaceChildren(titleCanvas, ...canvases);
   note.textContent = `${lines.length} lines → ${page.layouts.length} panels · seed ${seed}`;
 }
 
@@ -132,7 +157,8 @@ async function main(): Promise<void> {
   for (const { id, file } of CAST) {
     const buffer = await load(file);
     const avatar = parseAvatar(buffer);
-    cast.set(id, { buffer, avatar, poses: new Map(), memory: newPoseMemory() });
+    const icon = avatar.icon?.offset ? toCanvas(await decodeImage(buffer, avatar.icon, avatar.palette)) : undefined;
+    cast.set(id, { buffer, avatar, poses: new Map(), memory: newPoseMemory(), icon });
   }
   const room = await load("room.bgb");
   const roomFile = parseAvatar(room);

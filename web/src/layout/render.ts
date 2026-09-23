@@ -4,6 +4,7 @@
 import type { BalloonGeometry } from "./balloon";
 import type { PathCommand, Point } from "./geometry";
 import type { BodyLayout, PanelLayout } from "./page";
+import type { TitleLayout } from "./title";
 
 export interface RenderAssets {
   backdrop?: CanvasImageSource & { width: number; height: number };
@@ -168,4 +169,37 @@ export function canvasMeasurer(
     }
     return width;
   };
+}
+
+/** Draw the title panel (no border, no backdrop, as in AddTitle). */
+export function drawTitlePanel(
+  context: CanvasRenderingContext2D,
+  layout: TitleLayout,
+  icon: (id: string) => CanvasImageSource | undefined,
+  options: RenderOptions,
+): void {
+  const s = options.scale;
+  const family = options.fontFamily ?? '"Comic Sans MS", "Comic Neue", cursive';
+  const ascentEm = options.ascentEm ?? 1.102;
+  context.save();
+  context.fillStyle = "#fff";
+  context.fillRect(0, 0, layout.width * s, layout.height * s);
+  context.fillStyle = "#000";
+  context.textBaseline = "alphabetic";
+  for (const label of layout.labels) {
+    const size = label.heightTwips * s;
+    context.font = `${size}px ${family}`;
+    let text = label.text;
+    if (label.maxWidth !== undefined) {
+      // DT_END_ELLIPSIS
+      const max = label.maxWidth * s;
+      while (text.length > 1 && context.measureText(text).width > max) text = text.slice(0, -2) + "…";
+    }
+    context.fillText(text, label.x * s, -label.y * s + ascentEm * size);
+  }
+  for (const { id, rect } of layout.icons) {
+    const image = icon(id);
+    if (image) context.drawImage(image, rect.left * s, -rect.top * s, (rect.right - rect.left) * s, (rect.top - rect.bottom) * s);
+  }
+  context.restore();
 }
