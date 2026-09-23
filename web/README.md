@@ -1,16 +1,19 @@
-# Comic Chat web prototype
+# Comic Chat web client
 
 This is a web-based Comic Chat client with a desktop modeled after the original
-Microsoft Comic Chat 2.5 interface. It decodes all 25 original version 2 `.avb`
-avatars and the bundled `.bgb` backdrops directly, builds a multi-panel
-conversation strip on Canvas, exports the result as a PNG, and can render a live
-IRC channel through a small local gateway.
+Microsoft Comic Chat 2.5 interface. It decodes all 35 bundled version 2 `.avb`
+character files—including the alternate Art Pack editions—and all nine `.bgb`
+backdrops directly, builds a multi-panel conversation strip on Canvas, exports
+the result as a PNG, and can render a live IRC channel through a small local
+gateway.
 
-The browser also ports the original 2.5 text-expression rules. Caps and repeated
-exclamation marks shout, laughter cues laugh, emoticons smile or frown,
-greetings wave, and first- or second-person sentences point to the appropriate
-speaker. The resulting emotion is matched against metadata embedded in each
-avatar to choose the closest available pose.
+The browser ports the original 2.5 text-expression, composite-avatar, panel,
+and Woodring balloon algorithms. Faces and torsos are chosen independently;
+characters face people being addressed; up to five speakers can share a panel;
+and establishing shots, zoom, balloon routing, text continuation, title cards,
+thought bubbles, whispers, and action boxes follow the original source. The
+default balloon font is Comic Sans MS 12 pt when installed, with the OFL-licensed
+Comic Neue bundled as the cross-platform fallback.
 
 Room links use the page URL to prefill a supported IRC network and channel, so a
 room can be shared without including anyone's nickname. Opening a link never
@@ -125,6 +128,7 @@ npm test
 npm run build
 ```
 
-The tests exercise every avatar and backdrop offered by the UI, expression-rule
-priority, pose selection, IRC parsing and validation, safe room-link parsing,
-the browser transport, and the local WebSocket boundary.
+The tests exercise every avatar and backdrop offered by the UI, composite
+character assembly, the original expression and emotion-wheel behavior, panel
+and balloon layout, pose selection, IRC parsing and validation, safe room-link
+parsing, the browser transport, and the local WebSocket boundary.

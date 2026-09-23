@@ -93,11 +93,11 @@ export class IrcWebClient {
     });
   }
 
-  say(message: string): void {
+  say(message: string, action = false): void {
     if (!this.joined || !this.socket || this.socket.readyState !== WebSocket.OPEN) {
       throw new Error("Join a channel before sending live messages");
     }
-    this.socket.send(JSON.stringify({ type: "say", message }));
+    this.socket.send(JSON.stringify({ type: "say", message, ...(action ? { action: true } : {}) }));
   }
 
   join(channel: string): void {

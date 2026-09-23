@@ -28,6 +28,8 @@ const mimeTypes: Record<string, string> = {
   ".bgb": "application/octet-stream",
   ".png": "image/png",
   ".svg": "image/svg+xml",
+  ".woff": "font/woff",
+  ".woff2": "font/woff2",
 };
 
 function sendJson(webSocket: WebSocket, value: JsonObject): void {
@@ -70,7 +72,10 @@ class IrcBridge {
       if (type === "connect") this.connect(validateConnectRequest(value));
       else if (type === "join") this.joinChannel(validateJoinRequest(value));
       else if (type === "list") this.requestRooms();
-      else if (type === "say") this.say(validateChatMessage(value));
+      else if (type === "say") {
+        const chat = validateChatMessage(value);
+        this.say(chat.message, chat.action);
+      }
       else if (type === "disconnect") this.disconnect("Disconnected");
       else throw new Error("Unknown browser message type");
     } catch (error) {
@@ -273,17 +278,18 @@ class IrcBridge {
     sendJson(this.webSocket, { type: "status", state: "joining", message: `Joining ${channel}…`, channel });
   }
 
-  private say(message: string): void {
+  private say(message: string, action = false): void {
     if (!this.socket || !this.request || !this.activeChannel || !this.joined) throw new Error("Join a channel before sending messages");
     const now = Date.now();
     this.recentMessages = this.recentMessages.filter((timestamp) => now - timestamp < 10_000);
     if (this.recentMessages.length >= 5) throw new Error("Slow down: IRC messages are limited to five per ten seconds");
     this.recentMessages.push(now);
-    this.write(`PRIVMSG ${this.activeChannel} :${message}`);
+    const ircMessage = action ? `\u0001ACTION ${message}\u0001` : message;
+    this.write(`PRIVMSG ${this.activeChannel} :${ircMessage}`);
     sendJson(this.webSocket, {
       type: "message",
       nickname: this.request.nickname,
-      message,
+      message: ircMessage,
       self: true,
       timestamp: now,
     });

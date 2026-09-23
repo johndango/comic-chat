@@ -68,6 +68,8 @@ describe("browser IRC client", () => {
     socket.receive({ type: "status", state: "joined", message: "Live in #chat" });
     client.say("Hello!");
     expect(JSON.parse(socket.sent[1])).toEqual({ type: "say", message: "Hello!" });
+    client.say("waves", true);
+    expect(JSON.parse(socket.sent[2])).toEqual({ type: "say", message: "waves", action: true });
     expect(events.at(-1)).toMatchObject({ type: "status", state: "joined" });
   });
 

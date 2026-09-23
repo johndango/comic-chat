@@ -1,11 +1,32 @@
+import "@fontsource/comic-neue/400.css";
+import "@fontsource/comic-neue/400-italic.css";
+import comicNeueLicenseUrl from "@fontsource/comic-neue/LICENSE?url";
 import "./styles.css";
 import { AvatarType, decodeImage, parseAvatar, type AvatarFile, type DecodedBitmap } from "./avb";
-import { analyzeMessage, selectPose, type EmotionResult } from "./emotion";
+import { bodyForText, composeChoice, type ComposedBody } from "./composite";
+import { createEmotionWheel, posesForWheel, type WheelEmotion } from "./emotion-wheel";
+import { describeOptions, emotionOptions, newPoseMemory, type PoseChoice, type PoseMemory } from "./expression";
 import { IrcWebClient, type LiveEvent, type LiveMessageEvent, type LiveRoomEvent, type LiveState } from "./irc-client";
-import { PANEL_HEIGHT, PANEL_WIDTH, PanelRenderer } from "./panel";
+import { balloonFontMetrics, type BalloonMode } from "./layout/balloon";
+import { ComicPage, type ComicLine } from "./layout/page";
+import { canvasMeasurer, drawPanel, drawTitlePanel } from "./layout/render";
+import { layoutTitlePanel } from "./layout/title";
 import { createRoomUrl, normalizeRoomSelection, roomSelectionFromUrl } from "./room-link";
 
-const characters = [
+interface ArtChoice { file: string; label: string }
+
+const artPackAssets = import.meta.glob("../../v2.5-beta-1-modern/artpack1/*.{avb,bgb}", {
+  eager: true,
+  query: "?url",
+  import: "default",
+}) as Record<string, string>;
+const artPack = (file: string): string => {
+  const asset = artPackAssets[`../../v2.5-beta-1-modern/artpack1/${file}`];
+  if (!asset) throw new Error(`Missing original Art Pack asset: ${file}`);
+  return asset;
+};
+
+const characters: ArtChoice[] = [
   { file: "anna.avb", label: "Anna" },
   { file: "armando.avb", label: "Armando" },
   { file: "bolo.avb", label: "Bolo" },
@@ -31,9 +52,19 @@ const characters = [
   { file: "veronica.avb", label: "Veronica" },
   { file: "waf.avb", label: "Waf" },
   { file: "xeno.avb", label: "Xeno" },
+  { file: artPack("kevin.avb"), label: "Kevin — Art Pack" },
+  { file: artPack("kwensa.avb"), label: "Kwensa — Art Pack" },
+  { file: artPack("maynard.avb"), label: "Maynard — Art Pack" },
+  { file: artPack("rebecca.avb"), label: "Rebecca — Art Pack" },
+  { file: artPack("sage.avb"), label: "Sage — Art Pack" },
+  { file: artPack("scotty.avb"), label: "Scotty — Art Pack" },
+  { file: artPack("bolo.avb"), label: "Bolo — Art Pack edition" },
+  { file: artPack("cro.avb"), label: "Cro — Art Pack edition" },
+  { file: artPack("denise.avb"), label: "Denise — Art Pack edition" },
+  { file: artPack("lynnea.avb"), label: "Lynnea — Art Pack edition" },
 ];
 
-const backdrops = [
+const backdrops: ArtChoice[] = [
   { file: "room.bgb", label: "The room" },
   { file: "space.bgb", label: "Deep space" },
   { file: "clouds.bgb", label: "Clouds" },
@@ -41,22 +72,32 @@ const backdrops = [
   { file: "pastoral.bgb", label: "Pastoral" },
   { file: "yellow.bgb", label: "Yellow" },
   { file: "buckroom.bgb", label: "Buck's room" },
+  { file: artPack("den.bgb"), label: "The den — Art Pack" },
+  { file: artPack("volcano.bgb"), label: "Volcano — Art Pack" },
 ];
 
-const MAX_PANELS = 12;
+const PANEL_TWIPS = 4860;
+const PANEL_SCALE = 1 / 15;
+const PANEL_PIXELS = PANEL_TWIPS * PANEL_SCALE;
+const MAX_LIVE_LINES = 48;
 
 interface LoadedAvatar {
   buffer: ArrayBuffer;
   metadata: AvatarFile;
+  memory: PoseMemory;
+  poses: Map<string, HTMLCanvasElement>;
+  icon?: HTMLCanvasElement;
 }
 
-interface ConversationPanel {
+interface ConversationLine {
   characterFile: string;
   characterName: string;
-  character: DecodedBitmap;
-  emotion: EmotionResult;
   message: string;
-  poseIndex: number;
+  mode: BalloonMode;
+  body: ComposedBody;
+  poseRef: string;
+  expression: string;
+  talkTo: string[];
 }
 
 const app = document.querySelector<HTMLDivElement>("#app");
@@ -126,9 +167,8 @@ app.innerHTML = `
             <select id="character">${characters.map(({ file, label }) => `<option value="${file}">${label}</option>`).join("")}</select>
             <label for="backdrop">Background</label>
             <select id="backdrop">${backdrops.map(({ file, label }) => `<option value="${file}">${label}</option>`).join("")}</select>
-            <div class="emotion-wheel" aria-label="Automatic expression preview">
-              <i>☺</i><i>☹</i><i>!</i><i>☻</i><strong id="tone-value">Neutral</strong><i>?</i><i>♥</i><i>…</i><i>☺</i>
-            </div>
+            <div id="emotion-wheel" class="emotion-wheel" aria-label="Emotion wheel"></div>
+            <strong id="tone-value" class="tone-value">Neutral</strong>
             <small id="tone-reason">No expression cues</small>
           </section>
         </aside>
@@ -139,6 +179,14 @@ app.innerHTML = `
         <textarea id="message" maxlength="180" rows="2" placeholder="Type a message…"></textarea>
         <span class="count"><span id="count">0</span> / 180</span>
         <button id="add-panel" class="add-button" type="button" disabled><span id="add-label">Add to comic</span><span>➤</span></button>
+        <div class="mode-picker" role="group" aria-label="Balloon style">
+          <span>Balloon:</span>
+          <select id="message-mode" class="visually-hidden" aria-label="Balloon style"><option value="say">Say</option><option value="think">Think</option><option value="whisper">Whisper</option><option value="action">Action</option></select>
+          <button class="mode-button selected" type="button" data-mode="say" title="Say" aria-pressed="true"><i></i></button>
+          <button class="mode-button" type="button" data-mode="think" title="Think" aria-pressed="false"><i></i></button>
+          <button class="mode-button" type="button" data-mode="whisper" title="Whisper" aria-pressed="false"><i></i></button>
+          <button class="mode-button" type="button" data-mode="action" title="Action" aria-pressed="false"><i></i></button>
+        </div>
         <div class="strip-actions">
           <button id="undo-panel" class="small-action" type="button">Undo</button>
           <button id="clear-strip" class="small-action" type="button">Clear</button>
@@ -147,7 +195,7 @@ app.innerHTML = `
       </section>
       <footer class="classic-statusbar">
         <p id="status" class="status" role="status">Loading original art…</p>
-        <span>Original Comic Chat 2.5 art and expression rules</span>
+        <span>Original Comic Chat 2.5 art and expression rules · <a href="${comicNeueLicenseUrl}" target="_blank" rel="noreferrer">font notice</a></span>
       </footer>
     </main>
   </div>
@@ -162,6 +210,8 @@ function element<T extends HTMLElement>(selector: string): T {
 const characterSelect = element<HTMLSelectElement>("#character");
 const backdropSelect = element<HTMLSelectElement>("#backdrop");
 const messageInput = element<HTMLTextAreaElement>("#message");
+const messageMode = element<HTMLSelectElement>("#message-mode");
+const modeButtons = [...document.querySelectorAll<HTMLButtonElement>(".mode-button")];
 const countLabel = element<HTMLElement>("#count");
 const toneValue = element<HTMLElement>("#tone-value");
 const toneReason = element<HTMLElement>("#tone-reason");
@@ -189,24 +239,66 @@ const memberList = element<HTMLElement>("#member-list");
 const roomTabLabel = element<HTMLElement>("#room-tab-label");
 const windowRoom = element<HTMLElement>("#window-room");
 const characterPreview = element<HTMLCanvasElement>("#character-preview");
+const emotionWheelHost = element<HTMLElement>("#emotion-wheel");
 
 const avatarCache = new Map<string, Promise<LoadedAvatar>>();
-const poseCache = new Map<string, Promise<DecodedBitmap>>();
-const conversation: ConversationPanel[] = [];
+const conversation: ConversationLine[] = [];
+const frozenPoses = new Map<string, PoseChoice>();
 let panelCanvases: HTMLCanvasElement[] = [];
 let backdropBitmap: DecodedBitmap;
+let backdropCanvas: HTMLCanvasElement;
 let backdropGeneration = 0;
+let renderGeneration = 0;
+let memberGeneration = 0;
+let previewGeneration = 0;
 let isAdding = false;
 let liveState: LiveState = "offline";
 let remoteQueue = Promise.resolve();
 const publicRooms = new Map<string, LiveRoomEvent>();
 const knownMembers = new Set<string>();
 let totalPublicRooms = 0;
+let currentWheelEmotion: WheelEmotion = { emotion: 0, intensity: 0 };
+let suppressWheelChange = false;
+
+const emotionWheel = createEmotionWheel({
+  size: 132,
+  onChange: (emotion, name) => {
+    currentWheelEmotion = emotion;
+    if (suppressWheelChange) return;
+    void loadAvatar(characterSelect.value).then(async (avatar) => {
+      const choice = posesForWheel(avatar.metadata, emotion, avatar.memory);
+      frozenPoses.set(characterSelect.value, choice);
+      toneValue.textContent = name;
+      toneReason.textContent = "Wheel pose will be used for the next line";
+      await updateCharacterPreview();
+    }).catch(showError);
+  },
+});
+emotionWheelHost.append(emotionWheel.element);
+
+function resetEmotionWheel(): void {
+  currentWheelEmotion = { emotion: 0, intensity: 0 };
+  suppressWheelChange = true;
+  emotionWheel.set(currentWheelEmotion);
+  suppressWheelChange = false;
+}
 
 async function fetchAsset(file: string): Promise<ArrayBuffer> {
-  const response = await fetch(`/${file}`);
+  const response = await fetch(file.startsWith("/") ? file : `/${file}`);
   if (!response.ok) throw new Error(`Could not load ${file}`);
   return response.arrayBuffer();
+}
+
+function bitmapCanvas(bitmap: DecodedBitmap): HTMLCanvasElement {
+  const canvas = document.createElement("canvas");
+  canvas.width = bitmap.width;
+  canvas.height = bitmap.height;
+  canvas.getContext("2d")?.putImageData(
+    new ImageData(new Uint8ClampedArray(bitmap.pixels), bitmap.width, bitmap.height),
+    0,
+    0,
+  );
+  return canvas;
 }
 
 function loadAvatar(file: string): Promise<LoadedAvatar> {
@@ -214,44 +306,69 @@ function loadAvatar(file: string): Promise<LoadedAvatar> {
   if (cached) return cached;
   const pending = fetchAsset(file).then((buffer) => {
     const metadata = parseAvatar(buffer);
-    if (metadata.type !== AvatarType.Simple || metadata.bodies.length === 0) {
-      throw new Error(`${file} is not a supported simple avatar`);
+    const hasSimpleBody = metadata.type === AvatarType.Simple && metadata.bodies.length > 0;
+    const hasCompositeBody = metadata.faces.length > 0 && metadata.torsos.length > 0;
+    if (!hasSimpleBody && !hasCompositeBody) {
+      throw new Error(`${file} does not contain a supported Comic Chat character`);
     }
-    return { buffer, metadata };
+    return { buffer, metadata, memory: newPoseMemory(), poses: new Map() };
   });
   avatarCache.set(file, pending);
   return pending;
 }
 
-function loadPose(file: string, avatar: LoadedAvatar, poseIndex: number): Promise<DecodedBitmap> {
-  const key = `${file}:${poseIndex}`;
-  const cached = poseCache.get(key);
-  if (cached) return cached;
-  const pending = decodeImage(
-    avatar.buffer,
-    avatar.metadata.bodies[poseIndex].image,
-    avatar.metadata.palette,
-  );
-  poseCache.set(key, pending);
-  return pending;
+function cacheBody(avatar: LoadedAvatar, body: ComposedBody): HTMLCanvasElement {
+  let canvas = avatar.poses.get(body.key);
+  if (!canvas) {
+    canvas = bitmapCanvas(body.bitmap);
+    avatar.poses.set(body.key, canvas);
+  }
+  return canvas;
 }
 
-async function createConversationPanel(
+async function avatarIcon(avatar: LoadedAvatar): Promise<HTMLCanvasElement | undefined> {
+  if (avatar.icon) return avatar.icon;
+  if (!avatar.metadata.icon?.offset) return undefined;
+  avatar.icon = bitmapCanvas(await decodeImage(avatar.buffer, avatar.metadata.icon, avatar.metadata.palette));
+  return avatar.icon;
+}
+
+function addressedPeople(message: string, speaker: string): string[] {
+  const prefix = message.match(/^([^:]{1,32}):\s/iu)?.[1]?.toLocaleLowerCase();
+  if (!prefix) return [];
+  const candidates = new Set([...conversation.map((line) => line.characterName), ...knownMembers]);
+  return [...candidates].filter((name) => name !== speaker && name.toLocaleLowerCase() === prefix);
+}
+
+function displayCharacterName(avatar: AvatarFile, file: string): string {
+  const name = avatar.name || characters.find((choice) => choice.file === file)?.label.split(" —")[0] || "Character";
+  return name.toLocaleLowerCase().replace(/(^|[\s-])\p{L}/gu, (letter) => letter.toLocaleUpperCase());
+}
+
+async function createConversationLine(
   characterFile: string,
   message: string,
   displayName?: string,
-): Promise<ConversationPanel> {
+  mode: BalloonMode = "say",
+): Promise<ConversationLine> {
   const avatar = await loadAvatar(characterFile);
-  const emotion = analyzeMessage(message);
-  const poseIndex = selectPose(avatar.metadata.bodies, emotion);
-  const character = await loadPose(characterFile, avatar, poseIndex);
+  const frozen = frozenPoses.get(characterFile);
+  if (frozen) frozenPoses.delete(characterFile);
+  const body = frozen
+    ? await composeChoice(avatar.buffer, avatar.metadata, frozen)
+    : await bodyForText(avatar.buffer, avatar.metadata, message, avatar.memory);
+  cacheBody(avatar, body);
+  const options = emotionOptions(message);
+  const characterName = displayName || displayCharacterName(avatar.metadata, characterFile);
   return {
     characterFile,
-    characterName: displayName || characters.find(({ file }) => file === characterFile)?.label || avatar.metadata.name || "Character",
-    character,
-    emotion,
+    characterName,
     message,
-    poseIndex,
+    mode,
+    body,
+    poseRef: `${characterFile}|${body.key}`,
+    expression: frozen ? "wheel selection" : describeOptions(options),
+    talkTo: addressedPeople(message, characterName),
   };
 }
 
@@ -267,6 +384,9 @@ function showError(error: unknown): void {
 }
 
 function characterForNickname(nickname: string): string {
+  if (nicknameInput.value && nickname.toLocaleLowerCase() === nicknameInput.value.toLocaleLowerCase()) {
+    return characterSelect.value;
+  }
   let hash = 2166136261;
   for (const character of nickname.toLowerCase()) {
     hash ^= character.codePointAt(0) ?? 0;
@@ -275,35 +395,39 @@ function characterForNickname(nickname: string): string {
   return characters[Math.abs(hash) % characters.length].file;
 }
 
-function normalizeIrcText(message: string): string {
+function normalizeIrcText(message: string): { text: string; mode: BalloonMode } {
   const action = message.match(/^\u0001ACTION (.*)\u0001$/);
-  const visible = action ? `* ${action[1]}` : message;
+  const visible = action ? action[1] : message;
   const clean = visible.replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, "").trim();
-  return clean.length <= 180 ? clean : `${clean.slice(0, 177)}…`;
+  return {
+    text: clean.length <= 180 ? clean : `${clean.slice(0, 177)}…`,
+    mode: action ? "action" : "say",
+  };
 }
 
-function appendConversationPanel(panel: ConversationPanel, rolling = false): void {
-  if (conversation.length >= MAX_PANELS) {
-    if (!rolling) throw new Error(`A strip can contain at most ${MAX_PANELS} panels`);
+function appendConversationLine(line: ConversationLine, rolling = false): void {
+  if (rolling && conversation.length >= MAX_LIVE_LINES) {
     conversation.shift();
   }
-  conversation.push(panel);
-  renderStrip();
+  conversation.push(line);
+  void renderStrip().catch(showError);
 }
 
 async function addRemoteMessage(event: LiveMessageEvent): Promise<void> {
   if (event.self) return;
   knownMembers.add(event.nickname);
   renderMembers();
-  const message = normalizeIrcText(event.message);
-  if (!message) return;
+  const { text, mode } = normalizeIrcText(event.message);
+  if (!text) return;
   const characterFile = characterForNickname(event.nickname);
-  const panel = await createConversationPanel(characterFile, message, event.nickname);
-  appendConversationPanel(panel, true);
-  setStatus(`${event.nickname}: ${panel.emotion.label.toLowerCase()} · live IRC`);
+  const line = await createConversationLine(characterFile, text, event.nickname, mode);
+  appendConversationLine(line, true);
+  setStatus(`${event.nickname}: ${line.expression} · live IRC`);
 }
 
 function renderMembers(): void {
+  const generation = ++memberGeneration;
+  memberList.dataset.generation = String(generation);
   memberList.replaceChildren();
   if (knownMembers.size === 0) {
     const empty = document.createElement("p");
@@ -314,13 +438,25 @@ function renderMembers(): void {
   for (const nickname of [...knownMembers].sort((left, right) => left.localeCompare(right))) {
     const row = document.createElement("div");
     row.className = "member-row";
-    const icon = document.createElement("span");
-    icon.textContent = "♟";
+    const icon = document.createElement("canvas");
+    icon.className = "member-icon";
+    icon.width = 24;
+    icon.height = 24;
     icon.setAttribute("aria-hidden", "true");
     const label = document.createElement("strong");
     label.textContent = nickname;
     row.append(icon, label);
     memberList.append(row);
+    void loadAvatar(characterForNickname(nickname)).then(avatarIcon).then((source) => {
+      if (!source || memberList.dataset.generation !== String(generation)) return;
+      const context = icon.getContext("2d");
+      if (!context) return;
+      context.fillStyle = "#fff";
+      context.fillRect(0, 0, icon.width, icon.height);
+      const scale = Math.min(icon.width / source.width, icon.height / source.height);
+      context.imageSmoothingEnabled = false;
+      context.drawImage(source, (icon.width - source.width * scale) / 2, (icon.height - source.height * scale) / 2, source.width * scale, source.height * scale);
+    }).catch(() => {});
   }
 }
 
@@ -443,13 +579,17 @@ function handleLiveEvent(event: LiveEvent): void {
 const liveClient = new IrcWebClient(handleLiveEvent);
 
 function updateControls(): void {
-  const emotion = analyzeMessage(messageInput.value);
+  const options = emotionOptions(messageInput.value);
   countLabel.textContent = String(messageInput.value.length);
-  toneValue.textContent = emotion.label;
-  toneReason.textContent = emotion.reason;
+  if (!frozenPoses.has(characterSelect.value)) {
+    const expression = describeOptions(options);
+    toneValue.textContent = expression === "neutral" ? "Neutral" : expression;
+    toneReason.textContent = options.length === 0
+      ? "No expression cues"
+      : options.map((option) => option.source).join(" · ");
+  }
   addButton.disabled = isAdding
-    || messageInput.value.trim().length === 0
-    || (conversation.length >= MAX_PANELS && liveState !== "joined");
+    || messageInput.value.trim().length === 0;
   undoButton.disabled = conversation.length === 0 || isAdding;
   clearButton.disabled = conversation.length === 0 || isAdding;
   downloadButton.disabled = conversation.length === 0 || isAdding;
@@ -492,51 +632,129 @@ async function copyRoomLink(): Promise<void> {
     : `Room link ready for ${room.channel}. Copy it from the address bar.`);
 }
 
-function renderStrip(): void {
-  strip.replaceChildren();
-  panelCanvases = [];
+function createPanelCanvas(label: string): { card: HTMLElement; canvas: HTMLCanvasElement; context: CanvasRenderingContext2D; ratio: number } {
+  const card = document.createElement("article");
+  card.className = "panel-card authentic-panel";
+  const canvas = document.createElement("canvas");
+  canvas.setAttribute("aria-label", label);
+  const ratio = Math.min(window.devicePixelRatio || 1, 2);
+  canvas.width = Math.round(PANEL_PIXELS * ratio);
+  canvas.height = Math.round(PANEL_PIXELS * ratio);
+  const context = canvas.getContext("2d");
+  if (!context) throw new Error("Canvas is unavailable");
+  context.scale(ratio, ratio);
+  const metadata = document.createElement("p");
+  metadata.className = "panel-meta";
+  card.append(canvas, metadata);
+  return { card, canvas, context, ratio };
+}
+
+async function renderStrip(): Promise<void> {
+  const generation = ++renderGeneration;
+  const nextCanvases: HTMLCanvasElement[] = [];
+  const fragment = document.createDocumentFragment();
 
   if (conversation.length === 0) {
     const empty = document.createElement("div");
     empty.className = "empty-strip";
-    empty.innerHTML = `<span>01</span><strong>Your next line starts the strip.</strong><p>The character's pose will be chosen automatically.</p>`;
-    strip.append(empty);
+    empty.innerHTML = `<span>01</span><strong>Your next line starts the strip.</strong><p>Comic Chat will choose the pose and lay out the panel.</p>`;
+    fragment.append(empty);
+    if (generation !== renderGeneration) return;
+    strip.replaceChildren(fragment);
+    panelCanvases = [];
+    stripCount.textContent = "0 panels";
+    updateControls();
+    return;
   }
 
-  conversation.forEach((panel, index) => {
-    const card = document.createElement("article");
-    card.className = "panel-card";
-    const canvas = document.createElement("canvas");
-    canvas.setAttribute("aria-label", `Panel ${index + 1}: ${panel.characterName} says ${panel.message}`);
-    const remove = document.createElement("button");
-    remove.type = "button";
-    remove.className = "remove-panel";
-    remove.textContent = "Remove";
-    remove.setAttribute("aria-label", `Remove panel ${index + 1}`);
-    remove.addEventListener("click", () => {
-      conversation.splice(index, 1);
-      renderStrip();
-      updateControls();
-      setStatus("Panel removed from the strip.");
-    });
-    const metadata = document.createElement("p");
-    metadata.className = "panel-meta";
-    metadata.textContent = `${panel.emotion.label} · pose ${panel.poseIndex + 1}`;
-    card.append(canvas, remove, metadata);
-    strip.append(card);
-    new PanelRenderer(canvas).render({
-      backdrop: backdropBitmap,
-      character: panel.character,
-      characterName: panel.characterName,
-      characterSide: index % 2 === 0 ? "left" : "right",
-      emotionLabel: panel.emotion.label,
-      message: panel.message,
-      panelNumber: index + 1,
-    });
-    panelCanvases.push(canvas);
+  await document.fonts?.ready;
+  const measureContext = document.createElement("canvas").getContext("2d");
+  if (!measureContext) throw new Error("Canvas is unavailable");
+  const fonts = {
+    normal: balloonFontMetrics(canvasMeasurer(measureContext)),
+    whisper: balloonFontMetrics(canvasMeasurer(measureContext, { italic: true })),
+  };
+  const castFiles = new Map<string, string>();
+  for (const line of conversation) castFiles.set(line.characterName, line.characterFile);
+  const images = new Map<string, HTMLCanvasElement>();
+  const icons = new Map<string, HTMLCanvasElement>();
+  const neutral = new Map<string, { pose: { width: number; height: number; faceX: number }; poseRef: string }>();
+  await Promise.all([...castFiles].map(async ([name, file]) => {
+    const avatar = await loadAvatar(file);
+    const body = await bodyForText(avatar.buffer, avatar.metadata, "", newPoseMemory());
+    const image = cacheBody(avatar, body);
+    const ref = `neutral|${name}|${file}|${body.key}`;
+    images.set(ref, image);
+    neutral.set(name, { pose: { width: image.width, height: image.height, faceX: body.faceX }, poseRef: ref });
+    const icon = await avatarIcon(avatar);
+    if (icon) icons.set(name, icon);
+  }));
+  for (const line of conversation) {
+    const avatar = await loadAvatar(line.characterFile);
+    const image = cacheBody(avatar, line.body);
+    images.set(line.poseRef, image);
+  }
+
+  const currentTalkTo = new Map<string, string[]>();
+  const page = new ComicPage({
+    fonts,
+    unitWidth: PANEL_TWIPS,
+    unitHeight: PANEL_TWIPS,
+    seed: 1,
+    talkTos: (speaker) => currentTalkTo.get(speaker) ?? [],
+    neutralPose: (speaker) => neutral.get(speaker),
+  });
+  const title = page.chooseTitle();
+  for (const line of conversation) {
+    currentTalkTo.set(line.characterName, line.talkTo);
+    const image = images.get(line.poseRef)!;
+    const comicLine: ComicLine = {
+      speakerId: line.characterName,
+      text: line.message,
+      mode: line.mode,
+      pose: { width: image.width, height: image.height, faceX: line.body.faceX },
+      poseRef: line.poseRef,
+    };
+    page.addLine(comicLine);
+  }
+
+  const uniqueCast = [...castFiles].map(([id, file], index) => ({
+    id,
+    nickname: id,
+    sends: conversation.filter((line) => line.characterName === id).length,
+    self: index === 0,
+    file,
+  }));
+  const titleLayout = layoutTitlePanel(title, uniqueCast, {
+    measure: (text, height) => {
+      measureContext.font = `${height}px "Comic Sans MS", "Comic Neue", cursive`;
+      return measureContext.measureText(text).width;
+    },
+  });
+  const titlePanel = createPanelCanvas(`Title: ${title}`);
+  drawTitlePanel(titlePanel.context, titleLayout, (id) => icons.get(id), { scale: PANEL_SCALE });
+  titlePanel.card.querySelector<HTMLElement>(".panel-meta")!.textContent = "Title and starring panel";
+  fragment.append(titlePanel.card);
+  nextCanvases.push(titlePanel.canvas);
+
+  page.layouts.forEach((layout, index) => {
+    const speakers = layout.bodies.filter((body) => !body.listener).map((body) => body.id);
+    const panel = createPanelCanvas(`Panel ${index + 1}: ${speakers.join(", ")}`);
+    drawPanel(panel.context, layout, {
+      backdrop: backdropCanvas,
+      body: (body) => images.get(String(body.poseRef)),
+    }, { scale: PANEL_SCALE });
+    panel.card.querySelector<HTMLElement>(".panel-meta")!.textContent =
+      `Panel ${index + 1} · ${layout.balloons.length} ${layout.balloons.length === 1 ? "balloon" : "balloons"}`;
+    fragment.append(panel.card);
+    nextCanvases.push(panel.canvas);
   });
 
-  stripCount.textContent = `${conversation.length} ${conversation.length === 1 ? "panel" : "panels"}`;
+  if (generation !== renderGeneration) return;
+  strip.replaceChildren(fragment);
+  panelCanvases = nextCanvases;
+  const count = page.layouts.length + 1;
+  stripCount.textContent = `${count} ${count === 1 ? "panel" : "panels"} · ${conversation.length} ${conversation.length === 1 ? "line" : "lines"}`;
   updateControls();
 }
 
@@ -551,15 +769,20 @@ async function loadBackdrop(): Promise<void> {
   const bitmap = await decodeImage(buffer, parsed.backdrop, parsed.palette);
   if (currentGeneration !== backdropGeneration) return;
   backdropBitmap = bitmap;
-  renderStrip();
+  backdropCanvas = bitmapCanvas(bitmap);
+  await renderStrip();
   setStatus(`Scene changed · ${bitmap.width}×${bitmap.height}px original art`);
 }
 
 async function updateCharacterPreview(): Promise<void> {
+  const generation = ++previewGeneration;
   const avatar = await loadAvatar(characterSelect.value);
-  const emotion = analyzeMessage(messageInput.value);
-  const poseIndex = selectPose(avatar.metadata.bodies, emotion);
-  const bitmap = await loadPose(characterSelect.value, avatar, poseIndex);
+  const frozen = frozenPoses.get(characterSelect.value);
+  const body = frozen
+    ? await composeChoice(avatar.buffer, avatar.metadata, frozen)
+    : await bodyForText(avatar.buffer, avatar.metadata, messageInput.value, newPoseMemory());
+  const bitmap = body.bitmap;
+  if (generation !== previewGeneration) return;
   const context = characterPreview.getContext("2d");
   if (!context) return;
   const source = document.createElement("canvas");
@@ -579,22 +802,24 @@ async function updateCharacterPreview(): Promise<void> {
 
 function advanceSpeaker(): void {
   characterSelect.selectedIndex = (characterSelect.selectedIndex + 1) % characterSelect.options.length;
+  resetEmotionWheel();
   void updateCharacterPreview().catch(showError);
 }
 
 async function addPanel(): Promise<void> {
   const message = messageInput.value.trim();
-  if (!message || (conversation.length >= MAX_PANELS && liveState !== "joined") || isAdding) return;
+  if (!message || isAdding) return;
   isAdding = true;
   updateControls();
   setStatus("Reading the line and choosing a pose…");
   try {
-    const panel = await createConversationPanel(characterSelect.value, message);
-    if (liveState === "joined") liveClient.say(message);
-    appendConversationPanel(panel, liveState === "joined");
+    const mode = messageMode.value as BalloonMode;
+    const line = await createConversationLine(characterSelect.value, message, undefined, mode);
+    if (liveState === "joined") liveClient.say(message, mode === "action");
+    appendConversationLine(line, liveState === "joined");
     messageInput.value = "";
     if (liveState !== "joined") advanceSpeaker();
-    setStatus(`${panel.characterName}: ${panel.emotion.label.toLowerCase()} · ${liveState === "joined" ? "sent to IRC" : `pose ${panel.poseIndex + 1}`}`);
+    setStatus(`${line.characterName}: ${line.expression} · ${line.mode} balloon${liveState === "joined" ? " · sent to IRC" : ""}`);
   } finally {
     isAdding = false;
     updateControls();
@@ -606,16 +831,16 @@ function downloadStrip(): void {
   const columns = panelCanvases.length === 1 ? 1 : 2;
   const rows = Math.ceil(panelCanvases.length / columns);
   const output = document.createElement("canvas");
-  output.width = PANEL_WIDTH * columns;
-  output.height = PANEL_HEIGHT * rows;
+  output.width = PANEL_PIXELS * columns;
+  output.height = PANEL_PIXELS * rows;
   const context = output.getContext("2d");
   if (!context) throw new Error("Canvas is unavailable");
-  context.fillStyle = "#f4efe3";
+  context.fillStyle = "#fff";
   context.fillRect(0, 0, output.width, output.height);
   panelCanvases.forEach((canvas, index) => {
-    const x = (index % columns) * PANEL_WIDTH;
-    const y = Math.floor(index / columns) * PANEL_HEIGHT;
-    context.drawImage(canvas, x, y, PANEL_WIDTH, PANEL_HEIGHT);
+    const x = (index % columns) * PANEL_PIXELS;
+    const y = Math.floor(index / columns) * PANEL_PIXELS;
+    context.drawImage(canvas, x, y, PANEL_PIXELS, PANEL_PIXELS);
   });
 
   const link = document.createElement("a");
@@ -626,38 +851,56 @@ function downloadStrip(): void {
 
 async function initialLoad(): Promise<void> {
   try {
-    const [backgroundBuffer, firstPanel] = await Promise.all([
-      fetchAsset(backdropSelect.value),
-      createConversationPanel("connor.avb", "The web? Sure. But make it a comic."),
-    ]);
+    const backgroundBuffer = await fetchAsset(backdropSelect.value);
     const background = parseAvatar(backgroundBuffer);
     if (!background.backdrop) throw new Error("The selected backdrop is incomplete");
     backdropBitmap = await decodeImage(backgroundBuffer, background.backdrop, background.palette);
-    conversation.push(firstPanel);
-    characterSelect.value = "glenda.avb";
+    backdropCanvas = bitmapCanvas(backdropBitmap);
+    characterSelect.value = "connor.avb";
     await updateCharacterPreview();
-    renderStrip();
-    setStatus("Conversation ready. Add the next line.");
+    await renderStrip();
+    setStatus("Conversation ready. The original layout engine will compose the next line.");
   } catch (error) {
     showError(error);
   }
 }
 
-messageInput.addEventListener("input", updateControls);
+messageInput.addEventListener("input", () => {
+  updateControls();
+  if (!frozenPoses.has(characterSelect.value)) void updateCharacterPreview().catch(showError);
+});
 messageInput.addEventListener("keydown", (event) => {
   if ((event.metaKey || event.ctrlKey) && event.key === "Enter") void addPanel().catch(showError);
 });
 backdropSelect.addEventListener("change", () => loadBackdrop().catch(showError));
-characterSelect.addEventListener("change", () => updateCharacterPreview().catch(showError));
+characterSelect.addEventListener("change", () => {
+  resetEmotionWheel();
+  frozenPoses.delete(characterSelect.value);
+  updateControls();
+  void updateCharacterPreview().catch(showError);
+});
+messageMode.addEventListener("change", updateControls);
+for (const button of modeButtons) {
+  button.addEventListener("click", () => {
+    messageMode.value = button.dataset.mode ?? "say";
+    for (const candidate of modeButtons) {
+      const selected = candidate === button;
+      candidate.classList.toggle("selected", selected);
+      candidate.setAttribute("aria-pressed", String(selected));
+    }
+    updateControls();
+    messageInput.focus();
+  });
+}
 addButton.addEventListener("click", () => addPanel().catch(showError));
 undoButton.addEventListener("click", () => {
   const removed = conversation.pop();
-  renderStrip();
-  setStatus(removed ? `Removed ${removed.characterName}'s last panel.` : "The strip is already empty.");
+  void renderStrip().catch(showError);
+  setStatus(removed ? `Removed ${removed.characterName}'s last line.` : "The strip is already empty.");
 });
 clearButton.addEventListener("click", () => {
   conversation.length = 0;
-  renderStrip();
+  void renderStrip().catch(showError);
   setStatus("Strip cleared. Write a line to begin again.");
 });
 downloadButton.addEventListener("click", downloadStrip);
@@ -713,4 +956,3 @@ if (linkedRoom) {
 }
 updateControls();
 void initialLoad();
-void updateCharacterPreview();

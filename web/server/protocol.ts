@@ -53,7 +53,7 @@ export function validateJoinRequest(value: unknown): string {
   return candidate.channel;
 }
 
-export function validateChatMessage(value: unknown): string {
+export function validateChatMessage(value: unknown): { message: string; action: boolean } {
   if (!value || typeof value !== "object") throw new Error("Invalid chat message");
   const candidate = value as Record<string, unknown>;
   if (candidate.type !== "say" || typeof candidate.message !== "string") {
@@ -63,7 +63,10 @@ export function validateChatMessage(value: unknown): string {
   if (!message) throw new Error("Message cannot be empty");
   if (/[\r\n\0]/.test(message)) throw new Error("Message contains invalid control characters");
   if (Buffer.byteLength(message, "utf8") > 400) throw new Error("Message is too long for IRC");
-  return message;
+  if (candidate.action !== undefined && typeof candidate.action !== "boolean") {
+    throw new Error("Invalid action flag");
+  }
+  return { message, action: candidate.action === true };
 }
 
 function decodeTag(value: string): string {

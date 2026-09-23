@@ -40,7 +40,9 @@ describe("IRC protocol boundary", () => {
   });
 
   it("blocks command injection and oversized messages", () => {
-    expect(validateChatMessage({ type: "say", message: " hello " })).toBe("hello");
+    expect(validateChatMessage({ type: "say", message: " hello " })).toEqual({ message: "hello", action: false });
+    expect(validateChatMessage({ type: "say", message: "waves", action: true })).toEqual({ message: "waves", action: true });
+    expect(() => validateChatMessage({ type: "say", message: "hello", action: "yes" })).toThrow("action");
     expect(() => validateChatMessage({ type: "say", message: "hello\r\nJOIN #other" })).toThrow("control");
     expect(() => validateChatMessage({ type: "say", message: "x".repeat(401) })).toThrow("too long");
   });
