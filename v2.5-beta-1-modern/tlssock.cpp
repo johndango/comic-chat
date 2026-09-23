@@ -98,7 +98,7 @@ BOOL CTlsClient::Begin(const char *serverName, CByteArray &outToken)
 	ss = InitializeSecurityContext(
 		&m_cred, NULL, (SEC_CHAR *)(LPCTSTR)m_serverName, kIscReqFlags, 0, 0,
 		NULL, 0, &m_ctx, &outDesc, &attrs, &tsExpiry);
-	m_haveCtx = TRUE;
+	m_haveCtx = SecIsValidHandle(&m_ctx);
 
 	if (outBuf.cbBuffer && outBuf.pvBuffer)
 	{

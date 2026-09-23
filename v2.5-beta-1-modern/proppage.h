@@ -385,11 +385,11 @@ public:
 	CString			m_strUserName;
 	CString			m_strPassword;
 	BOOL			m_bRememberPassword;
-	BOOL			m_bUseTLS;
 	CString			m_strSecurityPackages;
 	int				m_nCurrSelGroup;
 	int				m_nCurrSelServer;
 	//}}AFX_DATA
+	BOOL			m_bUseTLS;
 	static CString  sm_strUnassociatedGroup;
 
 // Overrides
