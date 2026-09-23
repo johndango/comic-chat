@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Layout engine demo</title>
+    <style>
+      :root { color-scheme: light; font-family: system-ui, sans-serif; }
+      body { margin: 0; padding: 16px; background: #d8d8d8; }
+      header { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 12px; }
+      h1 { font-size: 16px; margin: 0 12px 0 0; }
+      form { display: flex; flex-wrap: wrap; gap: 6px; }
+      input[type="text"] { width: min(360px, 60vw); }
+      #strip { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 10px; }
+      canvas { width: 100%; height: auto; background: #fff; display: block; }
+      #note { font-size: 12px; color: #333; margin: 8px 0 0; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>Comic Chat 2.5 layout engine</h1>
+      <form id="say">
+        <select id="speaker"></select>
+        <select id="mode">
+          <option value="say">Say</option>
+          <option value="think">Think</option>
+          <option value="whisper">Whisper</option>
+          <option value="action">Action</option>
+        </select>
+        <input id="text" type="text" placeholder="Type a line. Start with a name and a colon to address someone." />
+        <button>Add</button>
+        <button type="button" id="reseed">New seed</button>
+      </form>
+    </header>
+    <div id="strip"></div>
+    <p id="note"></p>
+    <script type="module" src="/src/layout/demo.ts"></script>
+  </body>
+</html>
