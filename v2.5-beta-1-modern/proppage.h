@@ -385,6 +385,7 @@ public:
 	CString			m_strUserName;
 	CString			m_strPassword;
 	BOOL			m_bRememberPassword;
+	BOOL			m_bUseTLS;
 	CString			m_strSecurityPackages;
 	int				m_nCurrSelGroup;
 	int				m_nCurrSelServer;
@@ -467,6 +468,7 @@ protected:
 	afx_msg void OnChangeAuthenticationType();
 	afx_msg void OnChangeServerProp();
 	//}}AFX_MSG
+	afx_msg void OnUseTLS();
 	DECLARE_MESSAGE_MAP()
 
 };

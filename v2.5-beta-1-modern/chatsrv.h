@@ -35,6 +35,7 @@ public:
 	LPSTR m_pszPassword;
 	LPSTR m_pszSecurityPackages;
 	BOOL  m_bRememberPassword;
+	BOOL  m_bUseTLS;
 	SOCKADDR_IN m_sockaddr;
 
 protected:
@@ -53,6 +54,7 @@ protected:
 		datatypeUserPassword			= 0x04,
 		datatypeSecurityPkg				= 0x05,
 		datatypeRememberPassword		= 0x06,
+		datatypeUseTLS					= 0x07,
 	};
 
 	void ReadFromData(PVOID pvData, UINT nDataLen);
@@ -190,6 +192,7 @@ public:
 		CString m_strPassword;
 		CString m_strSecurityPackages;
 		BOOL  	m_bRememberPassword;
+		BOOL	m_bUseTLS;
 		CChatServerGroup* m_pGroupIn;
 	};
 

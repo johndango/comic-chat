@@ -133,14 +133,17 @@ left as an exercise for the reader.
   the modern debug CRT.
 - **Default comic balloon font** bumped from 9pt to 12pt for readability on large
   high-DPI panels (`IDS_DFLT_COMICSPNTSIZE`).
+- **Native IRC TLS** using Windows SChannel. TLS is stored per server on the
+  **Servers** preferences page; enabling it changes an untouched default port
+  from 6667 to 6697. The IRC/IRCX login starts only after the TLS handshake and
+  Windows validates the server certificate and hostname. No third-party crypto
+  library is required. See [`../docs/tls.md`](../docs/tls.md).
 
 ## Known differences / not yet ported
 
-- **Native TLS transport is not included.** 2.5's `ircsock.cpp` already uses SSPI,
-  but for IRC *authentication* (server auth packages), not SChannel transport
-  encryption. Adding TLS would mean porting the `CTlsClient` SChannel client from
-  `v1.0-pre-modern/tlssock.cpp` and wiring a "Use SSL" / port 6697 option into the
-  connect dialog. See [`../docs/tls.md`](../docs/tls.md).
+- **TLS client certificates and renegotiation are not supported.** Ordinary
+  server-authenticated IRC TLS is supported; CertFP/SASL EXTERNAL remains out of
+  scope.
 - **Balloon word-wrap** is intentionally left as-is: 2.5 already has a more
   advanced international, word-boundary-aware wrapper
   (`FindSubStringForINTLThatFits`), so the simpler `v1.0-pre-modern` fix is not

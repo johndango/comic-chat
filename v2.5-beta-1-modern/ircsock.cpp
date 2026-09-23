@@ -20,6 +20,7 @@
 #include "status.h"
 #include "motd.h"
 #include "avatar.h"
+#include "tlssock.h"
 
 extern CChatApp theApp;
 extern CPtrList g_docs;
@@ -425,6 +426,9 @@ CIrcSocket::CIrcSocket(void)
 	m_szOutput2		= NULL;
 	m_szMessage		= NULL;
 	m_nAuthenticationType = authtypeNone;	// No authentication by default
+	m_bUseTLS		= FALSE;
+	m_tlsState		= tlsNone;
+	m_pTls			= NULL;
 	Reset();
 }
 
@@ -452,6 +456,7 @@ CIrcSocket::~CIrcSocket(void)
 
 	free (m_pszUserName);
 	free (m_pszPassword);
+	delete m_pTls;
 }
 
 
@@ -472,6 +477,12 @@ void CIrcSocket::CloseSSPI(void)
 
 void CIrcSocket::Reset(void)
 {
+	delete m_pTls;
+	m_pTls = NULL;
+	m_tlsState = tlsNone;
+	m_bUseTLS = FALSE;
+	m_strTlsServer.Empty();
+	m_rawSendQueue.RemoveAll();
 	m_nSecuPackIndex= -1;
 	m_bIrcXServer	= FALSE;
 	m_bRegistered	= FALSE;
@@ -997,38 +1008,226 @@ tryAgain:
 }
 
 
-void CIrcSocket::OnReceive(int nErrorCode) {
-	// TRACE("Entering OnReceive (code = %d).\n", nErrorCode);
+void CIrcSocket::SetSecure(BOOL bSecure, LPCSTR pszServerName)
+{
+	m_bUseTLS = bSecure;
+	m_strTlsServer = pszServerName ? pszServerName : "";
+}
 
-	if (!nErrorCode) {
-		char *startPtr = (char *)strchr(m_szInput, '\0');
-		int space = m_szInput + m_nMaxMsgLength - startPtr;
-		int nRead = Receive(startPtr, space);
-		if (SOCKET_ERROR == nRead)
+
+BOOL CIrcSocket::QueueRawBytes(const BYTE *pData, int nLength)
+{
+	if (nLength <= 0)
+		return TRUE;
+	int nOldSize = m_rawSendQueue.GetSize();
+	m_rawSendQueue.SetSize(nOldSize + nLength);
+	memcpy(m_rawSendQueue.GetData() + nOldSize, pData, nLength);
+	return FlushRawBytes();
+}
+
+
+BOOL CIrcSocket::FlushRawBytes()
+{
+	while (m_rawSendQueue.GetSize() > 0)
+	{
+		int nSent = CAsyncSocket::Send(m_rawSendQueue.GetData(),
+			m_rawSendQueue.GetSize());
+		if (nSent == SOCKET_ERROR)
 		{
-			TRACE("Receive failed with error: %d\n", GetLastError());
-			return;
+			if (GetLastError() == WSAEWOULDBLOCK)
+				return TRUE;
+			TRACE("Socket send failed with error: %d\n", GetLastError());
+			return FALSE;
 		}
-		startPtr[nRead] = '\0';
+		if (nSent == 0)
+			return FALSE;
+		int nRemaining = m_rawSendQueue.GetSize() - nSent;
+		if (nRemaining > 0)
+			memmove(m_rawSendQueue.GetData(), m_rawSendQueue.GetData() + nSent,
+				nRemaining);
+		m_rawSendQueue.SetSize(nRemaining);
+	}
+	return TRUE;
+}
+
+
+int CIrcSocket::Send(const void *lpBuf, int nBufLen, int nFlags)
+{
+	UNREFERENCED_PARAMETER(nFlags);
+	if (nBufLen <= 0)
+		return 0;
+
+	if (m_bUseTLS)
+	{
+		if (m_tlsState != tlsConnected || !m_pTls)
+		{
+			WSASetLastError(WSAENOTCONN);
+			return SOCKET_ERROR;
+		}
+		CByteArray cipher;
+		if (!m_pTls->Encrypt((const BYTE *)lpBuf, nBufLen, cipher) ||
+			!QueueRawBytes(cipher.GetData(), cipher.GetSize()))
+		{
+			return SOCKET_ERROR;
+		}
+		return nBufLen;
+	}
+
+	return QueueRawBytes((const BYTE *)lpBuf, nBufLen) ? nBufLen : SOCKET_ERROR;
+}
+
+
+void CIrcSocket::OnSend(int nErrorCode)
+{
+	if (nErrorCode)
+	{
+		TRACE("Socket send notification failed with error: %d\n", nErrorCode);
+		return;
+	}
+	if (!FlushRawBytes())
+		Close();
+}
+
+
+BOOL CIrcSocket::FeedPlainBytes(const BYTE *pData, int nLength)
+{
+	while (nLength > 0)
+	{
+		int nBuffered = strlen(m_szInput);
+		int nSpace = m_nMaxMsgLength - nBuffered;
+		if (nSpace <= 0)
+		{
+			TRACE("IRC input line exceeded %d bytes\n", m_nMaxMsgLength);
+			return FALSE;
+		}
+		int nCopy = min(nSpace, nLength);
+		memcpy(m_szInput + nBuffered, pData, nCopy);
+		m_szInput[nBuffered + nCopy] = '\0';
+		pData += nCopy;
+		nLength -= nCopy;
+
 		char *eoc = (char *)strchr(m_szInput, '\n');
-		while (eoc) {
+		while (eoc)
+		{
 			eoc++;
 			int comLen = eoc - m_szInput;
 			strncpy(m_szMessage, m_szInput, comLen);
 			m_szMessage[comLen] = '\0';
 
-			// now move rest of message forward
 			char *eob = (char *)strchr(m_szInput, '\0');
 			int nRest = eob - eoc;
-			strncpy(m_szInput, eoc, nRest);
+			memmove(m_szInput, eoc, nRest);
 			m_szInput[nRest] = '\0';
 
 			TRACE("Got message: %.100s\n", m_szMessage);
-			ProcessMessage(m_szMessage);   // handle the message (*After clearing it from the buffer!!!)
-			eoc = (char *)strchr(m_szInput, '\n'); // must do this after process message, since code is reentrant (but single threaded)
+			ProcessMessage(m_szMessage);
+			eoc = (char *)strchr(m_szInput, '\n');
 		}
 	}
-	// TRACE("Leaving OnReceive.\n");
+	return TRUE;
+}
+
+
+void CIrcSocket::FailTlsConnection()
+{
+	TRACE("TLS: secure connection failed for %s\n", (LPCTSTR)m_strTlsServer);
+	Close();
+	GetIrcProto()->SetConnectionStatus(CX_DISCONNECTED);
+	CString strMesg;
+	strMesg.LoadString(IDS_TLS_CONNECT_FAILED);
+	VERIFY(ReplaceToken(strMesg, CString("%1"), m_strTlsServer));
+	AfxMessageBox(strMesg, MB_OK | MB_ICONEXCLAMATION);
+}
+
+
+void CIrcSocket::OnReceive(int nErrorCode)
+{
+	if (nErrorCode)
+		return;
+
+	BYTE raw[17408];
+	int nRead = CAsyncSocket::Receive(raw, sizeof(raw));
+	if (nRead == SOCKET_ERROR)
+	{
+		if (GetLastError() != WSAEWOULDBLOCK)
+			TRACE("Receive failed with error: %d\n", GetLastError());
+		return;
+	}
+	if (nRead <= 0)
+		return;
+
+	if (!m_bUseTLS)
+	{
+		if (!FeedPlainBytes(raw, nRead))
+			Close();
+		return;
+	}
+
+	if (!m_pTls)
+	{
+		FailTlsConnection();
+		return;
+	}
+
+	if (m_tlsState == tlsHandshaking)
+	{
+		CByteArray outToken;
+		CByteArray extraCiphertext;
+		CTlsClient::Result result = m_pTls->Continue(raw, nRead, outToken,
+			extraCiphertext);
+		if (outToken.GetSize() > 0 &&
+			!QueueRawBytes(outToken.GetData(), outToken.GetSize()))
+		{
+			FailTlsConnection();
+			return;
+		}
+		if (result == CTlsClient::TLS_ERROR)
+		{
+			FailTlsConnection();
+			return;
+		}
+		if (result == CTlsClient::TLS_DONE)
+		{
+			m_tlsState = tlsConnected;
+			TRACE("TLS: secure connection established for %s\n",
+				(LPCTSTR)m_strTlsServer);
+			StartIrcSession();
+			if (extraCiphertext.GetSize() > 0)
+			{
+				CByteArray plain;
+				BOOL bRenegotiate = FALSE;
+				if (!m_pTls->Decrypt(extraCiphertext.GetData(),
+					extraCiphertext.GetSize(), plain, bRenegotiate) || bRenegotiate ||
+					(plain.GetSize() > 0 && !FeedPlainBytes(plain.GetData(),
+					plain.GetSize())))
+				{
+					FailTlsConnection();
+				}
+			}
+		}
+		return;
+	}
+
+	if (m_tlsState == tlsConnected)
+	{
+		CByteArray plain;
+		BOOL bRenegotiate = FALSE;
+		if (!m_pTls->Decrypt(raw, nRead, plain, bRenegotiate) || bRenegotiate ||
+			(plain.GetSize() > 0 && !FeedPlainBytes(plain.GetData(), plain.GetSize())))
+		{
+			FailTlsConnection();
+		}
+	}
+}
+
+
+void CIrcSocket::StartIrcSession()
+{
+	// Is this an IRCX server?
+	ASSERT(GetIrcProto());
+	VERIFY(GetIrcProto()->bExecuteQuery(qpIsIrcX, ctModeIsIrcX, dtMax, NULL, "", ""));
+	m_bJustSentModeIsIrcX = TRUE;
+	::AfxGetMainWnd()->SetTimer(ID_ISIRCXTIMEOUT, ISIRCXTIMEOUT, NULL);
 }
 
 
@@ -1044,12 +1243,27 @@ void CIrcSocket::OnConnect(int nErrorCode) {
 		InitializeServerConnection(&g_enterInfo, &g_bCXPrompt);
 		return;
 	}
-	// got a connection!
-	// Is this an IRCX server?
-	ASSERT(GetIrcProto());
-	VERIFY(GetIrcProto()->bExecuteQuery(qpIsIrcX, ctModeIsIrcX, dtMax, NULL, "", ""));
-	m_bJustSentModeIsIrcX = TRUE;
-	::AfxGetMainWnd()->SetTimer(ID_ISIRCXTIMEOUT, ISIRCXTIMEOUT, NULL);
+	// got a connection! Negotiate TLS before sending any IRC commands.
+	if (m_bUseTLS)
+	{
+		delete m_pTls;
+		m_pTls = new CTlsClient;
+		if (!m_pTls)
+		{
+			FailTlsConnection();
+			return;
+		}
+		CByteArray clientHello;
+		m_tlsState = tlsHandshaking;
+		if (!m_pTls->Begin(m_strTlsServer, clientHello) ||
+			!QueueRawBytes(clientHello.GetData(), clientHello.GetSize()))
+		{
+			FailTlsConnection();
+			return;
+		}
+		return;
+	}
+	StartIrcSession();
 }
 
 

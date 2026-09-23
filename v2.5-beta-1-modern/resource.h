@@ -467,6 +467,7 @@
 #define IDC_DELAYSPIN                   1331
 #define IDC_SOUND_MATCH                 1333
 #define IDC_NOPWD_MESSAGE               1334
+#define IDC_SERVER_USE_TLS              1336
 #define IDD_SETTEXTFONT                 1543
 #define IDD_WHISPERBOX                  1544
 #define IDD_COMICS_VIEW                 1545
@@ -1149,6 +1150,7 @@
 #define IDS_PROPGET_SYNTAX              63189
 #define IDS_PROPSET_SYNTAX              63190
 #define IDS_MEMBER_COUNT_WIDTH          63191
+#define IDS_TLS_CONNECT_FAILED          63192
 
 // Next default values for new objects
 // 
@@ -1157,7 +1159,7 @@
 #define _APS_3D_CONTROLS                     1
 #define _APS_NEXT_RESOURCE_VALUE        292
 #define _APS_NEXT_COMMAND_VALUE         42837
-#define _APS_NEXT_CONTROL_VALUE         1336
+#define _APS_NEXT_CONTROL_VALUE         1337
 #define _APS_NEXT_SYMED_VALUE           103
 #endif
 #endif

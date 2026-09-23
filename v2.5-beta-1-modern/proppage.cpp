@@ -1690,6 +1690,7 @@ CServersPage::CServersPage() : CCSPropertyPage(CServersPage::IDD)
 	m_nPort = 6667;
 	m_nSecurity = 0;
 	m_bRememberPassword = FALSE;
+	m_bUseTLS = FALSE;
 	m_nCurrSelServer = m_nCurrSelGroup = CB_NOCURRSEL;
 	m_bServerPropChange = FALSE;
 	m_bSetActiveNeverCalled = TRUE;
@@ -1765,6 +1766,7 @@ BEGIN_MESSAGE_MAP(CServersPage, CCSPropertyPage)
 	//ON_EN_CHANGE(IDC_SRV_PACKAGES, OnChangeServerProp)
 	ON_BN_CLICKED(IDC_SRV_REMEMBER_PWD, OnChangeServerProp)
 	//}}AFX_MSG_MAP
+	ON_BN_CLICKED(IDC_SERVER_USE_TLS, OnUseTLS)
 END_MESSAGE_MAP()
 
 const DWORD CServersPage::m_nHelpIDs[] =
@@ -1937,11 +1939,13 @@ DWORD dwUpdateHint)
 		{
 			//EnableControlRange (IDC_SERVER_SECURITY, IDC_SRV_PACKAGES, FALSE);
 			EnableControlRange (IDC_SERVER_SECURITY, IDC_SRV_REMEMBER_PWD, FALSE);
+			GetDlgItem(IDC_SERVER_USE_TLS)->EnableWindow(FALSE);
 		}
 		else
 		{
 			EnableControlRange (IDC_SERVER_SECURITY, IDC_SRVCONNECT_PKG, TRUE);
 			EnableControlRange (IDC_SRV_USERNAME_LABEL, IDC_SRV_REMEMBER_PWD, m_nSecurity == 1);
+			GetDlgItem(IDC_SERVER_USE_TLS)->EnableWindow(TRUE);
 			//EnableControl (IDC_SRV_PACKAGES, m_nSecurity == 3);
 		}
 	}
@@ -2123,6 +2127,7 @@ CServersPage::SwitchServer()
 		m_strUserName = data.m_strUserName;
 		m_strPassword = data.m_strPassword;
 		m_bRememberPassword = data.m_bRememberPassword;
+		m_bUseTLS = data.m_bUseTLS;
 		m_strSecurityPackages = data.m_strSecurityPackages;
 		if (m_nSecurity > 1)
 			m_nSecurity = 0;
@@ -2134,6 +2139,7 @@ CServersPage::SwitchServer()
 		m_strUserName.Empty ();
 		m_strPassword.Empty ();
 		m_bRememberPassword = FALSE;
+		m_bUseTLS = FALSE;
 		m_strSecurityPackages.Empty ();
 	}
 
@@ -2151,7 +2157,7 @@ CDataExchange* pDX)
 
 	DDX_Radio(pDX, IDC_SRVCONNECT_NOPWD, m_nSecurity);
 	CString strUserName, strPassword, strPackages;
-	BOOL bRememberPassword;
+	BOOL bRememberPassword = FALSE;
 	if (m_nSecurity == 1)
 	{
 		strUserName = m_strUserName;
@@ -2169,6 +2175,7 @@ CDataExchange* pDX)
 	DDX_Text(pDX, IDC_SRV_PASSWORD, strPassword);
 	//DDX_Text(pDX, IDC_SRV_PACKAGES, strPackages);
 	DDX_Text(pDX, IDC_SERVER_PORT, m_nPort);
+	DDX_Check(pDX, IDC_SERVER_USE_TLS, m_bUseTLS);
 	DDX_Check(pDX, IDC_SRV_REMEMBER_PWD, bRememberPassword);
 	m_bInDDX = bPrevDDX;
 }
@@ -2205,6 +2212,7 @@ CDataExchange* pDX)
 	}
 
 	DDX_Text(pDX, IDC_SERVER_PORT, m_nPort);
+	DDX_Check(pDX, IDC_SERVER_USE_TLS, m_bUseTLS);
 }
 
 // Accepts the currently entered settings.
@@ -2233,6 +2241,7 @@ CServersPage::AcceptServerSettings()
 		data.m_strUserName = m_strUserName;
 		data.m_strPassword = m_strPassword;
 		data.m_bRememberPassword = m_bRememberPassword;
+		data.m_bUseTLS = m_bUseTLS;
 		data.m_strSecurityPackages = m_strSecurityPackages;
 		m_ui.SetServerProps (hGroup, hServer, data);
 		m_bServerPropChange = FALSE;
@@ -2378,6 +2387,29 @@ CServersPage::OnChangeServerProp()
 		m_bServerPropChange = TRUE;
 		SetModified (TRUE);
 	}
+}
+
+void
+CServersPage::OnUseTLS()
+{
+	if (m_bSetActiveNeverCalled || m_bInDDX)
+		return;
+
+	m_bUseTLS = IsDlgButtonChecked(IDC_SERVER_USE_TLS) == BST_CHECKED;
+	BOOL bTranslated = FALSE;
+	UINT nPort = GetDlgItemInt(IDC_SERVER_PORT, &bTranslated, FALSE);
+	if (bTranslated)
+	{
+		if (m_bUseTLS && nPort == 6667)
+			m_nPort = 6697;
+		else if (!m_bUseTLS && nPort == 6697)
+			m_nPort = 6667;
+		else
+			m_nPort = nPort;
+		SetDlgItemInt(IDC_SERVER_PORT, m_nPort, FALSE);
+	}
+	m_bServerPropChange = TRUE;
+	SetModified(TRUE);
 }
 
 BOOL 

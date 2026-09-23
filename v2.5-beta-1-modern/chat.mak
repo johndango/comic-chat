@@ -122,6 +122,7 @@ OBJS= \
 	"$(INTDIR)\textcore.obj" \
 	"$(INTDIR)\textpose.obj" \
 	"$(INTDIR)\textview.obj" \
+	"$(INTDIR)\tlssock.obj" \
 	"$(INTDIR)\traj.obj" \
 	"$(INTDIR)\txtfntdg.obj" \
 	"$(INTDIR)\urlutil.obj" \

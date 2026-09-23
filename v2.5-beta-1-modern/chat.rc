@@ -1516,20 +1516,22 @@ BEGIN
     CONTROL         "",IDC_SERVER_PORT_NW,"msctls_updown32",UDS_SETBUDDYINT | 
                     UDS_ALIGNRIGHT | UDS_AUTOBUDDY | UDS_ARROWKEYS | 
                     UDS_NOTHOUSANDS,200,64,8,13
-    LTEXT           "Connect using:",IDC_STATIC,107,85,48,8
+    CONTROL         "Use &TLS encryption",IDC_SERVER_USE_TLS,"Button",
+                    BS_AUTOCHECKBOX | WS_TABSTOP,107,83,91,10
+    LTEXT           "Connect using:",IDC_STATIC,107,99,48,8
     CONTROL         "N&o password, if possible",IDC_SRVCONNECT_NOPWD,"Button",
-                    BS_AUTORADIOBUTTON | WS_GROUP | WS_TABSTOP,116,100,92,10
+                    BS_AUTORADIOBUTTON | WS_GROUP | WS_TABSTOP,116,114,92,10
     CONTROL         "IRC us&ername/password",IDC_SRVCONNECT_PWD,"Button",
-                    BS_AUTORADIOBUTTON,116,143,94,10
+                    BS_AUTORADIOBUTTON,116,157,94,10
     LTEXT           "If the server requires a password, the server's default security will be used.",
-                    IDC_NOPWD_MESSAGE,129,111,109,26
-    LTEXT           "&Username:",IDC_SRV_USERNAME_LABEL,128,157,35,8
-    EDITTEXT        IDC_SRV_USERNAME,172,155,67,13,ES_AUTOHSCROLL
-    LTEXT           "Pass&word:",IDC_SRV_PASSWORD_LABEL,128,173,34,8
-    EDITTEXT        IDC_SRV_PASSWORD,172,171,67,13,ES_PASSWORD | 
+                    IDC_NOPWD_MESSAGE,129,125,109,26
+    LTEXT           "&Username:",IDC_SRV_USERNAME_LABEL,128,171,35,8
+    EDITTEXT        IDC_SRV_USERNAME,172,169,67,13,ES_AUTOHSCROLL
+    LTEXT           "Pass&word:",IDC_SRV_PASSWORD_LABEL,128,187,34,8
+    EDITTEXT        IDC_SRV_PASSWORD,172,185,67,13,ES_PASSWORD |
                     ES_AUTOHSCROLL
     CONTROL         "Remem&ber password",IDC_SRV_REMEMBER_PWD,"Button",
-                    BS_AUTOCHECKBOX | WS_TABSTOP,145,189,82,10
+                    BS_AUTOCHECKBOX | WS_TABSTOP,145,203,82,10
 END
 
 IDD_PASSWORD DIALOG DISCARDABLE  0, 0, 198, 127
@@ -1995,6 +1997,7 @@ BEGIN
     IDS_PROPGET_SYNTAX      "(to get a room property)\n"
     IDS_PROPSET_SYNTAX      "(to set or reset a room property)\n"
     IDS_MEMBER_COUNT_WIDTH  "75"
+    IDS_TLS_CONNECT_FAILED  "The secure connection to %1 failed. Check the server name, TLS setting, port, and certificate."
 END
 
 STRINGTABLE PRELOAD DISCARDABLE 
@@ -3018,4 +3021,3 @@ LANGUAGE 9, 1
 #include "..\inc\textview.rc" // Text view resources
 /////////////////////////////////////////////////////////////////////////////
 #endif    // not APSTUDIO_INVOKED
-

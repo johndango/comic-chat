@@ -75,14 +75,14 @@ in brief:
   narrow estimate (so "Test" no longer renders as "Tes" / "t"); the balloon grows
   to keep the word whole.
 
-## 4. Native TLS over IRC (separate branch)
+## 4. Native TLS over IRC
 
 Comic Chat (1996) predates TLS and speaks only plaintext IRC, so it can't reach
-TLS-only ports such as `irc.libera.chat:6697`. The `tls-schannel` branch adds
+TLS-only ports such as `irc.libera.chat:6697`. The modern clients add
 **native TLS via the built-in Windows SChannel/SSPI provider** — no external
 tunnel (stunnel/ZNC), no third-party crypto library. A "Use SSL (TLS)" checkbox
 in the Connect dialog turns it on (and defaults the port to 6697). Full design,
-the client-certificate gotcha, and the permissive-validation caveat are in
+the client-certificate gotcha, and validation details are in
 [`tls.md`](tls.md).
 
 ## 5. Verification
@@ -123,7 +123,9 @@ Highlights of the bring-up (full list in the folder's
   (that failure was the startup crash).
 - Re-created the missing `chatver.h` / `chatver.rc` version stamp.
 - The DPI, mouse-wheel and panels-per-row work above, ported across.
+- Native SChannel TLS stored per server, with certificate and hostname
+  validation performed by Windows before the IRC login starts.
 
-Not ported: native TLS transport (2.5's SSPI is for IRC *authentication*, not
-SChannel) and main-toolbar glyph scaling. 2.5's balloon wrapper is already
+Not ported: TLS client certificates/renegotiation and main-toolbar glyph
+scaling. 2.5's balloon wrapper is already
 international/word-aware, so the `src` word-wrap fix is unnecessary there.
