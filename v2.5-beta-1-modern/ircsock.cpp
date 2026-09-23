@@ -803,8 +803,8 @@ HRESULT CIrcSocket::HrAuthenticate(CHAR *szUserName, CHAR *szPassword, CHAR *szS
 {
     SEC_WINNT_AUTH_IDENTITY AuthData, *pAuthData;
     INIT_SECURITY_INTERFACE	addrProcISI;
-    DWORD					dwSecStatus;
-    DWORD					dwLifeTime;
+	SECURITY_STATUS			dwSecStatus;
+	TimeStamp				tsLifeTime;
 
     //  If this is the first authentication attempt then load the SECURITY.DLL and obtain
     //  the security entry point.
@@ -867,9 +867,9 @@ HRESULT CIrcSocket::HrAuthenticate(CHAR *szUserName, CHAR *szPassword, CHAR *szS
 
     //  Get a credential handle for this client to use in future SSPI calls.
     //      SEC_E_SECPKG_NOT_FOUND  080090305  - SSPI package not installed.
-    dwSecStatus = (*(m_pFuncTbl->AcquireCredentialsHandle)) (NULL, szSecurityPackage, 
-                      SECPKG_CRED_OUTBOUND,  NULL, pAuthData, NULL, NULL, 
-                      &m_hCredential, &dwLifeTime);
+	    dwSecStatus = (*(m_pFuncTbl->AcquireCredentialsHandle)) (NULL, szSecurityPackage,
+	                      SECPKG_CRED_OUTBOUND,  NULL, pAuthData, NULL, NULL,
+	                      &m_hCredential, &tsLifeTime);
     if (dwSecStatus != NO_ERROR)
         return E_FAIL;	// REGISB: put correct error code here
 
@@ -902,8 +902,8 @@ HRESULT CIrcSocket::HrGenerateAndSendAuthMsg(CHAR *szBlob, CHAR *szSecurityPacka
     PSecBufferDesc	pInSecDesc;
     ULONG			ulContextReq;
     ULONG			ulContextAttrib;
-    DWORD			dwExpireTime;
-    DWORD			dwStatus;
+	TimeStamp		tsExpireTime;
+	SECURITY_STATUS	dwStatus;
     BYTE			pbBuffer[4096];
 	CHAR			*szStr;
 	UINT			cbBlob;
@@ -953,7 +953,7 @@ HRESULT CIrcSocket::HrGenerateAndSendAuthMsg(CHAR *szBlob, CHAR *szSecurityPacka
     outSecBuffer.BufferType = SECBUFFER_TOKEN;
     outSecBuffer.pvBuffer = pbBuffer;
 
-    ulContextReq = ISC_REQ_CONFIDENTIALITY | ISC_REG_USE_SESSION_KEY;
+	    ulContextReq = ISC_REQ_CONFIDENTIALITY | ISC_REQ_USE_SESSION_KEY;
 
 	// First try using an exisiting session key
 	if (m_bAuthFailed)
@@ -978,7 +978,7 @@ tryAgain:
                                 &m_hContext,							// phNewContext
                                 &outSecDesc,							// pOutput negotiate msg
                                 &ulContextAttrib,						// pfContextAttribute
-                                &dwExpireTime);							// ptsLifeTime
+	                                &tsExpireTime);							// ptsLifeTime
 
 	if (dwStatus == SEC_E_NO_CREDENTIALS && !bLoop)
 	{

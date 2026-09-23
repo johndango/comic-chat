@@ -3,7 +3,10 @@
 
 #include "UserInfo.H"
 #include "ChatProt.H"
-#include "CSSPI.H"
+#ifndef SECURITY_WIN32
+#define SECURITY_WIN32
+#endif
+#include <security.h>
 #include "Query.H"
 #include "Resource.H"
 

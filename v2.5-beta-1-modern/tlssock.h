@@ -6,7 +6,9 @@
 #ifndef _TLSSOCK_H_
 #define _TLSSOCK_H_
 
+#ifndef SECURITY_WIN32
 #define SECURITY_WIN32
+#endif
 #include <security.h>
 #include <schannel.h>
 
