@@ -1,7 +1,34 @@
 import { once } from "node:events";
 import { describe, expect, it } from "vitest";
 import WebSocket from "ws";
-import { createGatewayServer } from "./gateway";
+import { createGatewayServer, IrcBridge } from "./gateway";
+import type { ConnectRequest } from "./protocol";
+
+interface BridgeHarness {
+  request: ConnectRequest;
+  registered: boolean;
+  joined: boolean;
+  activeChannel?: string;
+  lastRoomListAt: number;
+  roomResults: { channel: string; users: number; topic: string }[];
+  socket: { destroyed: boolean; write(command: string): void };
+  handleIrcLine(line: string): void;
+  joinChannel(channel: string): void;
+}
+
+function bridgeHarness() {
+  const events: Record<string, unknown>[] = [];
+  const writes: string[] = [];
+  const webSocket = {
+    readyState: WebSocket.OPEN,
+    send(value: string) { events.push(JSON.parse(value)); },
+  } as unknown as WebSocket;
+  const bridge = new IrcBridge(webSocket, () => {}) as unknown as BridgeHarness;
+  bridge.request = { type: "connect", network: "libera", nickname: "ComicFan" };
+  bridge.registered = true;
+  bridge.socket = { destroyed: false, write(command: string) { writes.push(command); } };
+  return { bridge, events, writes };
+}
 
 function rejectedStatus(webSocket: WebSocket): Promise<number> {
   return new Promise((resolve, reject) => {
@@ -139,5 +166,57 @@ describe("local web gateway", () => {
     } finally {
       await gateway.close();
     }
+  });
+});
+
+describe("IRC room state recovery", () => {
+  it("returns rejected joins to the existing room directory", () => {
+    const { bridge, events } = bridgeHarness();
+    bridge.activeChannel = "#locked";
+    bridge.lastRoomListAt = Date.now();
+    bridge.roomResults = [{ channel: "#public", users: 42, topic: "Public room" }];
+
+    bridge.handleIrcLine(":irc.example 474 ComicFan #locked :Cannot join channel (+b)");
+
+    expect(bridge.activeChannel).toBeUndefined();
+    expect(events).toContainEqual({ type: "error", message: "Cannot join channel (+b)" });
+    expect(events.at(-1)).toMatchObject({ type: "status", state: "browsing" });
+  });
+
+  it("adopts a forwarded room before the JOIN reply arrives", () => {
+    const { bridge, events } = bridgeHarness();
+    bridge.activeChannel = "#old";
+
+    bridge.handleIrcLine(":irc.example 470 ComicFan #old #overflow :Forwarding to another channel");
+
+    expect(bridge.activeChannel).toBe("#overflow");
+    expect(events.at(-1)).toMatchObject({ type: "status", state: "joining", channel: "#overflow" });
+  });
+
+  it("parts a pending room when the visitor switches again", () => {
+    const { bridge, writes } = bridgeHarness();
+    bridge.activeChannel = "#first";
+    bridge.joined = false;
+
+    bridge.joinChannel("#second");
+
+    expect(writes).toEqual(["PART #first :Switching rooms\r\n", "JOIN #second\r\n"]);
+  });
+
+  it("returns to browsing after a kick and tracks a forced nickname", () => {
+    const { bridge, events } = bridgeHarness();
+    bridge.activeChannel = "#comics";
+    bridge.joined = true;
+    bridge.lastRoomListAt = Date.now();
+
+    bridge.handleIrcLine(":ComicFan!user@example NICK :ComicFan_2");
+    expect(bridge.request.nickname).toBe("ComicFan_2");
+    expect(events.at(-1)).toMatchObject({ type: "status", state: "joined", nickname: "ComicFan_2" });
+
+    bridge.handleIrcLine(":operator!staff@example KICK #comics ComicFan_2 :Please cool down");
+    expect(bridge.joined).toBe(false);
+    expect(bridge.activeChannel).toBeUndefined();
+    expect(events).toContainEqual({ type: "error", message: "Removed from #comics: Please cool down" });
+    expect(events.at(-1)).toMatchObject({ type: "status", state: "browsing" });
   });
 });

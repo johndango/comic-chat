@@ -40,7 +40,7 @@ function sameChannel(left: string, right: string): boolean {
   return ircCaseFold(left) === ircCaseFold(right);
 }
 
-class IrcBridge {
+export class IrcBridge {
   private socket?: TLSSocket;
   private request?: ConnectRequest;
   private buffer = "";
@@ -149,6 +149,29 @@ class IrcBridge {
       sendJson(this.webSocket, { type: "error", message: "That nickname is already in use" });
       return this.disconnect("Nickname unavailable");
     }
+    if (message.command === "432" || message.command === "437") {
+      sendJson(this.webSocket, { type: "error", message: message.trailing ?? "That nickname is unavailable" });
+      return this.disconnect("Nickname unavailable");
+    }
+    if (message.command === "470" && this.activeChannel) {
+      const forwarded = [...message.params].reverse().find((parameter) => parameter.startsWith("#"));
+      if (forwarded) {
+        this.activeChannel = forwarded;
+        sendJson(this.webSocket, {
+          type: "status",
+          state: "joining",
+          message: `The network forwarded this connection to ${forwarded}…`,
+          channel: forwarded,
+        });
+      }
+      return;
+    }
+    if (["403", "405", "471", "473", "474", "475", "476", "477", "479", "489"].includes(message.command)) {
+      const channel = message.params.find((parameter) => parameter.startsWith("#"));
+      if (this.activeChannel && (!channel || sameChannel(channel, this.activeChannel))) {
+        return this.returnToBrowsing(message.trailing ?? `Could not join ${this.activeChannel}`);
+      }
+    }
     if (message.command === "322" && this.listingRooms) {
       const channel = message.params[1];
       const users = Number.parseInt(message.params[2] ?? "0", 10);
@@ -205,6 +228,17 @@ class IrcBridge {
       this.sendMembers();
       return;
     }
+    if (message.command === "KICK" && this.activeChannel && message.params[0] && sameChannel(message.params[0], this.activeChannel)) {
+      const target = message.params[1];
+      if (target && ircCaseFold(target) === ircCaseFold(this.request.nickname)) {
+        return this.returnToBrowsing(message.trailing ? `Removed from ${this.activeChannel}: ${message.trailing}` : `Removed from ${this.activeChannel}`);
+      }
+      if (target) {
+        this.members.delete(target);
+        this.sendMembers();
+      }
+      return;
+    }
     if (message.command === "QUIT") {
       this.members.delete(nicknameFromPrefix(message.prefix));
       this.sendMembers();
@@ -212,10 +246,29 @@ class IrcBridge {
     }
     if (message.command === "NICK") {
       const previous = nicknameFromPrefix(message.prefix);
+      const ownNickname = ircCaseFold(previous) === ircCaseFold(this.request.nickname);
       if (this.members.delete(previous)) {
         const next = message.trailing ?? message.params[0];
         if (next) this.members.add(next);
         this.sendMembers();
+      }
+      if (ownNickname) {
+        const next = message.trailing ?? message.params[0];
+        if (next) {
+          this.request.nickname = next;
+          const state = this.joined ? "joined" : this.activeChannel ? "joining" : "browsing";
+          sendJson(this.webSocket, {
+            type: "status",
+            state,
+            message: this.joined && this.activeChannel
+              ? `Live in ${this.activeChannel}`
+              : this.activeChannel
+                ? `Joining ${this.activeChannel} as ${next}…`
+                : `Connected as ${next}`,
+            nickname: next,
+            ...(this.activeChannel ? { channel: this.activeChannel } : {}),
+          });
+        }
       }
       return;
     }
@@ -253,6 +306,25 @@ class IrcBridge {
     });
   }
 
+  private returnToBrowsing(reason: string): void {
+    const needsList = this.lastRoomListAt === 0;
+    this.joined = false;
+    this.activeChannel = undefined;
+    this.members.clear();
+    this.sendMembers();
+    sendJson(this.webSocket, { type: "error", message: reason });
+    if (needsList && this.registered && this.socket) {
+      this.requestRooms();
+      return;
+    }
+    sendJson(this.webSocket, {
+      type: "status",
+      state: "browsing",
+      message: `${this.roomResults.length} popular public rooms available`,
+      nickname: this.request?.nickname,
+    });
+  }
+
   private requestRooms(): void {
     if (!this.socket || !this.request || !this.registered) throw new Error("Connect to IRC before browsing rooms");
     const now = Date.now();
@@ -270,7 +342,7 @@ class IrcBridge {
   private joinChannel(channel: string): void {
     if (!this.socket || !this.request || !this.registered) throw new Error("Connect to IRC before joining a room");
     if (this.activeChannel && sameChannel(this.activeChannel, channel) && this.joined) return;
-    if (this.activeChannel && this.joined) this.write(`PART ${this.activeChannel} :Switching rooms`);
+    if (this.activeChannel) this.write(`PART ${this.activeChannel} :Switching rooms`);
     this.activeChannel = channel;
     this.joined = false;
     this.members.clear();
