@@ -49,6 +49,8 @@ describe("local web gateway", () => {
     try {
       const health = await fetch(`http://127.0.0.1:${port}/health`);
       expect(await health.json()).toEqual({ ok: true });
+      expect(health.headers.get("content-security-policy")).toContain("connect-src 'self'");
+      expect(health.headers.get("x-content-type-options")).toBe("nosniff");
 
       const webSocket = new WebSocket(`ws://127.0.0.1:${port}/irc`, { origin: `http://127.0.0.1:${port}` });
       const readyMessage = once(webSocket, "message");
@@ -129,6 +131,27 @@ describe("local web gateway", () => {
     } finally {
       for (const client of clients) client.close();
       await Promise.all(clients.map((client) => once(client, "close")));
+      await gateway.close();
+    }
+  });
+
+  it("uses the right side of a trusted proxy chain instead of a client-spoofed address", async () => {
+    const gateway = createGatewayServer(undefined, undefined, { trustProxyHops: 1, maxClientsPerAddress: 1 });
+    const port = await gateway.listen(0);
+    const first = new WebSocket(`ws://127.0.0.1:${port}/irc`, {
+      origin: `http://127.0.0.1:${port}`,
+      headers: { "x-forwarded-for": "198.51.100.10, 203.0.113.50" },
+    });
+    try {
+      await once(first, "open");
+      const spoofed = new WebSocket(`ws://127.0.0.1:${port}/irc`, {
+        origin: `http://127.0.0.1:${port}`,
+        headers: { "x-forwarded-for": "198.51.100.99, 203.0.113.50" },
+      });
+      expect(await rejectedStatus(spoofed)).toBe(429);
+    } finally {
+      first.close();
+      await once(first, "close");
       await gateway.close();
     }
   });

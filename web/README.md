@@ -62,7 +62,7 @@ a TLS reverse proxy that preserves WebSocket upgrades:
 
 ```sh
 npm run build
-HOST=0.0.0.0 PORT=8787 PUBLIC_ORIGIN=https://webcomicchat.com TRUST_PROXY=1 npm start
+HOST=0.0.0.0 PORT=8787 PUBLIC_ORIGIN=https://webcomicchat.com TRUST_PROXY_HOPS=1 npm start
 ```
 
 Route both normal HTTP requests and `/irc` WebSocket upgrades from
@@ -71,11 +71,12 @@ should terminate at the reverse proxy or hosting platform. `PUBLIC_ORIGIN` adds
 the production origin to the WebSocket origin check and does not weaken the
 loopback development path.
 
-Set `TRUST_PROXY=1` only when the application is private behind a trusted proxy
-that replaces client-supplied `X-Forwarded-For` headers. This lets the gateway
-apply its per-address limits to the real visitor instead of the proxy. Leave it
-unset when exposing the Node process directly; forwarded headers are ignored by
-default so visitors cannot spoof their address.
+Set `TRUST_PROXY_HOPS` only when the application is private behind known reverse
+proxies. A value of `1` trusts the rightmost `X-Forwarded-For` address supplied
+by the directly connected proxy, ignoring any client-prepended value; increase
+it only for a verified multi-proxy chain. Leave it unset when exposing the Node
+process directly. This lets the gateway apply per-address limits to visitors
+without accepting a spoofed leftmost address.
 
 A production container can be built from the repository root:
 
@@ -103,9 +104,9 @@ Create the application with:
 Upload `app.js`, `package.json`, `package-lock.json`, `dist/`, and
 `dist-server/` into the application root. Run npm install from the application
 screen, then set `NODE_ENV=production` and
-`PUBLIC_ORIGIN=https://webcomicchat.com`. Do not enable `TRUST_PROXY` until the
-host's forwarding behavior has been verified. Restart the application after
-each upload or environment change.
+`PUBLIC_ORIGIN=https://webcomicchat.com`. Set `TRUST_PROXY_HOPS=1` after
+confirming that cPanel's front end appends the visitor address once. Restart the
+application after each upload or environment change.
 
 ## Gateway safety boundary
 
@@ -118,6 +119,12 @@ each upload or environment change.
 - Allows at most three simultaneous sessions and ten upgrade attempts per minute
   from one address, with a 50-session global ceiling.
 - Closes clients that do not start IRC setup within 15 seconds.
+- Limits IRC reconnects per tab and across the gateway, and applies a global
+  outbound-message budget to protect the hosting IP.
+- Times out stalled IRC registration, 45-minute idle sessions, and 12-hour
+  sessions; WebSocket ping/pong removes half-open clients.
+- Closes slow browser connections before their outgoing buffer can grow without
+  bound.
 - Enforces a small maximum WebSocket payload.
 - Does not accept, log, or store IRC credentials.
 

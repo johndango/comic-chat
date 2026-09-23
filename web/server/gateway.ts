@@ -33,7 +33,12 @@ const mimeTypes: Record<string, string> = {
 };
 
 function sendJson(webSocket: WebSocket, value: JsonObject): void {
-  if (webSocket.readyState === WebSocket.OPEN) webSocket.send(JSON.stringify(value));
+  if (webSocket.readyState !== WebSocket.OPEN) return;
+  if (webSocket.bufferedAmount > 1024 * 1024) {
+    webSocket.close(1013, "Browser connection is too slow");
+    return;
+  }
+  webSocket.send(JSON.stringify(value));
 }
 
 function sameChannel(left: string, right: string): boolean {
@@ -54,14 +59,42 @@ export class IrcBridge {
   private listedRooms = 0;
   private roomResults: ListedRoom[] = [];
   private lastRoomListAt = 0;
+  private ircConnects = 0;
+  private registrationTimer?: NodeJS.Timeout;
+  private idleTimer?: NodeJS.Timeout;
+  private lifetimeTimer?: NodeJS.Timeout;
 
   constructor(
     private readonly webSocket: WebSocket,
     private readonly onConnect: () => void,
-  ) {}
+    private readonly onOutboundMessage: () => void = () => {},
+    private readonly limits: {
+      maxConnects?: number;
+      registrationTimeoutMs?: number;
+      idleTimeoutMs?: number;
+      maxLifetimeMs?: number;
+    } = {},
+  ) {
+    this.touch();
+    this.lifetimeTimer = setTimeout(() => {
+      sendJson(this.webSocket, { type: "status", state: "disconnected", message: "Session lifetime reached; reconnect to continue" });
+      this.webSocket.close(1000, "Session lifetime reached");
+    }, limits.maxLifetimeMs ?? 12 * 60 * 60_000);
+    this.lifetimeTimer.unref();
+  }
+
+  private touch(): void {
+    if (this.idleTimer) clearTimeout(this.idleTimer);
+    this.idleTimer = setTimeout(() => {
+      sendJson(this.webSocket, { type: "status", state: "disconnected", message: "Session closed after being idle" });
+      this.webSocket.close(1000, "Session idle timeout");
+    }, this.limits.idleTimeoutMs ?? 45 * 60_000);
+    this.idleTimer.unref();
+  }
 
   handleBrowserMessage(raw: Buffer | ArrayBuffer | Buffer[]): void {
     try {
+      this.touch();
       const bytes = Array.isArray(raw)
         ? Buffer.concat(raw)
         : raw instanceof ArrayBuffer
@@ -85,7 +118,9 @@ export class IrcBridge {
 
   connect(request: ConnectRequest): void {
     if (this.socket) throw new Error("Already connected to IRC");
+    if (this.ircConnects >= (this.limits.maxConnects ?? 3)) throw new Error("Reconnect limit reached; reload the page to continue");
     this.onConnect();
+    this.ircConnects += 1;
     this.request = request;
     const network = IRC_NETWORKS[request.network];
     sendJson(this.webSocket, { type: "status", state: "connecting", message: `Connecting securely to ${network.label}…` });
@@ -98,6 +133,8 @@ export class IrcBridge {
     });
     this.socket.setEncoding("utf8");
     this.socket.setTimeout(30_000, () => this.disconnect("IRC connection timed out"));
+    this.registrationTimer = setTimeout(() => this.disconnect("IRC registration timed out"), this.limits.registrationTimeoutMs ?? 30_000);
+    this.registrationTimer.unref();
     this.socket.on("secureConnect", () => {
       this.socket?.setTimeout(0);
       this.write(`NICK ${request.nickname}`);
@@ -140,6 +177,8 @@ export class IrcBridge {
     if (!this.request) return;
 
     if (message.command === "001") {
+      if (this.registrationTimer) clearTimeout(this.registrationTimer);
+      this.registrationTimer = undefined;
       this.registered = true;
       if (this.request.channel) this.joinChannel(this.request.channel);
       else this.requestRooms();
@@ -356,6 +395,7 @@ export class IrcBridge {
     this.recentMessages = this.recentMessages.filter((timestamp) => now - timestamp < 10_000);
     if (this.recentMessages.length >= 5) throw new Error("Slow down: IRC messages are limited to five per ten seconds");
     this.recentMessages.push(now);
+    this.onOutboundMessage();
     const ircMessage = action ? `\u0001ACTION ${message}\u0001` : message;
     this.write(`PRIVMSG ${this.activeChannel} :${ircMessage}`);
     sendJson(this.webSocket, {
@@ -372,6 +412,8 @@ export class IrcBridge {
   }
 
   disconnect(reason = "Disconnected"): void {
+    if (this.registrationTimer) clearTimeout(this.registrationTimer);
+    this.registrationTimer = undefined;
     if (this.socket && !this.socket.destroyed) {
       this.write("QUIT :Comic Chat Web closing");
       this.socket.destroy();
@@ -388,6 +430,8 @@ export class IrcBridge {
 
   close(): void {
     this.closed = true;
+    if (this.idleTimer) clearTimeout(this.idleTimer);
+    if (this.lifetimeTimer) clearTimeout(this.lifetimeTimer);
     this.disconnect("Browser disconnected");
   }
 }
@@ -411,12 +455,16 @@ function normalizeAddress(address: string): string {
   return address.startsWith("::ffff:") ? address.slice(7) : address;
 }
 
-function clientAddress(request: IncomingMessage, trustProxy: boolean): string {
+function clientAddress(request: IncomingMessage, trustProxyHops: number): string {
   const directAddress = normalizeAddress(request.socket.remoteAddress ?? "unknown");
-  if (!trustProxy) return directAddress;
+  if (trustProxyHops < 1) return directAddress;
   const forwarded = request.headers["x-forwarded-for"];
-  const first = (Array.isArray(forwarded) ? forwarded[0] : forwarded)?.split(",")[0]?.trim();
-  return first && isIP(first) ? normalizeAddress(first) : directAddress;
+  const addresses = (Array.isArray(forwarded) ? forwarded.join(",") : forwarded ?? "")
+    .split(",")
+    .map((address) => address.trim())
+    .filter(Boolean);
+  const candidate = addresses[addresses.length - trustProxyHops];
+  return candidate && isIP(candidate) ? normalizeAddress(candidate) : directAddress;
 }
 
 function rejectUpgrade(
@@ -425,11 +473,14 @@ function rejectUpgrade(
   message: string,
 ): void {
   const statusText = status === 403 ? "Forbidden" : status === 429 ? "Too Many Requests" : "Service Unavailable";
-  socket.write(`HTTP/1.1 ${status} ${statusText}\r\nConnection: close\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: ${Buffer.byteLength(message)}\r\n\r\n${message}`);
+  socket.write(`HTTP/1.1 ${status} ${statusText}\r\nConnection: close\r\nContent-Type: text/plain; charset=utf-8\r\nX-Content-Type-Options: nosniff\r\nReferrer-Policy: no-referrer\r\nContent-Length: ${Buffer.byteLength(message)}\r\n\r\n${message}`);
   socket.destroy();
 }
 
 async function serveStatic(request: IncomingMessage, response: import("node:http").ServerResponse, distDirectory: string): Promise<void> {
+  response.setHeader("content-security-policy", "default-src 'self'; connect-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; base-uri 'none'; frame-ancestors 'none'");
+  response.setHeader("referrer-policy", "no-referrer");
+  response.setHeader("x-content-type-options", "nosniff");
   const url = new URL(request.url ?? "/", "http://localhost");
   if (url.pathname === "/health") {
     response.writeHead(200, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
@@ -458,9 +509,6 @@ async function serveStatic(request: IncomingMessage, response: import("node:http
     response.writeHead(200, {
       "content-type": mimeTypes[extname(filePath).toLowerCase()] ?? "application/octet-stream",
       "cache-control": filePath.endsWith("index.html") ? "no-cache" : "public, max-age=3600",
-      "content-security-policy": "default-src 'self'; connect-src 'self' ws: wss:; img-src 'self' data:; style-src 'self'; script-src 'self'; base-uri 'none'; frame-ancestors 'none'",
-      "referrer-policy": "no-referrer",
-      "x-content-type-options": "nosniff",
     });
     response.end(body);
   } catch {
@@ -476,11 +524,18 @@ export interface GatewayServer {
 
 export interface GatewaySecurityOptions {
   trustProxy?: boolean;
+  trustProxyHops?: number;
   maxClients?: number;
   maxClientsPerAddress?: number;
   maxUpgradesPerWindow?: number;
   upgradeWindowMs?: number;
   connectDeadlineMs?: number;
+  maxIrcConnectsPerWindow?: number;
+  maxOutboundMessagesPerWindow?: number;
+  registrationTimeoutMs?: number;
+  idleTimeoutMs?: number;
+  maxLifetimeMs?: number;
+  keepaliveMs?: number;
 }
 
 export function createGatewayServer(
@@ -488,16 +543,23 @@ export function createGatewayServer(
   publicOrigin = process.env.PUBLIC_ORIGIN,
   security: GatewaySecurityOptions = {},
 ): GatewayServer {
-  const trustProxy = security.trustProxy ?? process.env.TRUST_PROXY === "1";
+  const configuredProxyHops = Number.parseInt(process.env.TRUST_PROXY_HOPS ?? "0", 10);
+  const trustProxyHops = security.trustProxyHops
+    ?? (security.trustProxy ? 1 : Number.isSafeInteger(configuredProxyHops) && configuredProxyHops > 0 ? configuredProxyHops : 0);
   const maxClients = security.maxClients ?? 50;
   const maxClientsPerAddress = security.maxClientsPerAddress ?? 3;
   const maxUpgradesPerWindow = security.maxUpgradesPerWindow ?? 10;
   const upgradeWindowMs = security.upgradeWindowMs ?? 60_000;
   const connectDeadlineMs = security.connectDeadlineMs ?? 15_000;
+  const maxIrcConnectsPerWindow = security.maxIrcConnectsPerWindow ?? 30;
+  const maxOutboundMessagesPerWindow = security.maxOutboundMessagesPerWindow ?? 120;
+  const keepaliveMs = security.keepaliveMs ?? 30_000;
   const webSockets = new WebSocketServer({ noServer: true, maxPayload: 4096 });
   const bridges = new Set<IrcBridge>();
   const clientsByAddress = new Map<string, number>();
   const upgradesByAddress = new Map<string, number[]>();
+  let ircConnects: number[] = [];
+  let outboundMessages: number[] = [];
   const httpServer = createServer((request, response) => {
     void serveStatic(request, response, distDirectory);
   });
@@ -506,7 +568,7 @@ export function createGatewayServer(
     const pathname = new URL(request.url ?? "/", "http://localhost").pathname;
     if (pathname !== "/irc" || !originAllowed(request, publicOrigin)) return rejectUpgrade(socket, 403, "WebSocket origin rejected");
 
-    const address = clientAddress(request, trustProxy);
+    const address = clientAddress(request, trustProxyHops);
     const now = Date.now();
     const recentUpgrades = (upgradesByAddress.get(address) ?? []).filter((timestamp) => now - timestamp < upgradeWindowMs);
     if (recentUpgrades.length >= maxUpgradesPerWindow) return rejectUpgrade(socket, 429, "Too many connection attempts");
@@ -521,14 +583,34 @@ export function createGatewayServer(
   });
 
   webSockets.on("connection", (webSocket, request) => {
-    const address = clientAddress(request, trustProxy);
+    const address = clientAddress(request, trustProxyHops);
     clientsByAddress.set(address, (clientsByAddress.get(address) ?? 0) + 1);
     const connectDeadline = setTimeout(() => {
       sendJson(webSocket, { type: "error", message: "Connection setup timed out" });
       webSocket.close(1008, "Connection setup timed out");
     }, connectDeadlineMs);
     connectDeadline.unref();
-    const bridge = new IrcBridge(webSocket, () => clearTimeout(connectDeadline));
+    const bridge = new IrcBridge(
+      webSocket,
+      () => {
+        const now = Date.now();
+        ircConnects = ircConnects.filter((timestamp) => now - timestamp < upgradeWindowMs);
+        if (ircConnects.length >= maxIrcConnectsPerWindow) throw new Error("Gateway reconnect limit reached; try again shortly");
+        ircConnects.push(now);
+        clearTimeout(connectDeadline);
+      },
+      () => {
+        const now = Date.now();
+        outboundMessages = outboundMessages.filter((timestamp) => now - timestamp < 10_000);
+        if (outboundMessages.length >= maxOutboundMessagesPerWindow) throw new Error("Gateway message limit reached; try again shortly");
+        outboundMessages.push(now);
+      },
+      {
+        registrationTimeoutMs: security.registrationTimeoutMs,
+        idleTimeoutMs: security.idleTimeoutMs,
+        maxLifetimeMs: security.maxLifetimeMs,
+      },
+    );
     bridges.add(bridge);
     sendJson(webSocket, { type: "status", state: "offline", message: "Gateway ready" });
     webSocket.on("message", (data) => bridge.handleBrowserMessage(data as Buffer));
@@ -552,6 +634,23 @@ export function createGatewayServer(
   }, upgradeWindowMs);
   rateLimitSweep.unref();
 
+  const alive = new WeakMap<WebSocket, boolean>();
+  webSockets.on("connection", (webSocket) => {
+    alive.set(webSocket, true);
+    webSocket.on("pong", () => alive.set(webSocket, true));
+  });
+  const keepalive = setInterval(() => {
+    for (const client of webSockets.clients) {
+      if (alive.get(client) === false) {
+        client.terminate();
+        continue;
+      }
+      alive.set(client, false);
+      client.ping();
+    }
+  }, keepaliveMs);
+  keepalive.unref();
+
   return {
     httpServer,
     listen(port = 8787, host = "127.0.0.1") {
@@ -566,6 +665,7 @@ export function createGatewayServer(
     },
     close() {
       clearInterval(rateLimitSweep);
+      clearInterval(keepalive);
       for (const bridge of bridges) bridge.close();
       for (const client of webSockets.clients) client.terminate();
       return new Promise((resolveClose, reject) => {
