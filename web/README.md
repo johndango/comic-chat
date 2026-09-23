@@ -11,6 +11,11 @@ greetings wave, and first- or second-person sentences point to the appropriate
 speaker. The resulting emotion is matched against metadata embedded in each
 avatar to choose the closest available pose.
 
+Room links use the page URL to prefill a supported IRC network and channel, so a
+room can be shared without including anyone's nickname. Opening a link never
+joins automatically: the visitor still chooses their nickname and confirms the
+connection.
+
 Browsers cannot open raw IRC sockets, so `server/` provides a same-origin
 WebSocket-to-IRC bridge. It connects with verified TLS to one of two preset
 public networks, handles IRC registration, joins one channel, and converts
@@ -41,7 +46,8 @@ npm start
 Then open `http://127.0.0.1:8787`. Live mode intentionally supports no IRC
 passwords or account credentials. Choose a preset network, enter a nickname and
 public channel, and connect. Offline strip composition remains available without
-the gateway.
+the gateway. After entering a channel, **Copy room link** creates a link such as
+`https://webcomicchat.com/?network=libera&channel=%23comic-chat`.
 
 ## Production origin
 
@@ -88,5 +94,5 @@ npm run build
 ```
 
 The tests exercise every avatar and backdrop offered by the UI, expression-rule
-priority, pose selection, IRC parsing and validation, the browser transport, and
-the local WebSocket boundary.
+priority, pose selection, IRC parsing and validation, safe room-link parsing,
+the browser transport, and the local WebSocket boundary.

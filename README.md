@@ -49,7 +49,8 @@ The [`web/`](web/) experiment is a web-based first slice of a modern client.
 It decodes the repository's original `.avb` avatars and `.bgb` backdrops, ports
 the original text-expression rules, composes multi-panel conversation strips on
 Canvas, exports them as PNG files, and renders public IRC channels through a
-local TLS WebSocket gateway. Its production home is
+local TLS WebSocket gateway. Safe room links can prefill a network and channel
+without sharing a nickname or joining automatically. Its production home is
 [`webcomicchat.com`](https://webcomicchat.com).
 See the [web prototype README](web/README.md) for local run instructions.
 

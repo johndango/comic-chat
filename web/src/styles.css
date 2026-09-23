@@ -93,7 +93,7 @@ code { font-family: ui-monospace, "SFMono-Regular", monospace; font-size: 0.86em
   margin: 0 0 28px;
   padding: 16px 18px 13px;
   display: grid;
-  grid-template-columns: minmax(175px, 1.25fr) minmax(145px, .8fr) minmax(145px, .8fr) minmax(160px, 1fr) auto;
+  grid-template-columns: minmax(175px, 1.25fr) minmax(145px, .8fr) minmax(145px, .8fr) minmax(160px, 1fr) minmax(160px, auto);
   gap: 11px 13px;
   align-items: end;
   color: #fffdf6;
@@ -112,8 +112,12 @@ code { font-family: ui-monospace, "SFMono-Regular", monospace; font-size: 0.86em
 .live-console[data-state="error"] .live-dot { background: var(--red); }
 .live-console label { display: flex; flex-direction: column; gap: 5px; }
 .live-console select, .live-console input { height: 40px; padding: 0 9px; border: 2px solid white; box-shadow: none; background: #fffdf6; color: var(--ink); font: 700 13px "Trebuchet MS", sans-serif; }
-.connect-button { height: 40px; padding: 0 15px; border: 2px solid white; background: var(--blue); color: white; font-size: 12px; font-weight: 800; text-transform: uppercase; white-space: nowrap; cursor: pointer; }
-.connect-button:hover { background: var(--red); }
+.live-actions { display: flex; gap: 7px; }
+.connect-button, .share-room-button { min-height: 40px; padding: 0 12px; border: 2px solid white; color: white; font-size: 11px; font-weight: 800; text-transform: uppercase; white-space: nowrap; cursor: pointer; }
+.connect-button { background: var(--blue); }
+.share-room-button { background: transparent; }
+.connect-button:hover, .share-room-button:hover:not(:disabled) { background: var(--red); }
+.share-room-button:disabled { opacity: .45; cursor: not-allowed; }
 .live-console > p { grid-column: 1 / -1; margin: 0; color: #c9c9c6; font: 9px ui-monospace, "SFMono-Regular", monospace; text-align: right; }
 @keyframes live-pulse { 50% { opacity: .45; } }
 
@@ -218,7 +222,7 @@ footer { width: min(1450px, calc(100% - 44px)); margin: 56px auto 0; padding: 24
 @media (max-width: 1200px) {
   .live-console { grid-template-columns: 1fr 1fr 1fr; }
   .live-heading { grid-column: span 2; }
-  .connect-button { grid-column: 3; grid-row: 1; }
+  .live-actions { grid-column: 3; grid-row: 1; }
   .comic-strip { grid-template-columns: 1fr; }
 }
 
@@ -226,7 +230,8 @@ footer { width: min(1450px, calc(100% - 44px)); margin: 56px auto 0; padding: 24
   .intro { grid-template-columns: 1fr; gap: 25px; }
   .live-console { grid-template-columns: 1fr 1fr; }
   .live-heading { grid-column: 1 / -1; }
-  .connect-button { grid-column: 1 / -1; grid-row: auto; }
+  .live-actions { grid-column: 1 / -1; grid-row: auto; }
+  .live-actions > button { flex: 1; }
   .workspace { grid-template-columns: 1fr; }
   .controls { border-right: 0; border-bottom: 4px solid var(--ink); }
   .stage-wrap { min-height: 520px; }
@@ -241,7 +246,8 @@ footer { width: min(1450px, calc(100% - 44px)); margin: 56px auto 0; padding: 24
   main { width: min(100% - 24px, 1450px); }
   .intro { padding-top: 45px; }
   .live-console { grid-template-columns: 1fr; padding: 15px; }
-  .live-console label, .live-heading, .connect-button { grid-column: 1; }
+  .live-console label, .live-heading, .live-actions { grid-column: 1; }
+  .live-actions { flex-direction: column; }
   .live-console > p { text-align: left; line-height: 1.5; }
   h1 { font-size: clamp(42px, 14vw, 68px); }
   .workspace { box-shadow: 7px 8px 0 var(--ink); }

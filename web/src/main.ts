@@ -3,6 +3,7 @@ import { AvatarType, decodeImage, parseAvatar, type AvatarFile, type DecodedBitm
 import { analyzeMessage, selectPose, type EmotionResult } from "./emotion";
 import { IrcWebClient, type LiveEvent, type LiveMessageEvent, type LiveState } from "./irc-client";
 import { PANEL_HEIGHT, PANEL_WIDTH, PanelRenderer } from "./panel";
+import { createRoomUrl, normalizeRoomSelection, roomSelectionFromUrl } from "./room-link";
 
 const characters = [
   { file: "connor.avb", label: "Connor" },
@@ -47,7 +48,7 @@ app.innerHTML = `
   <header class="site-header">
     <a class="brand" href="#" aria-label="Comic Chat prototype home">
       <span class="brand-burst">CC!</span>
-      <span><strong>Comic Chat</strong><small>web lab / issue no. 003</small></span>
+      <span><strong>Comic Chat</strong><small>web lab / issue no. 004</small></span>
     </a>
     <span class="prototype-stamp">live IRC build</span>
   </header>
@@ -65,8 +66,11 @@ app.innerHTML = `
       <label>Network<select id="network"><option value="libera">Libera.Chat</option><option value="oftc">OFTC</option></select></label>
       <label>Nickname<input id="nickname" maxlength="16" autocomplete="nickname" /></label>
       <label>Channel<input id="channel" maxlength="52" placeholder="#channel" spellcheck="false" /></label>
-      <button id="connect-live" class="connect-button" type="button">Connect securely</button>
-      <p>TLS only · preset public networks · credentials are not supported or stored</p>
+      <div class="live-actions">
+        <button id="connect-live" class="connect-button" type="button">Connect securely</button>
+        <button id="share-room" class="share-room-button" type="button" disabled>Copy room link</button>
+      </div>
+      <p>TLS only · room links contain the network and channel, never your nickname</p>
     </section>
     <section class="workspace" aria-label="Comic conversation editor">
       <aside class="controls">
@@ -135,6 +139,7 @@ const networkSelect = element<HTMLSelectElement>("#network");
 const nicknameInput = element<HTMLInputElement>("#nickname");
 const channelInput = element<HTMLInputElement>("#channel");
 const connectButton = element<HTMLButtonElement>("#connect-live");
+const shareRoomButton = element<HTMLButtonElement>("#share-room");
 const addLabel = element<HTMLElement>("#add-label");
 
 const avatarCache = new Map<string, Promise<LoadedAvatar>>();
@@ -286,6 +291,42 @@ function updateControls(): void {
   undoButton.disabled = conversation.length === 0 || isAdding;
   clearButton.disabled = conversation.length === 0 || isAdding;
   downloadButton.disabled = conversation.length === 0 || isAdding;
+  shareRoomButton.disabled = !normalizeRoomSelection(networkSelect.value, channelInput.value);
+}
+
+async function copyText(value: string): Promise<boolean> {
+  try {
+    if (!navigator.clipboard?.writeText) throw new Error("Clipboard API unavailable");
+    await navigator.clipboard.writeText(value);
+    return true;
+  } catch {}
+
+  const temporary = document.createElement("textarea");
+  temporary.value = value;
+  temporary.setAttribute("readonly", "");
+  temporary.style.position = "fixed";
+  temporary.style.opacity = "0";
+  document.body.append(temporary);
+  temporary.select();
+  try {
+    return document.execCommand("copy");
+  } catch {
+    return false;
+  } finally {
+    temporary.remove();
+  }
+}
+
+async function copyRoomLink(): Promise<void> {
+  const room = normalizeRoomSelection(networkSelect.value, channelInput.value);
+  if (!room) throw new Error("Enter a valid channel before copying a room link");
+  channelInput.value = room.channel;
+  const url = createRoomUrl(new URL(window.location.href), room);
+  window.history.replaceState(null, "", url);
+  const copied = await copyText(url);
+  setStatus(copied
+    ? `Room link copied for ${room.channel}. It will not connect until opened and confirmed.`
+    : `Room link ready for ${room.channel}. Copy it from the address bar.`);
 }
 
 function renderStrip(): void {
@@ -438,10 +479,10 @@ connectButton.addEventListener("click", () => {
     return;
   }
   const nickname = nicknameInput.value.trim();
-  const rawChannel = channelInput.value.trim();
-  const channel = rawChannel.startsWith("#") ? rawChannel : rawChannel ? `#${rawChannel}` : "";
+  const room = normalizeRoomSelection(networkSelect.value, channelInput.value);
+  const channel = room?.channel ?? "";
   const nicknameIsValid = /^[A-Za-z][A-Za-z0-9_\-[\]\\`^{}]{0,15}$/.test(nickname);
-  const channelIsValid = /^#[A-Za-z0-9_+\-]{1,50}$/.test(channel);
+  const channelIsValid = room !== undefined;
   if (!nicknameIsValid || !channelIsValid) {
     liveConsole.dataset.state = "error";
     liveStatus.textContent = nicknameIsValid
@@ -452,7 +493,7 @@ connectButton.addEventListener("click", () => {
   channelInput.value = channel;
   try {
     liveClient.connect({
-      network: networkSelect.value as "libera" | "oftc",
+      network: room!.network,
       nickname,
       channel,
     });
@@ -460,7 +501,16 @@ connectButton.addEventListener("click", () => {
     showError(error);
   }
 });
+shareRoomButton.addEventListener("click", () => copyRoomLink().catch(showError));
+networkSelect.addEventListener("change", updateControls);
+channelInput.addEventListener("input", updateControls);
 
 nicknameInput.value = `Comic${Math.floor(1000 + Math.random() * 9000)}`;
+const linkedRoom = roomSelectionFromUrl(new URL(window.location.href));
+if (linkedRoom) {
+  networkSelect.value = linkedRoom.network;
+  channelInput.value = linkedRoom.channel;
+  liveStatus.textContent = `Room ready: ${linkedRoom.channel}`;
+}
 updateControls();
 void initialLoad();
