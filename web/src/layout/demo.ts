@@ -1,8 +1,8 @@
 // Stand-alone demo for the ported layout engine (layout-demo.html).
 
 import { decodeImage, parseAvatar, type AvatarFile, type DecodedBitmap } from "../avb";
-import { bodyForEmotion } from "../composite";
-import { analyzeMessage } from "../emotion";
+import { bodyForText } from "../composite";
+import { newPoseMemory, type PoseMemory } from "../expression";
 import { balloonFontMetrics, type BalloonMode } from "./balloon";
 import { ComicPage, type ComicLine } from "./page";
 import { canvasMeasurer, drawPanel } from "./render";
@@ -17,7 +17,7 @@ const CAST = [
 
 const SCRIPT: [string, string, BalloonMode?][] = [
   ["Anna", "Hi everybody! Anyone here?"],
-  ["Dan", "Hey Anna! Welcome back."],
+  ["Dan", "Hi Anna! Welcome back :)"],
   ["Tux", "HELLO!!!"],
   ["Anna", "Dan: did you see the new web version of Comic Chat?"],
   ["Dan", "I did, it lays out balloons just like the old client :)"],
@@ -35,6 +35,7 @@ interface Loaded {
   buffer: ArrayBuffer;
   avatar: AvatarFile;
   poses: Map<string, HTMLCanvasElement>;
+  memory: PoseMemory;
 }
 
 const strip = document.querySelector<HTMLDivElement>("#strip")!;
@@ -62,7 +63,7 @@ async function load(file: string): Promise<ArrayBuffer> {
 
 async function poseFor(id: string, text: string): Promise<{ image: HTMLCanvasElement; faceX: number; key: string }> {
   const entry = cast.get(id)!;
-  const body = await bodyForEmotion(entry.buffer, entry.avatar, analyzeMessage(text));
+  const body = await bodyForText(entry.buffer, entry.avatar, text, entry.memory);
   let image = entry.poses.get(body.key);
   if (!image) {
     image = toCanvas(body.bitmap);
@@ -131,7 +132,7 @@ async function main(): Promise<void> {
   for (const { id, file } of CAST) {
     const buffer = await load(file);
     const avatar = parseAvatar(buffer);
-    cast.set(id, { buffer, avatar, poses: new Map() });
+    cast.set(id, { buffer, avatar, poses: new Map(), memory: newPoseMemory() });
   }
   const room = await load("room.bgb");
   const roomFile = parseAvatar(room);

@@ -13,6 +13,7 @@ import {
 } from "./avb";
 import type { EmotionResult } from "./emotion";
 import { selectPose } from "./emotion";
+import { choosePoses, emotionOptions, type ExpressionOptions, type PoseChoice, type PoseMemory } from "./expression";
 
 // avatar.h flags
 const TORSOFIRST = 4;
@@ -181,4 +182,37 @@ export async function bodyForEmotion(
     decodePose(buffer, torso, avatar, decode),
   ]);
   return { ...composeHeadAndTorso(avatar, face, torso, head, body), key: `f${faceIndex}:t${torsoIndex}` };
+}
+
+/** Decode and assemble the poses picked by choosePoses(). */
+export async function composeChoice(
+  buffer: ArrayBuffer,
+  avatar: AvatarFile,
+  choice: PoseChoice,
+  decode: typeof decodeImage = decodeImage,
+): Promise<ComposedBody> {
+  if (choice.kind === "simple") {
+    const pose = avatar.bodies[choice.body];
+    const bitmap = await decodePose(buffer, pose, avatar, decode);
+    return { bitmap, faceX: pose.x, headHeight: Math.trunc(bitmap.height / 2), key: `b${choice.body}` };
+  }
+  const face = avatar.faces[choice.face];
+  const torso = avatar.torsos[choice.torso];
+  const [head, body] = await Promise.all([decodePose(buffer, face, avatar, decode), decodePose(buffer, torso, avatar, decode)]);
+  return { ...composeHeadAndTorso(avatar, face, torso, head, body), key: `f${choice.face}:t${choice.torso}` };
+}
+
+/**
+ * The faithful 2.5 pipeline: every matching rule contributes, the face and
+ * torso are chosen separately, and neutral poses rotate via `memory`.
+ */
+export async function bodyForText(
+  buffer: ArrayBuffer,
+  avatar: AvatarFile,
+  text: string,
+  memory?: PoseMemory,
+  settings?: ExpressionOptions,
+  decode: typeof decodeImage = decodeImage,
+): Promise<ComposedBody> {
+  return composeChoice(buffer, avatar, choosePoses(avatar, emotionOptions(text, settings), memory), decode);
 }
