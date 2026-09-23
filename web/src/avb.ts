@@ -47,6 +47,11 @@ export interface PoseDescriptor {
   intensity: number;
   x: number;
   y: number;
+  /**
+   * Face records only: where the head attaches. The head's (cx, cy) sits on
+   * the torso's (x, y) plus (cxDelta, cyDelta). Signed, in bitmap pixels.
+   */
+  anchor?: { cx: number; cy: number; cxDelta: number; cyDelta: number };
 }
 
 export interface AvatarFile {
@@ -92,6 +97,13 @@ class Reader {
   u16(): number {
     this.ensure(2);
     const value = this.view.getUint16(this.offset, true);
+    this.offset += 2;
+    return value;
+  }
+
+  i16(): number {
+    this.ensure(2);
+    const value = this.view.getInt16(this.offset, true);
     this.offset += 2;
     return value;
   }
@@ -169,16 +181,15 @@ function readPose(reader: Reader, adjustment: number, kind: "body" | "face" | "t
 
   let x = 0;
   let y = 0;
+  let anchor: PoseDescriptor["anchor"];
   if (kind === "face") {
-    reader.u16(); // center x
-    reader.u16(); // center y
-    reader.u16(); // center delta x
-    reader.u16(); // center delta y
+    anchor = { cx: reader.i16(), cy: reader.i16(), cxDelta: reader.i16(), cyDelta: reader.i16() };
     x = reader.u16();
     y = reader.u16();
   } else if (kind === "torso") {
-    x = reader.u16();
-    y = reader.u16();
+    // The neck position the head attaches to (signed in the original format).
+    x = reader.i16();
+    y = reader.i16();
   } else {
     x = reader.u16();
     y = reader.u16();
@@ -211,6 +222,7 @@ function readPose(reader: Reader, adjustment: number, kind: "body" | "face" | "t
     intensity,
     x,
     y,
+    ...(anchor ? { anchor } : {}),
   };
 }
 

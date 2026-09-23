@@ -1,29 +1,32 @@
 // Stand-alone demo for the ported layout engine (layout-demo.html).
 
-import { AvatarType, decodeImage, parseAvatar, type AvatarFile, type DecodedBitmap } from "../avb";
-import { analyzeMessage, selectPose } from "../emotion";
+import { decodeImage, parseAvatar, type AvatarFile, type DecodedBitmap } from "../avb";
+import { bodyForEmotion } from "../composite";
+import { analyzeMessage } from "../emotion";
 import { balloonFontMetrics, type BalloonMode } from "./balloon";
 import { ComicPage, type ComicLine } from "./page";
 import { canvasMeasurer, drawPanel } from "./render";
 
 const CAST = [
-  { id: "Connor", file: "connor.avb" },
-  { id: "Jordan", file: "jordan.avb" },
+  { id: "Anna", file: "anna.avb" },
+  { id: "Dan", file: "dan.avb" },
+  { id: "Kirby", file: "kirby.avb" },
+  { id: "Margaret", file: "margaret.avb" },
   { id: "Tux", file: "tux.avb" },
-  { id: "Glenda", file: "glenda.avb" },
 ];
 
 const SCRIPT: [string, string, BalloonMode?][] = [
-  ["Connor", "Hi everybody! Anyone here?"],
-  ["Jordan", "Hey Connor! Welcome back."],
+  ["Anna", "Hi everybody! Anyone here?"],
+  ["Dan", "Hey Anna! Welcome back."],
   ["Tux", "HELLO!!!"],
-  ["Connor", "Jordan: did you see the new web version of Comic Chat?"],
-  ["Jordan", "I did, it lays out balloons just like the old client :)"],
-  ["Glenda", "waves at everyone", "action"],
-  ["Tux", "I wonder if anyone remembers me", "think"],
-  ["Glenda", "Tux: of course we do", "whisper"],
+  ["Anna", "Dan: did you see the new web version of Comic Chat?"],
+  ["Dan", "I did, it lays out balloons just like the old client :)"],
+  ["Margaret", "waves at everyone", "action"],
+  ["Kirby", "I wonder if anyone remembers me", "think"],
+  ["Margaret", "Kirby: of course we do", "whisper"],
+  ["Kirby", "That makes me so sad :("],
   [
-    "Connor",
+    "Anna",
     "This is a deliberately long message that keeps going so that the balloon has to wrap onto several lines, and maybe even spill over into another panel with the three little dots that Comic Chat used for continuations.",
   ],
 ];
@@ -31,7 +34,7 @@ const SCRIPT: [string, string, BalloonMode?][] = [
 interface Loaded {
   buffer: ArrayBuffer;
   avatar: AvatarFile;
-  poses: Map<number, Promise<HTMLCanvasElement>>;
+  poses: Map<string, HTMLCanvasElement>;
 }
 
 const strip = document.querySelector<HTMLDivElement>("#strip")!;
@@ -57,14 +60,15 @@ async function load(file: string): Promise<ArrayBuffer> {
   return response.arrayBuffer();
 }
 
-function pose(id: string, index: number): Promise<HTMLCanvasElement> {
+async function poseFor(id: string, text: string): Promise<{ image: HTMLCanvasElement; faceX: number; key: string }> {
   const entry = cast.get(id)!;
-  let pending = entry.poses.get(index);
-  if (!pending) {
-    pending = decodeImage(entry.buffer, entry.avatar.bodies[index].image, entry.avatar.palette).then(toCanvas);
-    entry.poses.set(index, pending);
+  const body = await bodyForEmotion(entry.buffer, entry.avatar, analyzeMessage(text));
+  let image = entry.poses.get(body.key);
+  if (!image) {
+    image = toCanvas(body.bitmap);
+    entry.poses.set(body.key, image);
   }
-  return pending;
+  return { image, faceX: body.faceX, key: body.key };
 }
 
 async function lineFor(speakerId: string, raw: string, mode: BalloonMode = "say"): Promise<ComicLine> {
@@ -73,25 +77,16 @@ async function lineFor(speakerId: string, raw: string, mode: BalloonMode = "say"
   const target = match && CAST.find((c) => c.id.toLowerCase() === match[1].toLowerCase());
   talkTo.set(speakerId, target && target.id !== speakerId ? [target.id] : []);
   const text = target ? match![2] : raw;
-  const bodies = cast.get(speakerId)!.avatar.bodies;
-  const index = selectPose(bodies, analyzeMessage(text));
-  const image = await pose(speakerId, index);
-  return {
-    speakerId,
-    text,
-    mode,
-    pose: { width: image.width, height: image.height, faceX: bodies[index].x },
-    poseRef: index,
-  };
+  const { image, faceX, key } = await poseFor(speakerId, text);
+  return { speakerId, text, mode, pose: { width: image.width, height: image.height, faceX }, poseRef: key };
 }
 
 async function render(): Promise<void> {
   const measureContext = document.createElement("canvas").getContext("2d")!;
   const normal = balloonFontMetrics(canvasMeasurer(measureContext));
   const whisper = balloonFontMetrics(canvasMeasurer(measureContext, { italic: true }));
-  const neutralIndex = (id: string) => selectPose(cast.get(id)!.avatar.bodies, analyzeMessage(""));
-  const neutral = new Map<string, HTMLCanvasElement>();
-  for (const { id } of CAST) neutral.set(id, await pose(id, neutralIndex(id)));
+  const neutral = new Map<string, Awaited<ReturnType<typeof poseFor>>>();
+  for (const { id } of CAST) neutral.set(id, await poseFor(id, ""));
 
   // Replay the whole conversation; talkTos are per line, as the client tracked them.
   const replayTalkTo = new Map<string, string[]>();
@@ -100,10 +95,8 @@ async function render(): Promise<void> {
     seed,
     talkTos: (id) => replayTalkTo.get(id) ?? [],
     neutralPose: (id) => {
-      const image = neutral.get(id);
-      if (!image) return undefined;
-      const index = neutralIndex(id);
-      return { pose: { width: image.width, height: image.height, faceX: cast.get(id)!.avatar.bodies[index].x }, poseRef: index };
+      const n = neutral.get(id);
+      return n && { pose: { width: n.image.width, height: n.image.height, faceX: n.faceX }, poseRef: n.key };
     },
   });
   for (const line of lines) {
@@ -118,7 +111,7 @@ async function render(): Promise<void> {
       canvas.width = Math.round(layout.width * scale * ratio);
       canvas.height = Math.round(layout.height * scale * ratio);
       const images = new Map<string, HTMLCanvasElement>();
-      for (const body of layout.bodies) images.set(body.id, await pose(body.id, body.poseRef as number));
+      for (const body of layout.bodies) images.set(body.id, cast.get(body.id)!.poses.get(body.poseRef as string)!);
       const context = canvas.getContext("2d")!;
       context.scale(ratio, ratio);
       drawPanel(context, layout, { backdrop, body: (b) => images.get(b.id) }, { scale });
@@ -138,7 +131,6 @@ async function main(): Promise<void> {
   for (const { id, file } of CAST) {
     const buffer = await load(file);
     const avatar = parseAvatar(buffer);
-    if (avatar.type !== AvatarType.Simple) throw new Error(`${file} is not a simple avatar`);
     cast.set(id, { buffer, avatar, poses: new Map() });
   }
   const room = await load("room.bgb");
