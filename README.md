@@ -14,6 +14,7 @@ This repository is an archive of the Comic Chat source code. It is not actively 
   - [About This Repository](#about-this-repository)
   - [Table of Contents](#table-of-contents)
   - [How Comic Chat Works](#how-comic-chat-works)
+  - [Web prototype](#web-prototype)
   - [Download Comic Chat](#download-comic-chat)
   - [IRC servers](#irc-servers)
   - [Repository Structure](#repository-structure)
@@ -42,6 +43,14 @@ As users type messages, each Comic Chat client automatically determines:
 
 The application connects to standard IRC servers and is fully interoperable with text-based IRC clients. Non-Comic Chat users are automatically assigned characters so the entire conversation is rendered graphically.
 
+## Web prototype
+
+The [`web/`](web/) experiment is a browser-only first slice of a modern client.
+It decodes the repository's original `.avb` avatars and `.bgb` backdrops in the
+browser, composes a panel on Canvas, and exports it as a PNG. Live chat and the
+original expression/layout expert system are intentionally later milestones.
+See the [web prototype README](web/README.md) for local run instructions.
+
 ## Download Comic Chat
 
 If you want to jump right in and try Comic Chat without cloning the source and building it yourself, you have two options.
@@ -66,6 +75,7 @@ This repository contains source snapshots spanning the full development history 
 | [`artifacts/`](artifacts/) | January 1998 | SDK, companion tools, JChat, documentation |
 | [`v1.0-pre-modern/`](v1.0-pre-modern/) | 2026 | Modernized v1.0-pre: builds with current Visual Studio, DPI-aware UI scaling, native TLS |
 | [`v2.5-beta-1-modern/`](v2.5-beta-1-modern/) | 2026 | Modernized v2.5-beta-1: builds with current Visual Studio (nmake replaces the NT DDK build), uniform display scaling, runs live on modern IRC |
+| [`web/`](web/) | 2026 | Browser prototype: decodes original art, composes a panel, and exports PNG |
 | [`docs/`](docs/) | — | Modernization write-ups and documentation |
 
 See [`file dates.txt`](file%20dates.txt) for the original file modification timestamps from each archive.
