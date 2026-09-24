@@ -75,12 +75,23 @@ describe("BotBrain answers", () => {
     expect(reply.text).not.toContain("evil");
   });
 
-  it("stops answering someone who spams it", () => {
+  it("answers every command for someone exploring, then pauses once for a spammer", () => {
     const brain = new BotBrain(config);
-    const replies = Array.from({ length: 6 }, (_, i) =>
-      brain.handle({ type: "message", channel: "#c", nick: "Spammer", text: "BettyBot: help", at: T0 + i * 1000 }).length,
-    );
-    expect(replies).toEqual([1, 1, 1, 0, 0, 0]);
+    const ask = (text: string, i: number) =>
+      brain.handle({ type: "message", channel: "#c", nick: "Anna", text: `BettyBot: ${text}`, at: T0 + i * 5000 })[0]?.text;
+    const replies = ["help", "tips", "link", "about", "schedule", "are you a bot", "help", "help", "help"].map(ask);
+    expect(replies[3]).toMatch(/Comic Chat did in 1996/);
+    expect(replies[4]).toMatch(/Fridays at 8pm ET/);
+    expect(replies[5]).toMatch(/I'm a bot/);
+    expect(replies[6]).toMatch(/^Catching my breath, Anna/);
+    expect(replies.slice(7)).toEqual([undefined, undefined]);
+    // A minute later the limit has reset.
+    expect(brain.handle({ type: "message", channel: "#c", nick: "Anna", text: "BettyBot: link", at: T0 + 120_000 })[0]?.text).toMatch(/^Bring friends/);
+  });
+
+  it("gives a useful schedule answer when none is configured", () => {
+    const brain = new BotBrain({ nick: "BettyBot", siteUrl: "https://webcomicchat.com" });
+    expect(brain.answer("schedule", "Anna")).toMatch(/open any time/);
   });
 
   it("ignores other bots' messages", () => {

@@ -39,8 +39,8 @@ const GREET_MEMORY = 12 * HOUR;
 const GREET_SPACING = 20_000;
 /** A lone visitor who speaks and gets no answer for this long hears from the bot once. */
 const LONELY_AFTER = 3 * MINUTE;
-/** Answers per person per minute before the bot goes quiet for them. */
-const ANSWERS_PER_MINUTE = 3;
+/** Answers per person per minute; enough to explore every command, too few to spam. */
+const ANSWERS_PER_MINUTE = 6;
 
 const fold = (s: string) => s.toLowerCase();
 
@@ -74,6 +74,8 @@ export class BotBrain {
   private channels = new Map<string, ChannelState>();
   private greeted = new Map<string, number>();
   private answers = new Map<string, number[]>();
+  /** People already told the bot is catching its breath (cleared when their minute resets). */
+  private throttled = new Set<string>();
   private tipIndex = 0;
   private readonly ignore: Set<string>;
 
@@ -153,16 +155,19 @@ export class BotBrain {
     return match ? match[1].trim() : null;
   }
 
-  private allowAnswer(nick: string, at: number): boolean {
+  /** "answer", "notice" (say once that it's pausing), or "quiet". */
+  private allowAnswer(nick: string, at: number): "answer" | "notice" | "quiet" {
     const key = fold(nick);
     const recent = (this.answers.get(key) ?? []).filter((t) => at - t < MINUTE);
-    if (recent.length >= ANSWERS_PER_MINUTE) {
-      this.answers.set(key, recent);
-      return false;
-    }
-    recent.push(at);
     this.answers.set(key, recent);
-    return true;
+    if (recent.length >= ANSWERS_PER_MINUTE) {
+      if (this.throttled.has(key)) return "quiet";
+      this.throttled.add(key);
+      return "notice";
+    }
+    this.throttled.delete(key);
+    recent.push(at);
+    return "answer";
   }
 
   private onMessage(event: Extract<BotEvent, { type: "message" }>): Say[] {
@@ -178,8 +183,12 @@ export class BotBrain {
     }
     const request = event.channel ? this.addressed(event.text) : event.text.trim();
     if (request === null) return [];
-    if (!this.allowAnswer(event.nick, event.at)) return [];
+    const allowed = this.allowAnswer(event.nick, event.at);
+    if (allowed === "quiet") return [];
     if (event.channel) this.channel(event.channel).loneLineAt = null;
+    if (allowed === "notice") {
+      return [{ target: replyTo, text: `Catching my breath, ${event.nick}. Ask me again in a minute :)`, delay: 1500 }];
+    }
     return [{ target: replyTo, text: this.answer(request, event.nick), delay: 1500 }];
   }
 
@@ -198,7 +207,7 @@ export class BotBrain {
     if (/\b(tip|how|pose|face|express|emot|smile|shout|wave)/.test(q)) return this.nextTip();
     if (/\b(link|url|invite|share|site)\b/.test(q)) return `Bring friends: ${this.config.siteUrl}`;
     if (/\b(schedule|when|busy|chat night|event)/.test(q)) {
-      return this.config.schedule ?? "No set chat nights yet. Bring a friend and start one!";
+      return this.config.schedule ?? "Nothing's scheduled yet: the room is open any time, so bring a friend and start a comic :)";
     }
     if (/\b(bot|human|real|person|robot)\b/.test(q)) return "Yes, I'm a bot. Everyone else here is a real person :)";
     if (/\b(about|who|what|comic chat)\b/.test(q)) {
