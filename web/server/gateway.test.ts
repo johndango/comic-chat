@@ -14,6 +14,7 @@ interface BridgeHarness {
   socket: { destroyed: boolean; write(command: string): void };
   handleIrcLine(line: string): void;
   joinChannel(channel: string): void;
+  requestRooms(): void;
 }
 
 function bridgeHarness() {
@@ -193,6 +194,18 @@ describe("local web gateway", () => {
 });
 
 describe("IRC room state recovery", () => {
+  it("keeps a joined client joined while refreshing the room directory", () => {
+    const { bridge, events, writes } = bridgeHarness();
+    bridge.activeChannel = "#webcomicchat";
+    bridge.joined = true;
+    bridge.lastRoomListAt = 0;
+
+    bridge.requestRooms();
+
+    expect(writes).toEqual(["LIST >20\r\n"]);
+    expect(events).toEqual([{ type: "rooms", count: 0, reset: true }]);
+  });
+
   it("returns rejected joins to the existing room directory", () => {
     const { bridge, events } = bridgeHarness();
     bridge.activeChannel = "#locked";

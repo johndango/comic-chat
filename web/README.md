@@ -57,6 +57,12 @@ room can be shared without including anyone's nickname. Opening a link never
 joins automatically: the visitor still chooses their nickname and confirms the
 connection.
 
+The connection bar defaults to Libera.Chat's `#webcomicchat` community room.
+**Browse channels…** stays available whether disconnected or already in a
+channel. Visitors can also type any supported `#channel` and choose
+**Join channel** or **Switch channel**, copy a direct WebComicChat link, or open
+that channel in [Libera's web client](https://web.libera.chat/#webcomicchat).
+
 Browsers cannot open raw IRC sockets, so `server/` provides a same-origin
 WebSocket-to-IRC bridge. It connects with verified TLS to one of two preset
 public networks, handles IRC registration, retrieves a searchable public-room
@@ -92,9 +98,10 @@ npm start
 ```
 
 Then open `http://127.0.0.1:8787`. Live mode intentionally supports no IRC
-passwords or account credentials. Choose a preset network and nickname, then
-browse and search its popular public rooms; entering a known channel directly
-also works. Offline strip composition remains available without the gateway.
+passwords or account credentials. Choose a nickname to join the default
+`#webcomicchat` room, browse and search popular public channels, or replace the
+channel with a known one. Offline strip composition remains available without
+the gateway.
 After entering or joining a channel, **Copy room link** creates a link such as
 `https://webcomicchat.com/?network=libera&channel=%23comic-chat`.
 

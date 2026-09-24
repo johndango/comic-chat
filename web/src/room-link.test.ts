@@ -1,7 +1,17 @@
 import { describe, expect, it } from "vitest";
-import { createRoomUrl, normalizeRoomSelection, roomSelectionFromUrl } from "./room-link";
+import {
+  createLiberaWebChatUrl,
+  createRoomUrl,
+  DEFAULT_ROOM_SELECTION,
+  normalizeRoomSelection,
+  roomSelectionFromUrl,
+} from "./room-link";
 
 describe("room links", () => {
+  it("defines the project room as the default", () => {
+    expect(DEFAULT_ROOM_SELECTION).toEqual({ network: "libera", channel: "#webcomicchat" });
+  });
+
   it("normalizes a channel without its sigil", () => {
     expect(normalizeRoomSelection("libera", " comic-chat ")).toEqual({
       network: "libera",
@@ -37,5 +47,10 @@ describe("room links", () => {
       network: "libera",
       channel: "#not valid",
     })).toThrow("invalid IRC room");
+  });
+
+  it("creates a Libera web-chat link and safely falls back to the project room", () => {
+    expect(createLiberaWebChatUrl("#another-room")).toBe("https://web.libera.chat/#another-room");
+    expect(createLiberaWebChatUrl("bad room")).toBe("https://web.libera.chat/#webcomicchat");
   });
 });

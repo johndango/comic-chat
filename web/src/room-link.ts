@@ -5,6 +5,11 @@ export interface RoomSelection {
   channel: string;
 }
 
+export const DEFAULT_ROOM_SELECTION: Readonly<RoomSelection> = {
+  network: "libera",
+  channel: "#webcomicchat",
+};
+
 const channelPattern = /^#[A-Za-z0-9_+\-]{1,50}$/;
 
 export function normalizeRoomSelection(network: string, rawChannel: string): RoomSelection | undefined {
@@ -34,5 +39,12 @@ export function createRoomUrl(currentUrl: URL, selection: RoomSelection): string
   url.searchParams.set("network", validated.network);
   url.searchParams.set("channel", validated.channel);
   url.hash = "";
+  return url.toString();
+}
+
+export function createLiberaWebChatUrl(rawChannel: string): string {
+  const selection = normalizeRoomSelection("libera", rawChannel) ?? DEFAULT_ROOM_SELECTION;
+  const url = new URL("https://web.libera.chat/");
+  url.hash = selection.channel;
   return url.toString();
 }

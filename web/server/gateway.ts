@@ -235,7 +235,7 @@ export class IrcBridge {
         sendJson(this.webSocket, {
           type: "status",
           state: "browsing",
-          message: `${rooms.length} popular public rooms available`,
+          message: `${rooms.length} popular public channels available`,
           nickname: this.request.nickname,
         });
       }
@@ -359,7 +359,7 @@ export class IrcBridge {
     sendJson(this.webSocket, {
       type: "status",
       state: "browsing",
-      message: `${this.roomResults.length} popular public rooms available`,
+      message: `${this.roomResults.length} popular public channels available`,
       nickname: this.request?.nickname,
     });
   }
@@ -374,7 +374,9 @@ export class IrcBridge {
     this.listedRooms = 0;
     this.roomResults = [];
     sendJson(this.webSocket, { type: "rooms", count: 0, reset: true });
-    sendJson(this.webSocket, { type: "status", state: "browsing", message: "Loading public rooms…", nickname: this.request.nickname });
+    if (!this.joined) {
+      sendJson(this.webSocket, { type: "status", state: "browsing", message: "Loading public channels…", nickname: this.request.nickname });
+    }
     this.write("LIST >20");
   }
 

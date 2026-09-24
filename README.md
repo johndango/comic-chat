@@ -53,6 +53,10 @@ Canvas, exports them as PNG files, and renders public IRC channels through a
 local TLS WebSocket gateway. Safe room links can prefill a network and channel
 without sharing a nickname or joining automatically. Its production home is
 [`webcomicchat.com`](https://webcomicchat.com).
+The live client defaults to the community's `#webcomicchat` channel on
+Libera.Chat, keeps channel browsing and switching visible at all times, and
+links to [Libera's official web client](https://web.libera.chat/#webcomicchat)
+as an alternate way to join.
 Users can prefer black-and-white or color art globally; matching editions swap
 automatically, while an explicit per-member avatar assignment remains exact.
 The color replacements are credited to

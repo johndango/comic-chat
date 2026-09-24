@@ -101,9 +101,12 @@ button:focus-visible { outline: 1px dotted #000; outline-offset: -5px; }
 button:disabled { color: #808080; text-shadow: 1px 1px #fff; cursor: not-allowed; box-shadow: none; }
 .live-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
 .connect-button { font-weight: 700; }
+.libera-web-chat { grid-column: 1 / -1; color: #000080; text-align: center; white-space: nowrap; }
 
 .room-browser { margin: 8px; padding: 3px; border-top: 2px solid #fff; border-left: 2px solid #fff; border-right: 2px solid #333; border-bottom: 2px solid #333; background: var(--face); }
 .room-browser > header { height: 24px; padding: 4px 6px; display: flex; justify-content: space-between; color: #fff; background: var(--navy); }
+.room-browser > header span { margin-left: auto; margin-right: 10px; }
+.room-browser > header button { min-height: 17px; padding: 0 7px; line-height: 14px; }
 .room-tools { padding: 7px; display: grid; grid-template-columns: auto minmax(160px, 1fr) auto; align-items: center; gap: 7px; }
 .room-columns { padding: 3px 78px 3px 5px; display: grid; grid-template-columns: 160px 65px 1fr; gap: 6px; border: 1px solid #808080; background: var(--face); font-weight: 700; }
 .room-list { height: min(290px, 34vh); overflow: auto; border-top: 2px solid #404040; border-left: 2px solid #404040; border-right: 2px solid #fff; border-bottom: 2px solid #fff; background: #fff; }

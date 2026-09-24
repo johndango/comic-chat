@@ -31,7 +31,13 @@ import { ComicPage, type ComicLine } from "./layout/page";
 import { canvasMeasurer, drawPanel, drawTitlePanel } from "./layout/render";
 import { layoutTitlePanel } from "./layout/title";
 import { panelDisplaySize, parsePanelsAcross, parsePanelZoom, type PanelsAcross } from "./panel-view";
-import { createRoomUrl, normalizeRoomSelection, roomSelectionFromUrl } from "./room-link";
+import {
+  createLiberaWebChatUrl,
+  createRoomUrl,
+  DEFAULT_ROOM_SELECTION,
+  normalizeRoomSelection,
+  roomSelectionFromUrl,
+} from "./room-link";
 
 interface ArtChoice { file: string; label: string; announcementName?: string }
 
@@ -208,22 +214,25 @@ app.innerHTML = `
         </div>
         <label>Server<select id="network"><option value="libera">Libera.Chat</option><option value="oftc">OFTC</option></select></label>
         <label>Nickname<input id="nickname" maxlength="16" autocomplete="nickname" /></label>
-        <label>Room (optional)<input id="channel" maxlength="52" placeholder="Browse all rooms" spellcheck="false" /></label>
+        <label>Channel<input id="channel" maxlength="52" value="${DEFAULT_ROOM_SELECTION.channel}" placeholder="#channel" spellcheck="false" /></label>
         <div class="live-actions">
-          <button id="connect-live" class="connect-button" type="button">Browse rooms</button>
-          <button id="share-room" class="share-room-button" type="button" disabled>Copy room link</button>
+          <button id="connect-live" class="connect-button" type="button">Connect &amp; join</button>
+          <button id="browse-rooms" type="button">Browse channels…</button>
+          <button id="share-room" class="share-room-button" type="button">Copy channel link</button>
+          <button id="disconnect-live" type="button" disabled>Disconnect</button>
+          <a id="libera-web-chat" class="libera-web-chat" href="${createLiberaWebChatUrl(DEFAULT_ROOM_SELECTION.channel)}" target="_blank" rel="noreferrer">Open ${DEFAULT_ROOM_SELECTION.channel} in Libera web chat ↗</a>
         </div>
       </section>
 
       <section id="room-browser" class="room-browser" hidden aria-label="Public room directory">
-        <header><strong>Room List</strong><span id="room-summary">Connecting to server…</span></header>
+        <header><strong>Channel List</strong><span id="room-summary">Connecting to server…</span><button id="close-room-browser" type="button">Close</button></header>
         <div class="room-tools">
           <label for="room-filter">Find:</label><input id="room-filter" type="search" placeholder="Search room names and topics" />
           <button id="refresh-rooms" type="button">Refresh List</button>
         </div>
-        <div class="room-columns"><span>Room</span><span>Members</span><span>Topic</span></div>
+        <div class="room-columns"><span>Channel</span><span>Members</span><span>Topic</span></div>
         <div id="room-list" class="room-list" role="list"></div>
-        <p>Double-click a room—or use Join—to enter it. You can still type a known room above.</p>
+        <p>Double-click a channel—or use Join—to enter it. You can always type another channel above and choose Join/Switch.</p>
       </section>
 
       <div class="room-tab"><span aria-hidden="true">▰</span><strong id="room-tab-label">Offline comic</strong></div>
@@ -375,9 +384,13 @@ const networkSelect = element<HTMLSelectElement>("#network");
 const nicknameInput = element<HTMLInputElement>("#nickname");
 const channelInput = element<HTMLInputElement>("#channel");
 const connectButton = element<HTMLButtonElement>("#connect-live");
+const browseRoomsButton = element<HTMLButtonElement>("#browse-rooms");
 const shareRoomButton = element<HTMLButtonElement>("#share-room");
+const disconnectButton = element<HTMLButtonElement>("#disconnect-live");
+const liberaWebChatLink = element<HTMLAnchorElement>("#libera-web-chat");
 const addLabel = element<HTMLElement>("#add-label");
 const roomBrowser = element<HTMLElement>("#room-browser");
+const closeRoomBrowserButton = element<HTMLButtonElement>("#close-room-browser");
 const roomList = element<HTMLElement>("#room-list");
 const roomFilter = element<HTMLInputElement>("#room-filter");
 const roomSummary = element<HTMLElement>("#room-summary");
@@ -425,6 +438,8 @@ let avatarRemapGeneration = 0;
 let previewGeneration = 0;
 let isAdding = false;
 let liveState: LiveState = "offline";
+let joinedChannel = "";
+let roomDirectoryLoaded = false;
 let panelsAcross: PanelsAcross = "auto";
 let remoteQueue = Promise.resolve();
 const publicRooms = new Map<string, LiveRoomEvent>();
@@ -1023,12 +1038,27 @@ function renderMembers(): void {
   }
 }
 
+function setRoomBrowserVisible(visible: boolean): void {
+  roomBrowser.hidden = !visible;
+  if (visible) {
+    roomTabLabel.textContent = "Channel list";
+    windowRoom.textContent = "Channel List";
+  } else if (liveState === "joined" && joinedChannel) {
+    roomTabLabel.textContent = joinedChannel;
+    windowRoom.textContent = joinedChannel;
+  } else {
+    roomTabLabel.textContent = "Offline comic";
+    windowRoom.textContent = "Not connected";
+  }
+  refreshRoomsButton.disabled = !visible || (liveState !== "browsing" && liveState !== "joined");
+}
+
 function joinRoom(channel: string): void {
   const room = normalizeRoomSelection(networkSelect.value, channel);
   if (!room) throw new Error("That room name is not IRC-safe");
   channelInput.value = room.channel;
   liveClient.join(room.channel);
-  roomBrowser.hidden = true;
+  setRoomBrowserVisible(false);
   updateControls();
 }
 
@@ -1043,7 +1073,7 @@ function renderRoomList(): void {
   if (matching.length === 0) {
     const empty = document.createElement("p");
     empty.className = "room-empty";
-    empty.textContent = publicRooms.size === 0 ? "Waiting for the server's public room list…" : "No rooms match that search.";
+    empty.textContent = publicRooms.size === 0 ? "Waiting for the server's public channel list…" : "No channels match that search.";
     roomList.append(empty);
   }
 
@@ -1071,7 +1101,7 @@ function renderRoomList(): void {
     row.append(name, users, topic, join);
     roomList.append(row);
   }
-  roomSummary.textContent = `${matching.length} shown · ${totalPublicRooms || publicRooms.size} public rooms found`;
+  roomSummary.textContent = `${matching.length} shown · ${totalPublicRooms || publicRooms.size} public channels found`;
 }
 
 function updateLiveUi(state: LiveState, message: string): void {
@@ -1079,26 +1109,28 @@ function updateLiveUi(state: LiveState, message: string): void {
   liveConsole.dataset.state = state;
   liveStatus.textContent = message;
   const active = state === "connecting" || state === "browsing" || state === "joining" || state === "joined";
+  const busy = state === "connecting" || state === "joining";
   networkSelect.disabled = active;
   nicknameInput.disabled = active;
-  channelInput.disabled = active;
-  connectButton.textContent = active ? "Disconnect" : channelInput.value.trim() ? "Connect & join" : "Browse rooms";
+  channelInput.disabled = busy;
+  connectButton.textContent = state === "joined" ? "Switch channel" : state === "browsing" ? "Join channel" : "Connect & join";
+  connectButton.disabled = busy;
+  browseRoomsButton.disabled = busy;
+  disconnectButton.disabled = !active;
   addLabel.textContent = state === "joined" ? "Send to room" : "Add to comic";
-  roomBrowser.hidden = state !== "browsing";
-  refreshRoomsButton.disabled = state !== "browsing";
-  if (state !== "joined") {
-    roomTabLabel.textContent = state === "browsing" ? "Room list" : "Offline comic";
-    windowRoom.textContent = state === "browsing" ? "Room List" : "Not connected";
-  }
+  setRoomBrowserVisible(state === "browsing");
   updateControls();
 }
 
 function handleLiveEvent(event: LiveEvent): void {
   if (event.type === "status") {
+    if (event.state === "joined") joinedChannel = event.channel ?? channelInput.value;
+    else if (event.state === "offline" || event.state === "disconnected") joinedChannel = "";
     updateLiveUi(event.state, event.message);
     if (event.state === "browsing") renderRoomList();
     if (event.state === "joined") {
       const channel = event.channel ?? channelInput.value;
+      channelInput.value = channel;
       roomTabLabel.textContent = channel;
       windowRoom.textContent = channel;
       knownMembers.clear();
@@ -1118,8 +1150,10 @@ function handleLiveEvent(event: LiveEvent): void {
     if (event.reset) {
       publicRooms.clear();
       totalPublicRooms = 0;
+      roomDirectoryLoaded = false;
     } else {
       totalPublicRooms = event.total ?? event.count;
+      roomDirectoryLoaded = true;
     }
     roomSummary.textContent = event.reset ? "Loading rooms…" : `${event.count} popular rooms shown`;
     renderRoomList();
@@ -1157,8 +1191,19 @@ function updateControls(): void {
   undoButton.disabled = conversation.length === 0 || isAdding;
   clearButton.disabled = conversation.length === 0 || isAdding;
   downloadButton.disabled = conversation.length === 0 || isAdding;
-  shareRoomButton.disabled = !normalizeRoomSelection(networkSelect.value, channelInput.value);
-  if (!liveClient.active) connectButton.textContent = channelInput.value.trim() ? "Connect & join" : "Browse rooms";
+  const room = normalizeRoomSelection(networkSelect.value, channelInput.value);
+  const busy = liveState === "connecting" || liveState === "joining";
+  shareRoomButton.disabled = !room;
+  connectButton.disabled = busy || !room;
+  browseRoomsButton.disabled = busy;
+  disconnectButton.disabled = !liveClient.active;
+  refreshRoomsButton.disabled = roomBrowser.hidden || (liveState !== "browsing" && liveState !== "joined");
+  liberaWebChatLink.hidden = networkSelect.value !== "libera";
+  if (!liberaWebChatLink.hidden) {
+    const channel = normalizeRoomSelection("libera", channelInput.value)?.channel ?? DEFAULT_ROOM_SELECTION.channel;
+    liberaWebChatLink.href = createLiberaWebChatUrl(channel);
+    liberaWebChatLink.textContent = `Open ${channel} in Libera web chat ↗`;
+  }
 }
 
 async function copyText(value: string): Promise<boolean> {
@@ -1192,8 +1237,8 @@ async function copyRoomLink(): Promise<void> {
   window.history.replaceState(null, "", url);
   const copied = await copyText(url);
   setStatus(copied
-    ? `Room link copied for ${room.channel}. It will not connect until opened and confirmed.`
-    : `Room link ready for ${room.channel}. Copy it from the address bar.`);
+    ? `Channel link copied for ${room.channel}. It will not connect until opened and confirmed.`
+    : `Channel link ready for ${room.channel}. Copy it from the address bar.`);
 }
 
 function createPanelCanvas(label: string): { card: HTMLElement; canvas: HTMLCanvasElement; context: CanvasRenderingContext2D; ratio: number } {
@@ -1544,37 +1589,80 @@ clearButton.addEventListener("click", () => {
   setStatus("Strip cleared. Write a line to begin again.");
 });
 downloadButton.addEventListener("click", downloadStrip);
-connectButton.addEventListener("click", () => {
-  if (liveClient.active) {
-    liveClient.disconnect();
-    return;
-  }
+function validatedNickname(): string | undefined {
   const nickname = nicknameInput.value.trim();
-  const requestedChannel = channelInput.value.trim();
-  const room = normalizeRoomSelection(networkSelect.value, channelInput.value);
   const nicknameIsValid = /^[A-Za-z][A-Za-z0-9_\-[\]\\`^{}]{0,15}$/.test(nickname);
-  const channelIsValid = requestedChannel.length === 0 || room !== undefined;
-  if (!nicknameIsValid || !channelIsValid) {
+  if (!nicknameIsValid) {
     liveConsole.dataset.state = "error";
-    liveStatus.textContent = nicknameIsValid
-      ? "Enter a valid #channel"
-      : "Nickname must start with a letter and use IRC-safe characters";
+    liveStatus.textContent = "Nickname must start with a letter and use IRC-safe characters";
+    return undefined;
+  }
+  return nickname;
+}
+
+connectButton.addEventListener("click", () => {
+  const nickname = validatedNickname();
+  const room = normalizeRoomSelection(networkSelect.value, channelInput.value);
+  if (!nickname || !room) {
+    if (!room) {
+      liveConsole.dataset.state = "error";
+      liveStatus.textContent = "Enter a valid #channel";
+    }
     return;
   }
-  if (room) channelInput.value = room.channel;
+  channelInput.value = room.channel;
+  if (liveClient.active) {
+    try {
+      joinRoom(room.channel);
+    } catch (error) {
+      showError(error);
+    }
+    return;
+  }
   publicRooms.clear();
+  roomDirectoryLoaded = false;
   knownMembers.clear();
   renderMembers();
   try {
     liveClient.connect({
-      network: room?.network ?? (networkSelect.value === "oftc" ? "oftc" : "libera"),
+      network: room.network,
       nickname,
-      ...(room ? { channel: room.channel } : {}),
+      channel: room.channel,
     });
   } catch (error) {
     showError(error);
   }
 });
+browseRoomsButton.addEventListener("click", () => {
+  const nickname = validatedNickname();
+  if (!nickname) return;
+  if (liveClient.active) {
+    setRoomBrowserVisible(true);
+    renderRoomList();
+    if (!roomDirectoryLoaded) {
+      try {
+        liveClient.listRooms();
+      } catch (error) {
+        showError(error);
+      }
+    }
+    return;
+  }
+  publicRooms.clear();
+  roomDirectoryLoaded = false;
+  knownMembers.clear();
+  renderMembers();
+  try {
+    liveClient.connect({
+      network: networkSelect.value === "oftc" ? "oftc" : "libera",
+      nickname,
+    });
+  } catch (error) {
+    showError(error);
+  }
+});
+disconnectButton.addEventListener("click", () => liveClient.disconnect());
+closeRoomBrowserButton.addEventListener("click", () => setRoomBrowserVisible(false));
 shareRoomButton.addEventListener("click", () => copyRoomLink().catch(showError));
 networkSelect.addEventListener("change", updateControls);
 channelInput.addEventListener("input", updateControls);
