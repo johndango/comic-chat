@@ -260,6 +260,7 @@ app.innerHTML = `
     <nav id="classic-menu" class="classic-menu" aria-label="Application menu">
       <details><summary><u>F</u>ile</summary><div class="classic-menu-popup">
         <button type="button" data-command="new-comic">New comic</button>
+        <button type="button" data-command="strip-workshop">Open Strip Workshop…</button>
         <button type="button" data-command="import-avatar">Import character…</button>
         <button type="button" data-command="create-avatar">Create character…</button>
         <hr />
@@ -350,7 +351,7 @@ app.innerHTML = `
         <p>Double-click a channel—or use Join—to enter it. You can always type another channel above and choose Join/Switch.</p>
       </section>
 
-      <div class="room-tab"><span aria-hidden="true">▰</span><strong id="room-tab-label">Offline comic</strong></div>
+      <div class="room-tab"><span aria-hidden="true">▰</span><strong id="room-tab-label">Offline comic</strong><button id="open-strip-workshop" type="button">Edit offline strip…</button></div>
       <section id="workspace" class="workspace" aria-label="Comic conversation editor">
         <div class="stage-wrap conversation-stage">
           <div class="strip-heading">
@@ -506,6 +507,29 @@ app.innerHTML = `
         <footer><button id="reset-avatar-rules" type="button">Reset mappings</button><button value="cancel">Close</button></footer>
       </form>
     </dialog>
+    <dialog id="strip-workshop-dialog" class="classic-dialog strip-workshop-dialog" aria-labelledby="strip-workshop-title">
+      <form method="dialog">
+        <header><strong id="strip-workshop-title">Strip Workshop</strong><button value="cancel" aria-label="Close">×</button></header>
+        <div class="dialog-body workshop-body">
+          <div class="workshop-intro">
+            <div>
+              <strong>Direct the comic one line at a time.</strong>
+              <p>Recast speakers, rewrite dialogue, move beats, or mark where a new panel must begin. The Comic Chat engine still chooses poses and lays out every shot.</p>
+            </div>
+            <output id="workshop-summary">0 lines</output>
+          </div>
+          <div class="workshop-title-editor">
+            <label for="workshop-comic-title">Opening title</label>
+            <input id="workshop-comic-title" maxlength="80" placeholder="Automatic Comic Chat title" />
+            <button id="workshop-apply-title" type="button">Apply title</button>
+          </div>
+          <div class="workshop-key" aria-hidden="true"><span>Sequence</span><span>Script &amp; staging</span><span>Line tools</span></div>
+          <div id="workshop-lines" class="workshop-lines"></div>
+          <p class="workshop-local-note">Workshop edits change only this local comic. They are never sent back to IRC.</p>
+        </div>
+        <footer><button id="workshop-compose" type="button">Add a line with the composer…</button><button value="cancel">Close</button></footer>
+      </form>
+    </dialog>
     <dialog id="avatar-builder-dialog" class="classic-dialog avatar-builder-dialog" aria-labelledby="avatar-builder-title">
       <form method="dialog">
         <header><strong id="avatar-builder-title">Create a Comic Chat character</strong><button value="cancel" aria-label="Close">×</button></header>
@@ -614,6 +638,13 @@ const officialAvatarsOnly = element<HTMLInputElement>("#official-avatars-only");
 const avatarArtPreferenceInputs = [...document.querySelectorAll<HTMLInputElement>('input[name="avatar-art-preference"]')];
 const avatarRuleList = element<HTMLElement>("#avatar-rule-list");
 const resetAvatarRulesButton = element<HTMLButtonElement>("#reset-avatar-rules");
+const openStripWorkshopButton = element<HTMLButtonElement>("#open-strip-workshop");
+const stripWorkshopDialog = element<HTMLDialogElement>("#strip-workshop-dialog");
+const workshopSummary = element<HTMLOutputElement>("#workshop-summary");
+const workshopComicTitle = element<HTMLInputElement>("#workshop-comic-title");
+const workshopApplyTitleButton = element<HTMLButtonElement>("#workshop-apply-title");
+const workshopLines = element<HTMLElement>("#workshop-lines");
+const workshopComposeButton = element<HTMLButtonElement>("#workshop-compose");
 const roomTabLabel = element<HTMLElement>("#room-tab-label");
 const windowRoom = element<HTMLElement>("#window-room");
 const characterPane = element<HTMLElement>("#character-pane");
@@ -662,6 +693,7 @@ let panelsAcross: PanelsAcross = "auto";
 let comicFontId: ComicFontId = "comic-sans-ms";
 let hiddenComicBots = new Set<string>();
 let censorContent = false;
+let comicTitleOverride = "";
 let remoteQueue = Promise.resolve();
 const pendingLiveLines: PendingLiveLine[] = [];
 const publicRooms = new Map<string, LiveRoomEvent>();
@@ -1804,6 +1836,189 @@ function panelContentSignature(layout: PanelLayout): string {
   return `panel:${content}`;
 }
 
+function workshopCharacterSelect(line: ConversationLine, index: number): HTMLSelectElement {
+  const select = characterSelect.cloneNode(true) as HTMLSelectElement;
+  select.removeAttribute("id");
+  select.value = line.characterFile;
+  select.setAttribute("aria-label", `Character for line ${index + 1}`);
+  if (!select.value) {
+    select.append(new Option(`${line.characterName} — current`, line.characterFile));
+    select.value = line.characterFile;
+  }
+  return select;
+}
+
+function workshopModeSelect(line: ConversationLine, index: number): HTMLSelectElement {
+  const select = document.createElement("select");
+  select.setAttribute("aria-label", `Balloon style for line ${index + 1}`);
+  select.append(
+    new Option("Say", "say"),
+    new Option("Think", "think"),
+    new Option("Whisper", "whisper"),
+    new Option("Action / narration", "action"),
+  );
+  select.value = line.mode;
+  return select;
+}
+
+function setWorkshopBusy(busy: boolean): void {
+  for (const control of stripWorkshopDialog.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement | HTMLButtonElement>("input, select, textarea, button")) {
+    if (control.closest("header") || control.value === "cancel") continue;
+    control.disabled = busy;
+  }
+}
+
+async function applyWorkshopLine(
+  index: number,
+  row: HTMLElement,
+  character: HTMLSelectElement,
+  name: HTMLInputElement,
+  mode: HTMLSelectElement,
+  message: HTMLTextAreaElement,
+  breakBefore: HTMLInputElement,
+  reaction: HTMLInputElement,
+): Promise<void> {
+  const current = conversation[index];
+  if (!current) return;
+  const text = reaction.checked ? "" : message.value.trim();
+  if (!reaction.checked && !text) throw new Error("Give this line some dialogue, or mark it as a silent reaction");
+  const unsafeLink = blockedMessageLink(text);
+  if (unsafeLink && mode.value !== "whisper") throw new Error(blockedLinkMessage(unsafeLink));
+  setWorkshopBusy(true);
+  row.classList.add("workshop-line-saving");
+  try {
+    const next = await createConversationLine(
+      character.value,
+      text,
+      name.value.trim() || undefined,
+      mode.value as BalloonMode,
+      current.talkTo,
+      mode.value !== "whisper",
+    );
+    next.breakBefore = breakBefore.checked;
+    next.reaction = reaction.checked;
+    conversation[index] = next;
+    await renderStrip();
+    renderStripWorkshop();
+    setStatus(`Workshop applied line ${index + 1}. The strip was reflowed locally.`);
+  } finally {
+    setWorkshopBusy(false);
+  }
+}
+
+function renderStripWorkshop(): void {
+  workshopComicTitle.value = comicTitleOverride;
+  const comicPanels = Math.max(0, panelCanvases.length - 1);
+  workshopSummary.value = `${conversation.length} ${conversation.length === 1 ? "line" : "lines"} · ${comicPanels} ${comicPanels === 1 ? "comic panel" : "comic panels"}`;
+  workshopLines.replaceChildren();
+  if (conversation.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "workshop-empty";
+    empty.innerHTML = "<strong>The script track is empty.</strong><span>Add a line below the comic, then return here to shape the strip.</span>";
+    workshopLines.append(empty);
+    return;
+  }
+
+  conversation.forEach((line, index) => {
+    const row = document.createElement("article");
+    row.className = "workshop-line";
+    if (line.breakBefore) row.classList.add("starts-panel");
+
+    const sequence = document.createElement("div");
+    sequence.className = "workshop-sequence";
+    const number = document.createElement("strong");
+    number.textContent = String(index + 1).padStart(2, "0");
+    const beat = document.createElement("span");
+    beat.textContent = line.breakBefore ? "NEW PANEL" : "NEXT BEAT";
+    sequence.append(number, beat);
+
+    const script = document.createElement("div");
+    script.className = "workshop-script";
+    const cast = workshopCharacterSelect(line, index);
+    const name = document.createElement("input");
+    name.value = line.characterName;
+    name.maxLength = 32;
+    name.placeholder = "Display name";
+    name.setAttribute("aria-label", `Display name for line ${index + 1}`);
+    const mode = workshopModeSelect(line, index);
+    const message = document.createElement("textarea");
+    message.rows = 2;
+    message.maxLength = 180;
+    message.value = line.message;
+    message.placeholder = line.reaction ? "Silent reaction" : "Dialogue";
+    message.setAttribute("aria-label", `Text for line ${index + 1}`);
+    const staging = document.createElement("div");
+    staging.className = "workshop-staging";
+    const breakLabel = document.createElement("label");
+    const breakBefore = document.createElement("input");
+    breakBefore.type = "checkbox";
+    breakBefore.checked = Boolean(line.breakBefore);
+    breakLabel.append(breakBefore, " Start a new panel");
+    const reactionLabel = document.createElement("label");
+    const reaction = document.createElement("input");
+    reaction.type = "checkbox";
+    reaction.checked = Boolean(line.reaction);
+    reactionLabel.append(reaction, " Silent reaction");
+    reaction.addEventListener("change", () => {
+      message.disabled = reaction.checked;
+      message.placeholder = reaction.checked ? "Character appears without a balloon" : "Dialogue";
+    });
+    message.disabled = reaction.checked;
+    staging.append(breakLabel, reactionLabel);
+    script.append(cast, name, mode, message, staging);
+
+    const tools = document.createElement("div");
+    tools.className = "workshop-line-tools";
+    const apply = document.createElement("button");
+    apply.type = "button";
+    apply.className = "workshop-apply";
+    apply.textContent = "Apply";
+    apply.addEventListener("click", () => {
+      void applyWorkshopLine(index, row, cast, name, mode, message, breakBefore, reaction).catch(showError);
+    });
+    const earlier = document.createElement("button");
+    earlier.type = "button";
+    earlier.textContent = "↑ Earlier";
+    earlier.disabled = index === 0;
+    earlier.addEventListener("click", () => {
+      const [moved] = conversation.splice(index, 1);
+      conversation.splice(index - 1, 0, moved);
+      void renderStrip().then(renderStripWorkshop).catch(showError);
+    });
+    const later = document.createElement("button");
+    later.type = "button";
+    later.textContent = "↓ Later";
+    later.disabled = index === conversation.length - 1;
+    later.addEventListener("click", () => {
+      const [moved] = conversation.splice(index, 1);
+      conversation.splice(index + 1, 0, moved);
+      void renderStrip().then(renderStripWorkshop).catch(showError);
+    });
+    const duplicate = document.createElement("button");
+    duplicate.type = "button";
+    duplicate.textContent = "Duplicate";
+    duplicate.addEventListener("click", () => {
+      conversation.splice(index + 1, 0, { ...line, talkTo: [...line.talkTo], links: [...line.links] });
+      void renderStrip().then(renderStripWorkshop).catch(showError);
+    });
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.textContent = "Remove";
+    remove.addEventListener("click", () => {
+      conversation.splice(index, 1);
+      void renderStrip().then(renderStripWorkshop).catch(showError);
+    });
+    tools.append(apply, earlier, later, duplicate, remove);
+    row.append(sequence, script, tools);
+    workshopLines.append(row);
+  });
+}
+
+function openStripWorkshop(): void {
+  renderStripWorkshop();
+  stripWorkshopDialog.showModal();
+}
+
 function followNewestPanel(generation: number, previousScrollTop: number): void {
   requestAnimationFrame(() => {
     requestAnimationFrame(() => {
@@ -1879,7 +2094,7 @@ async function renderStrip(): Promise<void> {
     talkTos: (speaker) => currentTalkTo.get(speaker) ?? [],
     neutralPose: (speaker) => neutral.get(speaker),
   });
-  const title = page.chooseTitle();
+  const title = comicTitleOverride || page.chooseTitle();
   for (const line of renderedConversation) {
     currentTalkTo.set(line.characterName, line.talkTo);
     const image = images.get(line.poseRef)!;
@@ -2280,9 +2495,24 @@ undoButton.addEventListener("click", () => {
 });
 clearButton.addEventListener("click", () => {
   conversation.length = 0;
+  comicTitleOverride = "";
   forceNextPanel = false;
   void renderStrip().catch(showError);
   setStatus("Strip cleared. Write a line to begin again.");
+});
+openStripWorkshopButton.addEventListener("click", openStripWorkshop);
+workshopApplyTitleButton.addEventListener("click", () => {
+  comicTitleOverride = workshopComicTitle.value.trim();
+  void renderStrip().then(() => {
+    renderStripWorkshop();
+    setStatus(comicTitleOverride ? `Opening title changed to “${comicTitleOverride}”.` : "The opening title is automatic again.");
+  }).catch(showError);
+});
+workshopComposeButton.addEventListener("click", () => {
+  stripWorkshopDialog.close();
+  messageInput.scrollIntoView({ block: "center" });
+  messageInput.focus();
+  setStatus("Write the next line below the comic, then choose Add to comic.");
 });
 downloadButton.addEventListener("click", downloadStrip);
 selectPanelsButton.addEventListener("click", () => setPanelSelectionMode(!panelSelectionMode));
@@ -2445,6 +2675,9 @@ function runMenuCommand(command: string): void {
     case "new-comic":
     case "clear":
       clearButton.click();
+      break;
+    case "strip-workshop":
+      openStripWorkshop();
       break;
     case "import-avatar":
       importAvatarButton.click();
