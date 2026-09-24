@@ -158,6 +158,9 @@ button:disabled { color: #808080; text-shadow: 1px 1px #fff; cursor: not-allowed
 .character-pane > header { margin: 0 -8px 7px; }
 .character-pane label { display: block; margin: 7px 0 2px; }
 .character-figure { width: 100%; height: 108px; display: block; border: 1px solid #808080; background: #fff; image-rendering: pixelated; }
+.character-actions { margin-top: 5px; display: flex; gap: 5px; }
+.character-actions button { flex: 1; }
+.character-pane .local-avatar-note { margin: 4px 0 7px; text-align: left; }
 .emotion-wheel { width: 132px; height: 132px; margin: 10px auto 2px; }
 .emotion-wheel canvas { display: block; image-rendering: pixelated; }
 .tone-value { display: block; min-height: 14px; text-align: center; font-size: 10px; }

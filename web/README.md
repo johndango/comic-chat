@@ -34,10 +34,14 @@ as an addressee hint.
 is enabled by default, original `# Appears as …` character announcements are
 recognized, and any member can be forced to a particular bundled or Art Pack
 character. Forced mappings are saved per IRC network and nickname and take
-precedence over announcements and automatic assignment. Custom `.avb` parsing,
-writing and character-building primitives are implemented and tested; hosted
-uploads, moderation, gallery browsing and the visual builder remain separate
-follow-up work.
+precedence over announcements and automatic assignment. Users can import a
+custom `.avb` for their own character without uploading it; the file is fully
+validated, stays in the current browser tab, and is clearly marked as local.
+When official-only mode is switched off, room announcements may load validated
+custom avatars from the same HTTPS webcomicchat.com origin. Arbitrary external
+art hosts remain blocked. The client announces official character changes using
+the original convention. Hosted uploads, moderation, gallery browsing and the
+visual builder remain separate follow-up work.
 
 Room links use the page URL to prefill a supported IRC network and channel, so a
 room can be shared without including anyone's nickname. Opening a link never

@@ -194,6 +194,8 @@ interface RawRef {
 /** Limits that keep a hostile file from exhausting memory. */
 const MAX_DIMENSION = 4096;
 const MAX_IMAGES = 1024;
+const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
+const MAX_TOTAL_IMAGE_BYTES = 64 * 1024 * 1024;
 
 async function readImage(bytes: Uint8Array, ref: RawRef): Promise<AvbImage> {
   if (ref.format !== 1) throw new Error(`Unsupported image format ${ref.format}`);
@@ -230,6 +232,7 @@ async function readImage(bytes: Uint8Array, ref: RawRef): Promise<AvbImage> {
   const packedSize = r.u32();
   const expected = dibStride(width, bitCount) * Math.abs(height);
   if (rawSize !== expected) throw new Error("Bitmap size does not match its dimensions");
+  if (rawSize > MAX_IMAGE_BYTES) throw new Error("Comic Chat bitmap is too large");
   const bits = await inflate(r.take(packedSize));
   if (bits.byteLength !== rawSize) throw new Error("Bitmap decompressed to an unexpected size");
   return {
@@ -365,7 +368,13 @@ export async function readAvbDocument(input: ArrayBuffer | Uint8Array): Promise<
     }
   }
 
-  doc.images = await Promise.all(refs.map((ref) => readImage(bytes, ref)));
+  let totalImageBytes = 0;
+  for (const imageRef of refs) {
+    const image = await readImage(bytes, imageRef);
+    totalImageBytes += image.bits.byteLength;
+    if (totalImageBytes > MAX_TOTAL_IMAGE_BYTES) throw new Error("Comic Chat art contains too much image data");
+    doc.images.push(image);
+  }
   return doc;
 }
 

@@ -11,6 +11,7 @@ import {
   type AvatarAnnouncement,
   type AvatarDisplayPolicy,
 } from "./avatar-policy";
+import { fetchAvatarFile, sameOriginAvatarUrl, validateAvatarImport } from "./avatar-import";
 import { bodyForText, composeChoice, type ComposedBody } from "./composite";
 import { createEmotionWheel, posesForWheel, type WheelEmotion } from "./emotion-wheel";
 import { describeOptions, emotionOptions, newPoseMemory, type PoseChoice, type PoseMemory } from "./expression";
@@ -73,9 +74,11 @@ const characters: ArtChoice[] = [
   { file: artPack("lynnea.avb"), label: "Lynnea — Art Pack edition" },
 ];
 const officialCharacterFiles = new Set(characters.map(({ file }) => file));
-const officialCharacterByName = new Map(
-  characters.map(({ file, label }) => [label.split(" —")[0].toLocaleLowerCase(), file]),
-);
+const officialCharacterByName = new Map<string, string>();
+for (const { file, label } of characters) {
+  const name = label.split(" —")[0].toLocaleLowerCase();
+  if (!officialCharacterByName.has(name)) officialCharacterByName.set(name, file);
+}
 
 const backdrops: ArtChoice[] = [
   { file: "room.bgb", label: "The room" },
@@ -93,6 +96,7 @@ const PANEL_TWIPS = 4860;
 const PANEL_SCALE = 1 / 15;
 const PANEL_PIXELS = PANEL_TWIPS * PANEL_SCALE;
 const MAX_LIVE_LINES = 48;
+const MAX_SESSION_CUSTOM_AVATARS = 24;
 
 interface LoadedAvatar {
   buffer: ArrayBuffer;
@@ -189,6 +193,11 @@ app.innerHTML = `
             <canvas id="character-preview" class="character-figure" width="200" height="108" aria-label="Selected Comic Chat character"></canvas>
             <label for="character">Character</label>
             <select id="character">${characters.map(({ file, label }) => `<option value="${file}">${label}</option>`).join("")}</select>
+            <div class="character-actions">
+              <button id="import-avatar" type="button">Import .avb…</button>
+              <input id="avatar-file" class="visually-hidden" type="file" accept=".avb,application/octet-stream" />
+            </div>
+            <small class="local-avatar-note">Imported characters stay in this browser tab until hosted.</small>
             <label for="backdrop">Background</label>
             <select id="backdrop">${backdrops.map(({ file, label }) => `<option value="${file}">${label}</option>`).join("")}</select>
             <div id="emotion-wheel" class="emotion-wheel" aria-label="Emotion wheel"></div>
@@ -227,7 +236,7 @@ app.innerHTML = `
         <header><strong id="avatar-rules-title">Avatar display rules</strong><button value="cancel" aria-label="Close">×</button></header>
         <div class="dialog-body">
           <label class="official-only"><input id="official-avatars-only" type="checkbox" /> Show only official Comic Chat avatars</label>
-          <p>Room-provided custom art is ignored when this is checked. A forced character always wins.</p>
+          <p>Room-provided custom art is ignored when this is checked. When off, only validated avatars hosted on webcomicchat.com can load. A forced character always wins.</p>
           <div class="avatar-rule-columns"><strong>Room member</strong><strong>Display as</strong></div>
           <div id="avatar-rule-list" class="avatar-rule-list"></div>
         </div>
@@ -285,8 +294,12 @@ const roomTabLabel = element<HTMLElement>("#room-tab-label");
 const windowRoom = element<HTMLElement>("#window-room");
 const characterPreview = element<HTMLCanvasElement>("#character-preview");
 const emotionWheelHost = element<HTMLElement>("#emotion-wheel");
+const importAvatarButton = element<HTMLButtonElement>("#import-avatar");
+const avatarFileInput = element<HTMLInputElement>("#avatar-file");
 
 const avatarCache = new Map<string, Promise<LoadedAvatar>>();
+const acceptedHostedAvatars = new Set<string>();
+const sessionCustomAvatars = new Set<string>();
 const conversation: ConversationLine[] = [];
 const frozenPoses = new Map<string, PoseChoice>();
 let panelCanvases: HTMLCanvasElement[] = [];
@@ -309,6 +322,7 @@ let avatarDisplayPolicy: AvatarDisplayPolicy = { officialOnly: true, forced: {} 
 let totalPublicRooms = 0;
 let currentWheelEmotion: WheelEmotion = { emotion: 0, intensity: 0 };
 let suppressWheelChange = false;
+let importedAvatarSequence = 0;
 
 const emotionWheel = createEmotionWheel({
   size: 132,
@@ -365,6 +379,43 @@ function loadAvatar(file: string): Promise<LoadedAvatar> {
   });
   avatarCache.set(file, pending);
   return pending;
+}
+
+function loadedAvatar(buffer: ArrayBuffer, metadata: AvatarFile): LoadedAvatar {
+  return { buffer, metadata, memory: newPoseMemory(), poses: new Map() };
+}
+
+async function importLocalAvatar(file: File): Promise<void> {
+  if (!file.name.toLocaleLowerCase().endsWith(".avb")) throw new Error("Choose a Comic Chat .avb character file");
+  if (sessionCustomAvatars.size >= MAX_SESSION_CUSTOM_AVATARS) throw new Error("This tab already has the maximum of 24 custom avatars");
+  setStatus(`Checking ${file.name}…`);
+  const buffer = await file.arrayBuffer();
+  const imported = await validateAvatarImport(buffer, file.name);
+  const key = `local-avatar:${++importedAvatarSequence}`;
+  avatarCache.set(key, Promise.resolve(loadedAvatar(buffer, imported.metadata)));
+  sessionCustomAvatars.add(key);
+  const option = new Option(`${imported.name} — imported`, key);
+  characterSelect.append(option);
+  characterSelect.value = key;
+  resetEmotionWheel();
+  await updateCharacterPreview();
+  updateControls();
+  setStatus(`${imported.name} is now appearing locally. It stays in this tab and is not uploaded or shared.`);
+}
+
+async function prepareHostedAvatar(nickname: string): Promise<string | undefined> {
+  const announcement = announcedAvatars.get(memberAvatarRuleKey(nickname));
+  if (!announcement || announcedOfficialFile(nickname) || avatarDisplayPolicy.officialOnly) return undefined;
+  const url = sameOriginAvatarUrl(announcement.url, new URL(window.location.href));
+  if (!url) return undefined;
+  if (acceptedHostedAvatars.has(url)) return url;
+  if (sessionCustomAvatars.size >= MAX_SESSION_CUSTOM_AVATARS) throw new Error("This tab already has the maximum of 24 custom avatars");
+  const buffer = await fetchAvatarFile(url);
+  const imported = await validateAvatarImport(buffer, `${announcement.name}.avb`);
+  avatarCache.set(url, Promise.resolve(loadedAvatar(buffer, imported.metadata)));
+  acceptedHostedAvatars.add(url);
+  sessionCustomAvatars.add(url);
+  return url;
 }
 
 function cacheBody(avatar: LoadedAvatar, body: ComposedBody): HTMLCanvasElement {
@@ -457,15 +508,34 @@ function announcedOfficialFile(nickname: string): string | undefined {
   return announcement ? officialCharacterByName.get(announcement.name.toLocaleLowerCase()) : undefined;
 }
 
+function selectedOfficialAvatarName(): string | undefined {
+  const choice = characters.find(({ file }) => file === characterSelect.value);
+  return choice?.label.split(" —")[0];
+}
+
+function announceSelectedAvatar(): boolean {
+  if (!liveClient.joined) return false;
+  const name = selectedOfficialAvatarName();
+  if (!name) return false;
+  liveClient.say(`# Appears as ${name}`);
+  return true;
+}
+
 function characterForNickname(nickname: string): string {
   if (nicknameInput.value && nickname.toLocaleLowerCase() === nicknameInput.value.toLocaleLowerCase()) {
     return characterSelect.value;
   }
+  const announcement = announcedAvatars.get(memberAvatarRuleKey(nickname));
+  const hosted = !avatarDisplayPolicy.officialOnly
+    ? sameOriginAvatarUrl(announcement?.url, new URL(window.location.href))
+    : undefined;
   return resolveAvatarFile({
     network: networkSelect.value,
     nickname,
     forced: avatarDisplayPolicy.forced,
     announcedOfficialFile: announcedOfficialFile(nickname),
+    announcedCustomFile: hosted && acceptedHostedAvatars.has(hosted) ? hosted : undefined,
+    officialOnly: avatarDisplayPolicy.officialOnly,
     fallbackFile: automaticCharacterForNickname(nickname),
   });
 }
@@ -551,6 +621,15 @@ async function addRemoteMessage(event: LiveMessageEvent): Promise<void> {
   const announcement = parseAvatarAnnouncement(event.message);
   if (announcement) {
     announcedAvatars.set(memberAvatarRuleKey(event.nickname), announcement);
+    let hostedFile: string | undefined;
+    let hostedError: unknown;
+    if (!announcedOfficialFile(event.nickname) && !avatarDisplayPolicy.officialOnly) {
+      try {
+        hostedFile = await prepareHostedAvatar(event.nickname);
+      } catch (error) {
+        hostedError = error;
+      }
+    }
     renderMembers();
     renderAvatarRules();
     await refreshMemberAvatars(new Set([event.nickname]));
@@ -559,7 +638,11 @@ async function addRemoteMessage(event: LiveMessageEvent): Promise<void> {
       ? `${event.nickname} is now appearing as ${announcement.name}.`
       : avatarDisplayPolicy.officialOnly
         ? `${event.nickname} announced the custom avatar ${announcement.name}; official-only mode kept their local character.`
-        : `${event.nickname} announced the custom avatar ${announcement.name}; hosted custom-art loading is not enabled yet.`);
+        : hostedFile
+          ? `${event.nickname} is now appearing as the hosted custom avatar ${announcement.name}.`
+          : hostedError instanceof Error
+            ? `${event.nickname}'s custom avatar was rejected: ${hostedError.message}`
+            : `${event.nickname}'s custom avatar is not hosted on this site, so their local character was kept.`);
     return;
   }
   renderMembers();
@@ -726,7 +809,8 @@ function handleLiveEvent(event: LiveEvent): void {
       knownMembers.clear();
       if (event.nickname) knownMembers.add(event.nickname);
       renderMembers();
-      setStatus(`${event.message}. New channel messages will become panels.`);
+      const announced = announceSelectedAvatar();
+      setStatus(`${event.message}. New channel messages will become panels.${announced ? ` You are appearing as ${selectedOfficialAvatarName()}.` : " Your imported avatar remains local to this tab."}`);
     }
     return;
   }
@@ -1055,7 +1139,19 @@ characterSelect.addEventListener("change", () => {
   resetEmotionWheel();
   frozenPoses.delete(characterSelect.value);
   updateControls();
-  void updateCharacterPreview().catch(showError);
+  void updateCharacterPreview().then(() => {
+    if (!liveClient.joined) return;
+    const announced = announceSelectedAvatar();
+    setStatus(announced
+      ? `You are now appearing as ${selectedOfficialAvatarName()}.`
+      : "Your imported avatar is selected locally, but it cannot be shared until it has an approved webcomicchat.com URL.");
+  }).catch(showError);
+});
+importAvatarButton.addEventListener("click", () => avatarFileInput.click());
+avatarFileInput.addEventListener("change", () => {
+  const file = avatarFileInput.files?.[0];
+  avatarFileInput.value = "";
+  if (file) void importLocalAvatar(file).catch(showError);
 });
 messageMode.addEventListener("change", updateControls);
 function horizontalPadding(target: Element): number {
@@ -1171,10 +1267,24 @@ avatarRulesButton.addEventListener("click", () => {
 officialAvatarsOnly.addEventListener("change", () => {
   avatarDisplayPolicy.officialOnly = officialAvatarsOnly.checked;
   saveAvatarDisplayPolicy();
-  setStatus(officialAvatarsOnly.checked
-    ? "Official-only mode is on. Room-provided custom art will be ignored."
-    : "Official-only mode is off. Valid hosted custom avatars may be displayed when sharing is enabled.");
-  void refreshMemberAvatars().catch(showError);
+  void (async () => {
+    let loaded = 0;
+    let rejected = 0;
+    if (!avatarDisplayPolicy.officialOnly) {
+      for (const nickname of knownMembers) {
+        try {
+          if (await prepareHostedAvatar(nickname)) loaded += 1;
+        } catch {
+          rejected += 1;
+        }
+      }
+    }
+    renderMembers();
+    await refreshMemberAvatars();
+    setStatus(avatarDisplayPolicy.officialOnly
+      ? "Official-only mode is on. Room-provided custom art will be ignored."
+      : `Official-only mode is off. ${loaded} hosted custom ${loaded === 1 ? "avatar" : "avatars"} loaded${rejected ? `; ${rejected} rejected` : ""}.`);
+  })().catch(showError);
 });
 resetAvatarRulesButton.addEventListener("click", () => {
   avatarDisplayPolicy.forced = {};

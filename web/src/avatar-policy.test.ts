@@ -33,6 +33,18 @@ describe("avatar display policy", () => {
     })).toBe("anna.avb");
   });
 
+  it("uses validated custom art only when official-only mode is off", () => {
+    const common = {
+      network: "libera",
+      nickname: "Alice",
+      forced: {},
+      announcedCustomFile: "https://webcomicchat.com/avatars/alice.avb",
+      fallbackFile: "connor.avb",
+    };
+    expect(resolveAvatarFile({ ...common, officialOnly: true })).toBe("connor.avb");
+    expect(resolveAvatarFile({ ...common, officialOnly: false })).toBe("https://webcomicchat.com/avatars/alice.avb");
+  });
+
   it("recognizes the original Appears as annotation without retaining insecure URLs", () => {
     expect(parseAvatarAnnouncement("# Appears as Connor")).toEqual({ name: "Connor" });
     expect(parseAvatarAnnouncement("# Appears as Pip.https://webcomicchat.com/art/pip.avb")).toEqual({

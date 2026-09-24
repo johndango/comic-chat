@@ -52,9 +52,12 @@ export function resolveAvatarFile(options: {
   nickname: string;
   forced: Readonly<Record<string, string>>;
   announcedOfficialFile?: string;
+  announcedCustomFile?: string;
+  officialOnly?: boolean;
   fallbackFile: string;
 }): string {
   return options.forced[avatarRuleKey(options.network, options.nickname)]
     ?? options.announcedOfficialFile
+    ?? (options.officialOnly ? undefined : options.announcedCustomFile)
     ?? options.fallbackFile;
 }
