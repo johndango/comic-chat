@@ -1,0 +1,7 @@
+Windows Registry Editor Version 5.00
+
+[HKEY_CURRENT_USER\Software\Microsoft\Microsoft Comic Chat]
+
+"UPNLWidth"=dword:000011a6
+"UPNLHeight"=dword:000011a6
+"UnitsWide"=dword:00000006

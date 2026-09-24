@@ -11,6 +11,7 @@ import { balloonFontMetrics, type BalloonMode } from "./layout/balloon";
 import { ComicPage, type ComicLine } from "./layout/page";
 import { canvasMeasurer, drawPanel, drawTitlePanel } from "./layout/render";
 import { layoutTitlePanel } from "./layout/title";
+import { panelDisplaySize, parsePanelsAcross, parsePanelZoom, type PanelsAcross } from "./panel-view";
 import { createRoomUrl, normalizeRoomSelection, roomSelectionFromUrl } from "./room-link";
 
 interface ArtChoice { file: string; label: string }
@@ -145,10 +146,18 @@ app.innerHTML = `
         <div class="stage-wrap conversation-stage">
           <div class="strip-heading">
             <span>Comic view</span>
-            <label class="panel-size" for="panel-size">Panel size
-              <input id="panel-size" type="range" min="60" max="160" step="10" value="100" />
-              <output id="panel-size-value" for="panel-size">100%</output>
-            </label>
+            <div class="view-options">
+              <label for="panels-across">Panels across
+                <select id="panels-across">
+                  <option value="auto">Auto</option>
+                  ${[1, 2, 3, 4, 5, 6, 7].map((count) => `<option value="${count}">${count}</option>`).join("")}
+                </select>
+              </label>
+              <label class="panel-size" for="panel-size">Zoom
+                <input id="panel-size" type="range" min="60" max="160" step="10" value="100" />
+                <output id="panel-size-value" for="panel-size">100%</output>
+              </label>
+            </div>
             <strong id="strip-count">0 panels</strong>
           </div>
           <div id="strip" class="comic-strip" aria-live="polite"></div>
@@ -216,6 +225,7 @@ const toneValue = element<HTMLElement>("#tone-value");
 const toneReason = element<HTMLElement>("#tone-reason");
 const strip = element<HTMLElement>("#strip");
 const stripCount = element<HTMLElement>("#strip-count");
+const panelsAcrossSelect = element<HTMLSelectElement>("#panels-across");
 const panelSizeInput = element<HTMLInputElement>("#panel-size");
 const panelSizeValue = element<HTMLOutputElement>("#panel-size-value");
 const status = element<HTMLElement>("#status");
@@ -255,6 +265,7 @@ let memberGeneration = 0;
 let previewGeneration = 0;
 let isAdding = false;
 let liveState: LiveState = "offline";
+let panelsAcross: PanelsAcross = "auto";
 let remoteQueue = Promise.resolve();
 const publicRooms = new Map<string, LiveRoomEvent>();
 const knownMembers = new Set<string>();
@@ -918,14 +929,46 @@ characterSelect.addEventListener("change", () => {
   void updateCharacterPreview().catch(showError);
 });
 messageMode.addEventListener("change", updateControls);
-panelSizeInput.addEventListener("input", () => {
-  const percent = Number(panelSizeInput.value);
-  document.documentElement.style.setProperty("--panel-display-size", `${PANEL_PIXELS * percent / 100}px`);
+function horizontalPadding(target: Element): number {
+  const style = getComputedStyle(target);
+  return Number.parseFloat(style.paddingLeft) + Number.parseFloat(style.paddingRight);
+}
+
+function updatePanelView(): void {
+  panelsAcross = parsePanelsAcross(panelsAcrossSelect.value);
+  const percent = parsePanelZoom(panelSizeInput.value);
+  const stage = strip.closest<HTMLElement>(".stage-wrap");
+  const stripStyle = getComputedStyle(strip);
+  const gap = Number.parseFloat(stripStyle.columnGap) || 0;
+  const availableWidth = stage
+    ? stage.clientWidth - horizontalPadding(stage) - horizontalPadding(strip)
+    : strip.clientWidth - horizontalPadding(strip);
+  const displaySize = panelDisplaySize(availableWidth, panelsAcross, percent, PANEL_PIXELS, gap);
+
+  strip.style.setProperty("--panel-display-size", `${displaySize}px`);
+  if (panelsAcross === "auto") {
+    delete strip.dataset.panelsAcross;
+    strip.style.removeProperty("--panels-across");
+  } else {
+    strip.dataset.panelsAcross = String(panelsAcross);
+    strip.style.setProperty("--panels-across", String(panelsAcross));
+  }
   panelSizeValue.value = `${percent}%`;
+  panelSizeValue.title = panelsAcross === "auto"
+    ? `${Math.round(displaySize)} pixels; automatic wrapping`
+    : `${Math.round(displaySize)} pixels; ${panelsAcross} across`;
+
   try {
+    localStorage.setItem("comic-chat-panels-across", String(panelsAcross));
     localStorage.setItem("comic-chat-panel-size", String(percent));
   } catch {}
-});
+}
+
+panelsAcrossSelect.addEventListener("change", updatePanelView);
+panelSizeInput.addEventListener("input", updatePanelView);
+const stage = strip.closest<HTMLElement>(".stage-wrap");
+if (stage && "ResizeObserver" in window) new ResizeObserver(updatePanelView).observe(stage);
+else window.addEventListener("resize", updatePanelView);
 for (const button of modeButtons) {
   button.addEventListener("click", () => {
     messageMode.value = button.dataset.mode ?? "say";
@@ -995,10 +1038,10 @@ refreshRoomsButton.addEventListener("click", () => {
 
 nicknameInput.value = `Comic${Math.floor(1000 + Math.random() * 9000)}`;
 try {
-  const savedPanelSize = Number(localStorage.getItem("comic-chat-panel-size"));
-  if (savedPanelSize >= 60 && savedPanelSize <= 160) panelSizeInput.value = String(savedPanelSize);
+  panelsAcrossSelect.value = String(parsePanelsAcross(localStorage.getItem("comic-chat-panels-across")));
+  panelSizeInput.value = String(parsePanelZoom(localStorage.getItem("comic-chat-panel-size")));
 } catch {}
-panelSizeInput.dispatchEvent(new Event("input"));
+updatePanelView();
 const linkedRoom = roomSelectionFromUrl(new URL(window.location.href));
 if (linkedRoom) {
   networkSelect.value = linkedRoom.network;

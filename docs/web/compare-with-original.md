@@ -29,6 +29,8 @@ won't match exactly. Everything deterministic should match:
   2 panels per row, and maximise the window. Record the panel size shown
   (twips = pixels × 15 at 96 dpi). In the web demo, pass the same
   `unitWidth` to `ComicPage` (default 4860).
+  See [the captured 5–7-column registry settings](panel-view-reference.md)
+  for wide-screen reference values.
 - Backdrop: **The room** (`room.bgb`).
 - Font: Comic Sans MS 12 pt (the default).
 - Four users in one channel: **Anna**, **Dan**, **Kirby**, **Margaret**.

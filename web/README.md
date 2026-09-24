@@ -7,10 +7,14 @@ backdrops directly, builds a multi-panel conversation strip on Canvas, exports
 the result as a PNG, and can render a live IRC channel through a small local
 gateway.
 
-Panels display at their original 324-pixel size by default. The panel-size
-slider scales the reading view from 60% to 160% and remembers the preference;
-saved PNGs retain the original resolution. In offline mode the selected
-character remains selected until the user chooses another one.
+Panels display at their original 324-pixel size by default. **Panels across**
+can use automatic wrapping or fit an explicit one through seven columns, based
+on settings captured from the original client. The independent zoom slider
+scales the reading view from 60% to 160%; both preferences are remembered.
+Panels never shrink below the original client's 2,300-twip minimum and use a
+scrollable comic surface on narrow screens. Saved PNGs retain the original
+resolution. In offline mode the selected character remains selected until the
+user chooses another one.
 
 The browser ports the original 2.5 text-expression, composite-avatar, panel,
 and Woodring balloon algorithms. Faces and torsos are chosen independently;
