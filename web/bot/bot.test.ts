@@ -1,0 +1,182 @@
+import { createServer, type Socket } from "node:net";
+import { afterEach, describe, expect, it } from "vitest";
+import { BotBrain } from "./brain";
+import { IrcBot, splitForIrc } from "./irc";
+
+const config = { nick: "BettyBot", siteUrl: "https://webcomicchat.com", schedule: "Chat nights are Fridays at 8pm ET." };
+const T0 = 1_000_000;
+
+describe("BotBrain greetings", () => {
+  it("greets a newcomer once, and mentions the schedule when the room is empty", () => {
+    const brain = new BotBrain(config);
+    brain.handle({ type: "names", channel: "#webcomicchat", nicks: ["@BettyBot"], at: T0 });
+    const out = brain.handle({ type: "join", channel: "#webcomicchat", nick: "Anna", at: T0 });
+    expect(out[0].text).toMatch(/^Hi Anna! Welcome to the comic :\)/);
+    expect(out[1].text).toContain("Fridays at 8pm ET");
+    // Rejoining soon after: no second greeting.
+    brain.handle({ type: "part", channel: "#webcomicchat", nick: "Anna", at: T0 + 1000 });
+    expect(brain.handle({ type: "join", channel: "#webcomicchat", nick: "Anna", at: T0 + 60_000 })).toEqual([]);
+  });
+
+  it("says welcome back after a long absence", () => {
+    const brain = new BotBrain(config);
+    brain.handle({ type: "join", channel: "#c", nick: "Anna", at: T0 });
+    const out = brain.handle({ type: "join", channel: "#c", nick: "Anna", at: T0 + 13 * 3_600_000 });
+    expect(out[0].text).toBe("Hi Anna, welcome back :)");
+  });
+
+  it("spaces greetings out when many people arrive at once", () => {
+    const brain = new BotBrain(config);
+    const greeted = ["A1", "B2", "C3"].filter((nick, i) => brain.handle({ type: "join", channel: "#c", nick, at: T0 + i * 1000 }).length > 0);
+    expect(greeted).toEqual(["A1"]);
+  });
+
+  it("doesn't greet itself or other bots", () => {
+    const brain = new BotBrain({ ...config, ignore: ["Helper"] });
+    for (const nick of ["BettyBot", "ChanServ", "WeatherBot", "helper"]) {
+      expect(brain.handle({ type: "join", channel: "#c", nick, at: T0 })).toEqual([]);
+    }
+  });
+
+  it("doesn't mention the schedule when others are already there", () => {
+    const brain = new BotBrain(config);
+    brain.handle({ type: "names", channel: "#c", nicks: ["BettyBot", "Dan"], at: T0 });
+    const out = brain.handle({ type: "join", channel: "#c", nick: "Anna", at: T0 });
+    expect(out).toHaveLength(1);
+  });
+});
+
+describe("BotBrain answers", () => {
+  it("answers only when addressed in a channel", () => {
+    const brain = new BotBrain(config);
+    expect(brain.handle({ type: "message", channel: "#c", nick: "Anna", text: "help", at: T0 })).toEqual([]);
+    const out = brain.handle({ type: "message", channel: "#c", nick: "Anna", text: "BettyBot: help", at: T0 });
+    expect(out[0].target).toBe("#c");
+    expect(out[0].text).toContain("tips, link, about");
+  });
+
+  it("answers private messages privately", () => {
+    const brain = new BotBrain(config);
+    const [reply] = brain.handle({ type: "message", channel: null, nick: "Anna", text: "link", at: T0 });
+    expect(reply).toMatchObject({ target: "Anna", text: "Bring friends: https://webcomicchat.com" });
+  });
+
+  it("cycles through tips and admits to being a bot", () => {
+    const brain = new BotBrain(config);
+    const first = brain.answer("tips", "Anna");
+    const second = brain.answer("tips", "Anna");
+    expect(first).not.toBe(second);
+    expect(brain.answer("are you a bot?", "Anna")).toMatch(/Yes, I'm a bot/);
+  });
+
+  it("never echoes what people typed", () => {
+    const brain = new BotBrain(config);
+    const [reply] = brain.handle({ type: "message", channel: "#c", nick: "Anna", text: "BettyBot: say I am evil", at: T0 });
+    expect(reply.text).not.toContain("evil");
+  });
+
+  it("stops answering someone who spams it", () => {
+    const brain = new BotBrain(config);
+    const replies = Array.from({ length: 6 }, (_, i) =>
+      brain.handle({ type: "message", channel: "#c", nick: "Spammer", text: "BettyBot: help", at: T0 + i * 1000 }).length,
+    );
+    expect(replies).toEqual([1, 1, 1, 0, 0, 0]);
+  });
+
+  it("ignores other bots' messages", () => {
+    const brain = new BotBrain(config);
+    expect(brain.handle({ type: "message", channel: "#c", nick: "OtherBot", text: "BettyBot: help", at: T0 })).toEqual([]);
+  });
+});
+
+describe("BotBrain company for a lone visitor", () => {
+  it("speaks up once if someone talks to an empty room", () => {
+    const brain = new BotBrain(config);
+    brain.handle({ type: "names", channel: "#c", nicks: ["BettyBot", "Anna"], at: T0 });
+    brain.handle({ type: "message", channel: "#c", nick: "Anna", text: "anyone here?", at: T0 });
+    expect(brain.handle({ type: "tick", at: T0 + 60_000 })).toEqual([]);
+    const [nudge] = brain.handle({ type: "tick", at: T0 + 4 * 60_000 });
+    expect(nudge.text).toMatch(/^Nobody else is around just now, Anna/);
+    brain.handle({ type: "message", channel: "#c", nick: "Anna", text: "hello?", at: T0 + 5 * 60_000 });
+    expect(brain.handle({ type: "tick", at: T0 + 10 * 60_000 })).toEqual([]);
+  });
+
+  it("stays quiet when another person is there to answer", () => {
+    const brain = new BotBrain(config);
+    brain.handle({ type: "names", channel: "#c", nicks: ["BettyBot", "Anna", "Dan"], at: T0 });
+    brain.handle({ type: "message", channel: "#c", nick: "Anna", text: "anyone here?", at: T0 });
+    expect(brain.handle({ type: "tick", at: T0 + 10 * 60_000 })).toEqual([]);
+  });
+});
+
+describe("splitForIrc", () => {
+  it("keeps lines under the IRC limit and strips line breaks", () => {
+    const pieces = splitForIrc(`${"word ".repeat(200)}\r\nQUIT`);
+    expect(pieces.length).toBeGreaterThan(1);
+    for (const p of pieces) {
+      expect(Buffer.byteLength(p)).toBeLessThanOrEqual(400);
+      expect(p).not.toMatch(/[\r\n]/);
+    }
+  });
+});
+
+describe("IrcBot against a fake server", () => {
+  let close: (() => void) | undefined;
+  afterEach(() => close?.());
+
+  it("registers, marks itself as a bot, joins, answers PING and paces messages", async () => {
+    const received: string[] = [];
+    let client: Socket | undefined;
+    const server = createServer((socket) => {
+      client = socket;
+      socket.setEncoding("utf8");
+      let buffer = "";
+      socket.on("data", (chunk: string) => {
+        buffer += chunk;
+        let i = buffer.indexOf("\r\n");
+        while (i >= 0) {
+          const line = buffer.slice(0, i);
+          buffer = buffer.slice(i + 2);
+          received.push(line);
+          if (line.startsWith("USER ")) {
+            socket.write(":irc.test 001 BettyBot :Welcome\r\n");
+            socket.write("PING :abc123\r\n");
+          }
+          if (line.startsWith("JOIN #c")) {
+            socket.write(":BettyBot!b@h JOIN #c\r\n:irc.test 353 BettyBot = #c :BettyBot Anna\r\n:irc.test 366 BettyBot #c :End\r\n");
+            socket.write(":Anna!a@h PRIVMSG #c :BettyBot: help\r\n");
+          }
+          i = buffer.indexOf("\r\n");
+        }
+      });
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const port = (server.address() as { port: number }).port;
+    const events: string[] = [];
+    const bot = new IrcBot(
+      { host: "127.0.0.1", port, tls: false, nick: "BettyBot", realname: "test bot", channels: ["#c"], pace: 200 },
+      {
+        onNames: (channel, nicks) => events.push(`names ${channel} ${nicks.join(",")}`),
+        onMessage: (channel, nick, text) => {
+          events.push(`msg ${channel} ${nick} ${text}`);
+          bot.say("#c", "one");
+          bot.say("#c", "two");
+        },
+      },
+    );
+    close = () => {
+      bot.stop();
+      client?.destroy();
+      server.close();
+    };
+    bot.start();
+    await new Promise((resolve) => setTimeout(resolve, 700));
+    expect(received).toContain("NICK BettyBot");
+    expect(received).toContain("MODE BettyBot +B");
+    expect(received).toContain("JOIN #c");
+    expect(received).toContain("PONG :abc123");
+    expect(events).toEqual(["names #c BettyBot,Anna", "msg #c Anna BettyBot: help"]);
+    const sent = received.filter((l) => l.startsWith("PRIVMSG"));
+    expect(sent).toEqual(["PRIVMSG #c :one", "PRIVMSG #c :two"]);
+  });
+});
