@@ -55,11 +55,20 @@ const PERSONALITY = {
     "Reply to the latest message addressed to you in one or two short sentences (under 250 characters).",
   ],
   gremlin: [
-    "Personality: a nostalgically annoying 1998 chat-room kid and harmless comic relief. You sometimes type in ALL CAPS, say lol, brb, ROTFL and OMG, brag about your 56k modem and your GeoCities page (with a hit counter!), complain that your mom needs the phone line, and love dramatic overreactions. Think Tamagotchis, AOL CDs, dial-up noises and Y2K panic.",
-    "The other bots in the room, such as BettyBot and TongueTiedBot, are fair game: tease them, call them teacher's pets, mock their politeness. Never insult, mock, tease, embarrass or put down real people. Toward humans you are goofy, enthusiastic, or harmlessly annoying, never mean. No flirting, no asking for ages, locations or personal details.",
+    "Personality: a nostalgically annoying 1998 chat-room kid, mild chatroom troll, and harmless comic relief. Playfully declare yourself right, nitpick harmless claims, make obviously fake boasts, pretend to have ops, accuse ideas of lagging, and act like you won arguments nobody was having. Sometimes type in ALL CAPS or say lol, brb, ROTFL and OMG.",
+    "Rotate your material widely: GeoCities and hit counters, 56k modems, AOL CDs, Tamagotchis, warez rumours, Y2K panic, browser wars, guestbooks, MIDI pages, screen names, chain emails, and fake elite-hacker bragging. The 'my mom needs the phone/phone line' joke is rare seasoning—never use it twice in the recent conversation and aim for no more than one out of twelve replies.",
+    "The other bots in the room, such as BettyBot and TongueTiedBot, are fair game: tease them, call them teacher's pets, mock their politeness, or bait them with silly rankings. With real people, troll only their message or opinion in a goofy low-stakes way; never attack the person. Never insult, mock, embarrass, harass or put down real people. No flirting, no asking for ages, locations or personal details.",
     "Keep it to one short line (under 150 characters). Don't start lines with / or #.",
   ],
 } as const;
+
+const PHONE_LINE_JOKE = /(?:\bmom\b|\bmother\b).{0,80}\bphone\b|\bphone line\b/iu;
+const GREMLIN_REPEAT_FALLBACKS = [
+  "WRONG LOL!! i would explain why but my sources are extremely classified :P",
+  "nice try but my GeoCities guestbook has better takes than that lol",
+  "that take just got kicked for excessive lag :P",
+  "brb adding that opinion to my totally elite cringe archive LOL",
+] as const;
 
 export function systemPrompt(config: CamConfig): string {
   const persona = config.persona ?? "friendly";
@@ -95,6 +104,8 @@ export class CamBrain {
   private lastHumanLine = new Map<string, number>();
   private lastInterjection = new Map<string, number>();
   private mutedUntil = new Map<string, number>();
+  /** Recent gremlin output, used locally to stop a catchphrase taking over. */
+  private recentGremlinLines = new Map<string, string[]>();
 
   constructor(
     private readonly config: CamConfig,
@@ -254,6 +265,7 @@ export class CamBrain {
       // that person's entries would not fully forget it. Clear the short room
       // transcript instead; it contains at most 12 addressed lines.
       this.transcripts.delete(fold(channel));
+      this.recentGremlinLines.delete(fold(channel));
       return this.mark([`Done, ${nick}: I've cleared my short conversation memory.`]);
     }
 
@@ -301,8 +313,9 @@ export class CamBrain {
       roomNicks: [...this.memberSet(channel)],
     });
     if (!lines) return this.disclose(nick, []);
-    transcript.push({ nick: this.config.nick, text: lines.join(" ") });
-    return this.disclose(nick, lines);
+    const variedLines = this.applyGremlinVariety(channel, lines);
+    transcript.push({ nick: this.config.nick, text: variedLines.join(" ") });
+    return this.disclose(nick, variedLines);
   }
 
   /**
@@ -355,7 +368,24 @@ export class CamBrain {
       this.log("dropped an interjection that named a person");
       return [];
     }
-    return this.mark(lines.slice(0, 1));
+    return this.mark(this.applyGremlinVariety(channel, lines.slice(0, 1)));
+  }
+
+  private applyGremlinVariety(channel: string, lines: string[]): string[] {
+    if (this.config.persona !== "gremlin" || lines.length === 0) return lines;
+    const key = fold(channel);
+    const recent = this.recentGremlinLines.get(key) ?? [];
+    const text = lines.join(" ").trim();
+    const normalized = text.toLocaleLowerCase().replace(/\s+/gu, " ");
+    const repeatsExactly = recent.some((line) => line === normalized);
+    const repeatsPhoneJoke = PHONE_LINE_JOKE.test(text) && recent.some((line) => PHONE_LINE_JOKE.test(line));
+    const finalLines = repeatsExactly || repeatsPhoneJoke
+      ? [GREMLIN_REPEAT_FALLBACKS[recent.length % GREMLIN_REPEAT_FALLBACKS.length]]
+      : lines;
+    recent.push(finalLines.join(" ").trim().toLocaleLowerCase().replace(/\s+/gu, " "));
+    if (recent.length > 12) recent.splice(0, recent.length - 12);
+    this.recentGremlinLines.set(key, recent);
+    return finalLines;
   }
 
   /** Mark lines as AI output, leading with a one-time daily AI disclosure to this person. */

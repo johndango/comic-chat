@@ -280,13 +280,23 @@ describe("gremlin persona (n00bBot)", () => {
     return { brain, sent };
   }
 
-  it("is told to be annoying, tease only bots, and never put down real people", () => {
+  it("is told to be a varied mild troll, tease only bots, and never put down real people", () => {
     const prompt = systemPrompt(gremlinConfig);
-    expect(prompt).toMatch(/nostalgically annoying 1998/);
+    expect(prompt).toMatch(/mild chatroom troll/);
     expect(prompt).toMatch(/BettyBot and TongueTiedBot, are fair game/);
-    expect(prompt).toMatch(/Never insult, mock, tease, embarrass or put down real people/);
+    expect(prompt).toMatch(/phone line.+rare seasoning/);
+    expect(prompt).toMatch(/never attack the person/);
     expect(systemPrompt(config)).toMatch(/warm, curious regular/);
     expect(systemPrompt(config)).not.toMatch(/fair game/);
+  });
+
+  it("allows the phone-line joke occasionally but replaces a recent repeat", async () => {
+    const { brain } = gremlin("OMG my mom needs the phone line AGAIN lol");
+    const first = await brain.message("#c", "Anna", "n00bBot: hi", T0);
+    expect(first.join(" ")).toMatch(/mom needs the phone line/i);
+    const second = await brain.message("#c", "Anna", "n00bBot: hi again", T0 + MIN);
+    expect(second.join(" ")).not.toMatch(/mom|phone line/i);
+    expect(second.join(" ")).toMatch(/WRONG|GeoCities|lag|cringe archive/i);
   });
 
   it("blurts out a one-liner while people are chatting, marked as AI", async () => {
