@@ -1,6 +1,6 @@
 import { createServer, type Socket } from "node:net";
 import { afterEach, describe, expect, it } from "vitest";
-import { CamBrain, type ModelReply } from "./cam-brain";
+import { CamBrain, systemPrompt, type ModelReply } from "./cam-brain";
 import { costOf } from "./cam-claude";
 import { cleanReply, formatTranscript } from "./cam-guard";
 import { IrcBot } from "./irc";
@@ -268,3 +268,90 @@ describe("IrcBot operator tracking", () => {
     expect(events).toEqual(["nick johndango away", "quit away", "disconnect"]);
   });
 });
+
+describe("gremlin persona (CapsLockBot)", () => {
+  const gremlinConfig = { ...config, nick: "CapsLockBot", character: "Kirby", persona: "gremlin" as const };
+  const MIN = 60_000;
+
+  function gremlin(reply = "OMG MY 56K MODEM IS SO FAST LOL", random = () => 0) {
+    const sent: string[] = [];
+    const brain = new CamBrain(gremlinConfig, async (_s, c) => (sent.push(c), { text: reply, refused: false, costUsd: 0.001 }), () => {}, random);
+    brain.names("#c", ["@johndango", "Anna", "Dan", "BettyBot", "TongueTiedBot", "CapsLockBot"]);
+    return { brain, sent };
+  }
+
+  it("is told to be annoying, tease only bots, and never put down real people", () => {
+    const prompt = systemPrompt(gremlinConfig);
+    expect(prompt).toMatch(/nostalgically annoying 1998/);
+    expect(prompt).toMatch(/BettyBot and TongueTiedBot, are fair game/);
+    expect(prompt).toMatch(/Never insult, mock, tease, embarrass or put down real people/);
+    expect(systemPrompt(config)).toMatch(/warm, curious regular/);
+    expect(systemPrompt(config)).not.toMatch(/fair game/);
+  });
+
+  it("blurts out a one-liner while people are chatting, marked as AI", async () => {
+    const { brain, sent } = gremlin();
+    await brain.message("#c", "Anna", "anyone seen the new comic?", T0);
+    const lines = await brain.interject("#c", T0 + MIN);
+    expect(lines).toEqual(["[AI] OMG MY 56K MODEM IS SO FAST LOL"]);
+    expect(sent).toHaveLength(1);
+  });
+
+  it("never sends the room's words or people's names to the model", async () => {
+    const { brain, sent } = gremlin();
+    await brain.message("#c", "Anna", "my secret plans for tonight", T0);
+    await brain.interject("#c", T0 + MIN);
+    expect(sent[0]).not.toMatch(/secret plans|Anna|Dan|johndango/);
+    expect(sent[0]).toMatch(/BettyBot, TongueTiedBot/);
+  });
+
+  it("drops any unprompted line that names a real person", async () => {
+    const { brain } = gremlin("LOL anna ur modem is SO slow");
+    await brain.message("#c", "Dan", "hi", T0);
+    expect(await brain.interject("#c", T0 + MIN)).toEqual([]);
+  });
+
+  it("stays quiet when nobody has spoken recently, and without its admin", async () => {
+    const quiet = gremlin();
+    await quiet.brain.message("#c", "Anna", "hi", T0);
+    expect(await quiet.brain.interject("#c", T0 + 10 * MIN)).toEqual([]);
+    const alone = gremlin();
+    alone.brain.part("#c", "johndango");
+    await alone.brain.message("#c", "Anna", "hi", T0);
+    expect(await alone.brain.interject("#c", T0 + MIN)).toEqual([]);
+  });
+
+  it("waits at least 12 minutes between chances, and only takes some of them", async () => {
+    const { brain, sent } = gremlin();
+    for (let m = 0; m <= 30; m += 1) {
+      await brain.message("#c", "Anna", "chatting", T0 + m * MIN);
+      await brain.interject("#c", T0 + m * MIN + 1000);
+    }
+    expect(sent.length).toBe(3); // minutes 0, 12 and 24
+    const coinFlip = gremlin(undefined, () => 0.9);
+    await coinFlip.brain.message("#c", "Anna", "hi", T0);
+    expect(await coinFlip.brain.interject("#c", T0 + MIN)).toEqual([]);
+    expect(coinFlip.sent).toHaveLength(0);
+  });
+
+  it("goes away for an hour when anyone asks", async () => {
+    const { brain } = gremlin();
+    const bye = await brain.message("#c", "Anna", "CapsLockBot: go away", T0);
+    expect(bye).toEqual(["[AI] FINE. brb in an hour :("]);
+    await brain.message("#c", "Dan", "chatting", T0 + 30 * MIN);
+    expect(await brain.interject("#c", T0 + 31 * MIN)).toEqual([]);
+    expect(await brain.message("#c", "Dan", "CapsLockBot: hi", T0 + 32 * MIN)).toEqual([]);
+    await brain.message("#c", "Dan", "chatting", T0 + 61 * MIN);
+    expect(await brain.interject("#c", T0 + 62 * MIN)).toHaveLength(1);
+  });
+
+  it("the friendly bot never interjects", async () => {
+    const sent: string[] = [];
+    const brain = new CamBrain(config, async (_s, c) => (sent.push(c), { text: "hi", refused: false, costUsd: 0 }), () => {}, () => 0);
+    brain.names("#c", ["@johndango", "Anna"]);
+    await brain.message("#c", "Anna", "hi", T0);
+    expect(await brain.interject("#c", T0 + MIN)).toEqual([]);
+    expect(sent).toHaveLength(0);
+  });
+});
+

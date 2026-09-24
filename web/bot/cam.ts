@@ -4,6 +4,8 @@
 //   CAM_MODEL          claude-haiku-4-5
 //   CAM_DAILY_BUDGET_USD  1.00                  replies stop for the day past this spend
 //   CAM_ADMIN                                   required; your nick. CamBot only chats while you're in the room
+//   BOT_PERSONA        friendly                 or "gremlin": a nostalgically annoying 1998 kid who
+//                                               also blurts out one-liners (defaults CapsLockBot as Kirby, $0.50/day)
 //   BOT_NICK           TongueTiedBot            BOT_CHANNELS  #webcomicchat
 //   BOT_ACCOUNT / BOT_PASSWORD                  NickServ account for SASL login
 //   BOT_AVATAR         Tongue-Tied              each viewer's colour setting picks the edition
@@ -19,14 +21,17 @@ const env = process.env;
 const list = (value: string | undefined) => (value ?? "").split(",").map((s) => s.trim()).filter(Boolean);
 
 if (!env.ANTHROPIC_API_KEY) throw new Error("Set ANTHROPIC_API_KEY (in a private env file) before starting the AI bot");
-const nick = env.BOT_NICK ?? "TongueTiedBot";
+const persona = env.BOT_PERSONA === "gremlin" ? "gremlin" : "friendly";
+if (env.BOT_PERSONA && env.BOT_PERSONA !== persona) throw new Error('BOT_PERSONA must be "friendly" or "gremlin"');
+const gremlin = persona === "gremlin";
+const nick = env.BOT_NICK ?? (gremlin ? "CapsLockBot" : "TongueTiedBot");
 const siteUrl = env.SITE_URL ?? "https://webcomicchat.com";
 const channels = list(env.BOT_CHANNELS ?? "#webcomicchat");
 if (!channels.length || !channels.every((c) => /^#[A-Za-z0-9_+\-]{1,50}$/.test(c))) throw new Error("BOT_CHANNELS must list at least one #channel");
-const character = env.BOT_AVATAR ?? "Tongue-Tied";
+const character = env.BOT_AVATAR ?? (gremlin ? "Kirby" : "Tongue-Tied");
 if (!/^[A-Za-z0-9_-]{1,60}$/.test(character)) throw new Error("BOT_AVATAR is not a valid Comic Chat character name");
 const model = env.CAM_MODEL ?? "claude-haiku-4-5";
-const dailyBudgetUsd = Number(env.CAM_DAILY_BUDGET_USD ?? "1");
+const dailyBudgetUsd = Number(env.CAM_DAILY_BUDGET_USD ?? (gremlin ? "0.5" : "1"));
 const admin = env.CAM_ADMIN ?? "";
 if (!/^[A-Za-z][A-Za-z0-9_\-[\]\\`^{}|]{0,15}$/.test(admin)) throw new Error("Set CAM_ADMIN to your IRC nick (Libera.Chat requires LLM bots to be accompanied by their admin)");
 if (!Number.isFinite(dailyBudgetUsd) || !(dailyBudgetUsd > 0)) throw new Error("CAM_DAILY_BUDGET_USD must be a finite positive number");
@@ -39,7 +44,7 @@ const log = (s: string) => console.log(`${new Date().toISOString()} ${s}`);
 let messageQueue = Promise.resolve();
 
 const brain = new CamBrain(
-  { nick, siteUrl, character, dailyBudgetUsd, admin, ignore: list(env.BOT_IGNORE) },
+  { nick, siteUrl, character, dailyBudgetUsd, admin, persona, ignore: list(env.BOT_IGNORE) },
   claudeResponder(model),
   log,
 );
@@ -76,6 +81,21 @@ const bot = new IrcBot(
     },
   },
 );
+
+// The gremlin gets a chance to blurt something out once a minute; the brain
+// decides (at most every 12 minutes, only while people are chatting).
+if (gremlin) {
+  setInterval(() => {
+    for (const channel of channels) {
+      messageQueue = messageQueue.then(async () => {
+        for (const line of await brain.interject(channel)) {
+          log(`→ ${channel}: ${line} (unprompted; spent today $${brain.spent.toFixed(4)})`);
+          bot.say(channel, line);
+        }
+      }).catch((error) => log(`interjection failed: ${error instanceof Error ? error.message : String(error)}`));
+    }
+  }, 60_000).unref();
+}
 
 log(`${nick} using ${model}, daily budget $${dailyBudgetUsd.toFixed(2)}`);
 bot.start();

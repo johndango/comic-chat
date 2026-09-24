@@ -129,3 +129,31 @@ After joining, the bot announces `# Appears as <Name>.<url>` using the original
 1998 convention. The web client consumes that line instead of drawing it as a
 speech balloon. The default `Anna` needs no URL; set both avatar variables once
 the approved custom-art host is available.
+
+## CapsLockBot: the nostalgic gremlin
+
+The same AI bot with `BOT_PERSONA=gremlin` becomes **CapsLockBot** (as Kirby,
+$0.50/day by default): a nostalgically annoying 1998 chat-room kid. ALL CAPS,
+"brb mom needs the phone line", 56k-modem bragging, GeoCities plugs, and snide
+remarks about the other bots. It is told, and checked in code, never to put
+down real people.
+
+- It answers when addressed, exactly like TongueTiedBot (same `[AI]` marking,
+  disclosure, admin-presence rule, filters and limits).
+- It also blurts out a one-liner on its own at most every 12 minutes, only
+  while people are chatting, and only on half of those chances.
+- Those unprompted lines never read the room: the model is told only which
+  bots are present. Any unprompted line that names a real person is dropped.
+- Anyone can say `CapsLockBot: go away` to mute it for an hour; operators can
+  still use sleep and wake.
+
+Run it with its own settings file (its own NickServ account):
+
+```
+BOT_PERSONA=gremlin
+BOT_NICK=CapsLockBot
+BOT_ACCOUNT=CapsLockBot
+BOT_PASSWORD=...
+ANTHROPIC_API_KEY=...
+CAM_ADMIN=johndango
+```
