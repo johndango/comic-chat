@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
-import { AvatarType, PaletteType, decodeImage, parseAvatar } from "./avb";
+import { AvatarType, PaletteType, decodeImage, maskedMonochromePixel, parseAvatar } from "./avb";
 
 const artDirectory = new URL("../../v2.5-beta-1-modern/comicart/", import.meta.url);
 const simpleAvatars = ["connor.avb", "glenda.avb", "jordan.avb", "pedagog.avb", "rainbow.avb", "tux.avb", "waf.avb"];
@@ -12,6 +12,15 @@ async function asset(name: string): Promise<ArrayBuffer> {
 }
 
 describe("Comic Chat art decoder", () => {
+  it("expands packed monochrome pixels using the original mask and aura semantics", () => {
+    expect([0, 1, 2, 3].map(maskedMonochromePixel)).toEqual([
+      [255, 255, 255, 0],
+      [255, 255, 255, 255],
+      [255, 255, 255, 255],
+      [0, 0, 0, 255],
+    ]);
+  });
+
   it("parses and decodes an original backdrop", async () => {
     const buffer = await asset("room.bgb");
     const parsed = parseAvatar(buffer);

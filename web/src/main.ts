@@ -113,14 +113,6 @@ app.innerHTML = `
     <nav class="classic-menu" aria-label="Application menu">
       <span><u>F</u>ile</span><span><u>E</u>dit</span><span><u>V</u>iew</span><span>F<u>o</u>rmat</span><span><u>R</u>oom</span><span><u>M</u>ember</span><span>F<u>a</u>vorites</span><span><u>H</u>elp</span>
     </nav>
-    <div class="classic-toolbar" aria-label="Classic Comic Chat toolbar">
-      <div class="toolbar-sprite" aria-hidden="true"></div>
-      <span class="toolbar-separator"></span>
-      <button class="toolbar-text" type="button" title="Comic view">A</button>
-      <button class="toolbar-text" type="button" title="Bold"><strong>B</strong></button>
-      <button class="toolbar-text" type="button" title="Italic"><em>I</em></button>
-      <button class="toolbar-text" type="button" title="Underline"><u>U</u></button>
-    </div>
 
     <main class="classic-main">
       <section id="live-console" class="live-console" data-state="offline" aria-label="IRC connection">
@@ -151,7 +143,14 @@ app.innerHTML = `
       <div class="room-tab"><span aria-hidden="true">▰</span><strong id="room-tab-label">Offline comic</strong></div>
       <section class="workspace" aria-label="Comic conversation editor">
         <div class="stage-wrap conversation-stage">
-          <div class="strip-heading"><span>Comic view</span><strong id="strip-count">0 panels</strong></div>
+          <div class="strip-heading">
+            <span>Comic view</span>
+            <label class="panel-size" for="panel-size">Panel size
+              <input id="panel-size" type="range" min="60" max="160" step="10" value="100" />
+              <output id="panel-size-value" for="panel-size">100%</output>
+            </label>
+            <strong id="strip-count">0 panels</strong>
+          </div>
           <div id="strip" class="comic-strip" aria-live="polite"></div>
         </div>
 
@@ -217,6 +216,8 @@ const toneValue = element<HTMLElement>("#tone-value");
 const toneReason = element<HTMLElement>("#tone-reason");
 const strip = element<HTMLElement>("#strip");
 const stripCount = element<HTMLElement>("#strip-count");
+const panelSizeInput = element<HTMLInputElement>("#panel-size");
+const panelSizeValue = element<HTMLOutputElement>("#panel-size-value");
 const status = element<HTMLElement>("#status");
 const addButton = element<HTMLButtonElement>("#add-panel");
 const undoButton = element<HTMLButtonElement>("#undo-panel");
@@ -844,12 +845,6 @@ async function updateCharacterPreview(): Promise<void> {
   context.drawImage(source, (characterPreview.width - width) / 2, characterPreview.height - height - 3, width, height);
 }
 
-function advanceSpeaker(): void {
-  characterSelect.selectedIndex = (characterSelect.selectedIndex + 1) % characterSelect.options.length;
-  resetEmotionWheel();
-  void updateCharacterPreview().catch(showError);
-}
-
 async function addPanel(): Promise<void> {
   const message = messageInput.value.trim();
   if (!message || isAdding) return;
@@ -862,7 +857,6 @@ async function addPanel(): Promise<void> {
     if (liveState === "joined") liveClient.say(message, mode === "action");
     appendConversationLine(line, liveState === "joined");
     messageInput.value = "";
-    if (liveState !== "joined") advanceSpeaker();
     setStatus(`${line.characterName}: ${line.expression} · ${line.mode} balloon${liveState === "joined" ? " · sent to IRC" : ""}`);
   } finally {
     isAdding = false;
@@ -924,6 +918,14 @@ characterSelect.addEventListener("change", () => {
   void updateCharacterPreview().catch(showError);
 });
 messageMode.addEventListener("change", updateControls);
+panelSizeInput.addEventListener("input", () => {
+  const percent = Number(panelSizeInput.value);
+  document.documentElement.style.setProperty("--panel-display-size", `${PANEL_PIXELS * percent / 100}px`);
+  panelSizeValue.value = `${percent}%`;
+  try {
+    localStorage.setItem("comic-chat-panel-size", String(percent));
+  } catch {}
+});
 for (const button of modeButtons) {
   button.addEventListener("click", () => {
     messageMode.value = button.dataset.mode ?? "say";
@@ -992,6 +994,11 @@ refreshRoomsButton.addEventListener("click", () => {
 });
 
 nicknameInput.value = `Comic${Math.floor(1000 + Math.random() * 9000)}`;
+try {
+  const savedPanelSize = Number(localStorage.getItem("comic-chat-panel-size"));
+  if (savedPanelSize >= 60 && savedPanelSize <= 160) panelSizeInput.value = String(savedPanelSize);
+} catch {}
+panelSizeInput.dispatchEvent(new Event("input"));
 const linkedRoom = roomSelectionFromUrl(new URL(window.location.href));
 if (linkedRoom) {
   networkSelect.value = linkedRoom.network;

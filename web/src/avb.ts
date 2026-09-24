@@ -355,6 +355,19 @@ function pixelIndex(data: Uint8Array, rowStart: number, x: number, bitCount: num
   }
 }
 
+/**
+ * AIP_MASKEDMONO packs drawing, mask, and aura into one 2-bit pixel. The
+ * original expands the low bit into the drawing, the high bit into the mask,
+ * and any non-zero pair into the white aura. Its GDI MERGEPAINT/SRCAND pass
+ * therefore produces: transparent background, white aura, white figure, and
+ * black figure for indices 0 through 3 respectively.
+ */
+export function maskedMonochromePixel(index: number): readonly [number, number, number, number] {
+  if (index === 0) return [255, 255, 255, 0];
+  if (index === 3) return [0, 0, 0, 255];
+  return [255, 255, 255, 255];
+}
+
 async function inflate(data: Uint8Array): Promise<Uint8Array> {
   const input = new Uint8Array(data);
   const stream = new Blob([input]).stream().pipeThrough(new DecompressionStream("deflate"));
@@ -416,12 +429,11 @@ export async function decodeImage(
       if (bitCount <= 8) {
         const index = pixelIndex(bitmapData, rowStart, x, bitCount);
         if (isMaskedMono) {
-          // 00 = empty, 01 = aura, 10 = black, 11 = white in the original format.
-          const value = index === 3 ? 255 : 0;
-          pixels[output] = value;
-          pixels[output + 1] = value;
-          pixels[output + 2] = value;
-          pixels[output + 3] = index >= 2 ? 255 : index === 1 ? 70 : 0;
+          const [r, g, b, a] = maskedMonochromePixel(index);
+          pixels[output] = r;
+          pixels[output + 1] = g;
+          pixels[output + 2] = b;
+          pixels[output + 3] = a;
         } else {
           const color = palette[index] ?? { r: 255, g: 0, b: 255 };
           pixels[output] = color.r;

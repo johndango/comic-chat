@@ -7,6 +7,11 @@ backdrops directly, builds a multi-panel conversation strip on Canvas, exports
 the result as a PNG, and can render a live IRC channel through a small local
 gateway.
 
+Panels display at their original 324-pixel size by default. The panel-size
+slider scales the reading view from 60% to 160% and remembers the preference;
+saved PNGs retain the original resolution. In offline mode the selected
+character remains selected until the user chooses another one.
+
 The browser ports the original 2.5 text-expression, composite-avatar, panel,
 and Woodring balloon algorithms. Faces and torsos are chosen independently;
 characters face people being addressed; up to five speakers can share a panel;
