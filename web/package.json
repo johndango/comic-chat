@@ -14,7 +14,7 @@
     "bot": "node dist-bot/index.js",
     "bot:dev": "tsx bot/index.ts",
     "test": "vitest run",
-    "build:cam": "esbuild bot/cam.ts --bundle --platform=node --format=esm --packages=external --outfile=dist-bot/cam.js",
+    "build:cam": "esbuild bot/cam.ts --bundle --platform=node --format=esm --outfile=dist-bot/cam.js",
     "cam": "node dist-bot/cam.js",
     "cam:dev": "tsx bot/cam.ts"
   },
