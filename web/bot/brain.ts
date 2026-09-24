@@ -15,6 +15,8 @@ export interface BotConfig {
   schedule?: string;
   /** Nicks (lower case) never to greet or answer, e.g. other bots. */
   ignore?: string[];
+  /** Human nicks that may use the bot normally but should not receive automatic greetings. */
+  noGreet?: string[];
 }
 
 export type BotEvent =
@@ -138,6 +140,7 @@ export class BotBrain {
   private throttled = new Set<string>();
   private tipIndex = 0;
   private readonly ignore: Set<string>;
+  private readonly noGreet: Set<string>;
 
   private factIndex = 0;
 
@@ -147,6 +150,7 @@ export class BotBrain {
     private readonly random: () => number = Math.random,
   ) {
     this.ignore = new Set((config.ignore ?? []).map(fold));
+    this.noGreet = new Set((config.noGreet ?? []).map(fold));
   }
 
   private channel(name: string): ChannelState {
@@ -213,6 +217,7 @@ export class BotBrain {
     const state = this.channel(event.channel);
     state.members.add(event.nick);
     if (this.isSelf(event.nick) || looksLikeBot(event.nick, this.ignore)) return [];
+    if (this.noGreet.has(fold(event.nick))) return [];
     const last = this.greeted.get(fold(event.nick));
     if (last !== undefined && event.at - last < GREET_MEMORY) return [];
     if (event.at - state.lastGreetAt < GREET_SPACING) return [];

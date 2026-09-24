@@ -9,6 +9,7 @@
 //   SITE_URL          https://webcomicchat.com
 //   BOT_SCHEDULE      e.g. "Chat nights are Fridays at 8pm ET."
 //   BOT_IGNORE        other bots' nicks, comma-separated
+//   BOT_NO_GREET      human nicks not to greet automatically (they can still use commands)
 //   BOT_AI_FRIEND     TongueTiedBot             the room's AI bot, explained by "about" while present
 
 import { BotBrain, type BotEvent } from "./brain";
@@ -35,6 +36,7 @@ const brain = new BotBrain({
   siteUrl,
   schedule: env.BOT_SCHEDULE || undefined,
   ignore: list(env.BOT_IGNORE),
+  noGreet: list(env.BOT_NO_GREET),
   aiFriend: env.BOT_AI_FRIEND ?? "TongueTiedBot",
 });
 

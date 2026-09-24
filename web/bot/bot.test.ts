@@ -39,6 +39,13 @@ describe("BotBrain greetings", () => {
     }
   });
 
+  it("can skip greeting a human without ignoring their commands", () => {
+    const brain = new BotBrain({ ...config, noGreet: ["Anna"] });
+    expect(brain.handle({ type: "join", channel: "#c", nick: "anna", at: T0 })).toEqual([]);
+    const [reply] = brain.handle({ type: "message", channel: "#c", nick: "Anna", text: "BettyBot: help", at: T0 + 1000 });
+    expect(reply.text).toContain("tips, show, title, fact, link, about");
+  });
+
   it("doesn't mention the schedule when others are already there", () => {
     const brain = new BotBrain(config);
     brain.handle({ type: "names", channel: "#c", nicks: ["BettyBot", "Dan"], at: T0 });

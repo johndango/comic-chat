@@ -47,6 +47,7 @@ npm run bot:dev
 | `SITE_URL` | `https://webcomicchat.com` | |
 | `BOT_SCHEDULE` | — | e.g. `Chat nights are Fridays at 8pm ET.` |
 | `BOT_IGNORE` | — | Other bots' nicks, comma-separated |
+| `BOT_NO_GREET` | — | Human nicks not to greet automatically; they can still use commands |
 
 ## On Libera.Chat
 

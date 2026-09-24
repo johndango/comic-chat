@@ -342,6 +342,15 @@ button:disabled { color: #808080; text-shadow: 1px 1px #fff; cursor: not-allowed
 }
 
 @media (max-width: 640px) {
+  .classic-main { display: flex; flex-direction: column; }
+  .live-console { order: 1; }
+  .room-browser { order: 2; }
+  .room-tab { order: 3; }
+  .workspace { display: contents; }
+  .stage-wrap { order: 4; }
+  .composer { order: 5; }
+  .controls { order: 6; }
+  .classic-statusbar { order: 7; }
   .classic-menu { gap: 1px; }
   .classic-menu summary { padding-right: 5px; padding-left: 5px; font-size: 11px; }
   .classic-menu details[open] > summary { padding-right: 4px; padding-left: 4px; }
