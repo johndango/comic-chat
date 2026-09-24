@@ -367,30 +367,37 @@ app.innerHTML = `
         </div>
 
         <aside class="controls">
-          <section class="member-pane">
+          <section id="character-pane" class="character-pane">
             <header>
-              <span>Members</span>
+              <button id="character-pane-toggle" class="pane-toggle" type="button" aria-expanded="true" aria-controls="character-pane-content"><span aria-hidden="true">▼</span>Your character</button>
+              <button id="character-pane-size" type="button" aria-pressed="false">Enlarge</button>
+            </header>
+            <div id="character-pane-content" class="character-pane-content">
+              <canvas id="character-preview" class="character-figure" width="200" height="108" aria-label="Selected Comic Chat character"></canvas>
+              <label for="character">Character</label>
+              <select id="character">${characterOptionMarkup}</select>
+              <div class="character-actions">
+                <button id="import-avatar" type="button">Import .avb…</button>
+                <button id="create-avatar" type="button">Create…</button>
+                <input id="avatar-file" class="visually-hidden" type="file" accept=".avb,application/octet-stream" />
+              </div>
+              <small class="local-avatar-note">Imported characters stay in this browser tab until hosted.</small>
+              <label for="backdrop">Background</label>
+              <select id="backdrop">${backdrops.map(({ file, label }) => `<option value="${file}">${label}</option>`).join("")}</select>
+              <div id="emotion-wheel" class="emotion-wheel" aria-label="Emotion wheel"></div>
+              <strong id="tone-value" class="tone-value">Neutral</strong>
+              <small id="tone-reason">No expression cues</small>
+            </div>
+          </section>
+          <section id="member-pane" class="member-pane">
+            <header>
+              <button id="member-pane-toggle" class="pane-toggle" type="button" aria-expanded="true" aria-controls="member-pane-content"><span aria-hidden="true">▼</span>Members</button>
               <button id="avatar-rules-button" type="button">Avatars…</button>
               <small id="member-target-summary">Select who you are talking to</small>
             </header>
-            <div id="member-list" class="member-list"><p>Connect to see room members.</p></div>
-          </section>
-          <section class="character-pane">
-            <header><span>Your character</span><button id="character-pane-size" type="button" aria-pressed="false">Enlarge</button></header>
-            <canvas id="character-preview" class="character-figure" width="200" height="108" aria-label="Selected Comic Chat character"></canvas>
-            <label for="character">Character</label>
-            <select id="character">${characterOptionMarkup}</select>
-            <div class="character-actions">
-              <button id="import-avatar" type="button">Import .avb…</button>
-              <button id="create-avatar" type="button">Create…</button>
-              <input id="avatar-file" class="visually-hidden" type="file" accept=".avb,application/octet-stream" />
+            <div id="member-pane-content" class="member-pane-content">
+              <div id="member-list" class="member-list"><p>Connect to see room members.</p></div>
             </div>
-            <small class="local-avatar-note">Imported characters stay in this browser tab until hosted.</small>
-            <label for="backdrop">Background</label>
-            <select id="backdrop">${backdrops.map(({ file, label }) => `<option value="${file}">${label}</option>`).join("")}</select>
-            <div id="emotion-wheel" class="emotion-wheel" aria-label="Emotion wheel"></div>
-            <strong id="tone-value" class="tone-value">Neutral</strong>
-            <small id="tone-reason">No expression cues</small>
           </section>
         </aside>
       </section>
@@ -559,6 +566,9 @@ const roomSummary = element<HTMLElement>("#room-summary");
 const refreshRoomsButton = element<HTMLButtonElement>("#refresh-rooms");
 const memberList = element<HTMLElement>("#member-list");
 const memberTargetSummary = element<HTMLElement>("#member-target-summary");
+const memberPane = element<HTMLElement>("#member-pane");
+const memberPaneContent = element<HTMLElement>("#member-pane-content");
+const memberPaneToggle = element<HTMLButtonElement>("#member-pane-toggle");
 const avatarRulesButton = element<HTMLButtonElement>("#avatar-rules-button");
 const avatarRulesDialog = element<HTMLDialogElement>("#avatar-rules-dialog");
 const officialAvatarsOnly = element<HTMLInputElement>("#official-avatars-only");
@@ -567,6 +577,9 @@ const avatarRuleList = element<HTMLElement>("#avatar-rule-list");
 const resetAvatarRulesButton = element<HTMLButtonElement>("#reset-avatar-rules");
 const roomTabLabel = element<HTMLElement>("#room-tab-label");
 const windowRoom = element<HTMLElement>("#window-room");
+const characterPane = element<HTMLElement>("#character-pane");
+const characterPaneContent = element<HTMLElement>("#character-pane-content");
+const characterPaneToggle = element<HTMLButtonElement>("#character-pane-toggle");
 const characterPreview = element<HTMLCanvasElement>("#character-preview");
 const characterPaneSizeButton = element<HTMLButtonElement>("#character-pane-size");
 const emotionWheelHost = element<HTMLElement>("#emotion-wheel");
@@ -663,8 +676,51 @@ function setCharacterPaneLarge(large: boolean, persist = true, redraw = true): v
   if (redraw) void updateCharacterPreview().catch(showError);
 }
 
+function setSidebarPaneCollapsed(
+  pane: HTMLElement,
+  content: HTMLElement,
+  toggle: HTMLButtonElement,
+  collapsed: boolean,
+  storageKey: string,
+  label: string,
+  persist = true,
+): void {
+  pane.classList.toggle("pane-collapsed", collapsed);
+  content.hidden = collapsed;
+  toggle.setAttribute("aria-expanded", String(!collapsed));
+  toggle.setAttribute("aria-label", `${collapsed ? "Expand" : "Collapse"} ${label}`);
+  const disclosure = toggle.querySelector<HTMLElement>("span");
+  if (disclosure) disclosure.textContent = collapsed ? "▶" : "▼";
+  if (pane === characterPane) workspace.classList.toggle("character-pane-collapsed", collapsed);
+  if (persist) {
+    try {
+      localStorage.setItem(storageKey, collapsed ? "1" : "0");
+    } catch {}
+  }
+}
+
 characterPaneSizeButton.addEventListener("click", () => {
   setCharacterPaneLarge(!workspace.classList.contains("character-pane-large"));
+});
+characterPaneToggle.addEventListener("click", () => {
+  setSidebarPaneCollapsed(
+    characterPane,
+    characterPaneContent,
+    characterPaneToggle,
+    !characterPane.classList.contains("pane-collapsed"),
+    "comic-chat-character-pane-collapsed",
+    "your character",
+  );
+});
+memberPaneToggle.addEventListener("click", () => {
+  setSidebarPaneCollapsed(
+    memberPane,
+    memberPaneContent,
+    memberPaneToggle,
+    !memberPane.classList.contains("pane-collapsed"),
+    "comic-chat-member-pane-collapsed",
+    "members",
+  );
 });
 
 function resetEmotionWheel(): void {
@@ -2574,6 +2630,24 @@ try {
 } catch {}
 try {
   setCharacterPaneLarge(localStorage.getItem("comic-chat-character-pane-large") === "1", false, false);
+  setSidebarPaneCollapsed(
+    characterPane,
+    characterPaneContent,
+    characterPaneToggle,
+    localStorage.getItem("comic-chat-character-pane-collapsed") === "1",
+    "comic-chat-character-pane-collapsed",
+    "your character",
+    false,
+  );
+  setSidebarPaneCollapsed(
+    memberPane,
+    memberPaneContent,
+    memberPaneToggle,
+    localStorage.getItem("comic-chat-member-pane-collapsed") === "1",
+    "comic-chat-member-pane-collapsed",
+    "members",
+    false,
+  );
 } catch {}
 balloonFontSelect.value = comicFontId;
 balloonFontSelect.style.fontFamily = comicFontOption(comicFontId).family;
