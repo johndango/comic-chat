@@ -1,5 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
-import { COMIC_FONT_FAMILY, loadComicFonts, type ComicFontSet } from "./comic-font";
+import {
+  COMIC_FONT_FAMILY,
+  comicFontOption,
+  loadComicFonts,
+  parseComicFontId,
+  type ComicFontSet,
+} from "./comic-font";
 
 describe("comic font loading", () => {
   it("requests the regular and italic faces before canvas rendering", async () => {
@@ -16,5 +22,11 @@ describe("comic font loading", () => {
     const fonts: ComicFontSet = { load: async () => { throw new Error("offline"); }, ready: Promise.resolve() };
     expect(await loadComicFonts(fonts)).toBe(false);
     expect(COMIC_FONT_FAMILY.endsWith("Arial, sans-serif")).toBe(true);
+  });
+
+  it("accepts known preferences and safely defaults unknown stored values", () => {
+    expect(parseComicFontId("verdana")).toBe("verdana");
+    expect(parseComicFontId("wingdings")).toBe("comic-neue");
+    expect(comicFontOption("georgia")).toMatchObject({ label: "Georgia", comicMetrics: false });
   });
 });

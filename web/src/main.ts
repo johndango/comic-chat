@@ -40,7 +40,13 @@ import {
 } from "./room-link";
 import { stripExportGrid } from "./strip-export";
 import { blockedLinkMessage, blockedMessageLink, displayMessageLinks } from "./message-links";
-import { COMIC_FONT_FAMILY, loadComicFonts } from "./comic-font";
+import {
+  COMIC_FONT_OPTIONS,
+  comicFontOption,
+  loadComicFonts,
+  parseComicFontId,
+  type ComicFontId,
+} from "./comic-font";
 
 interface ArtChoice { file: string; label: string; announcementName?: string }
 
@@ -205,6 +211,9 @@ interface PendingLiveLine {
 
 const app = document.querySelector<HTMLDivElement>("#app");
 if (!app) throw new Error("Application mount point is missing");
+const comicFontOptionsMarkup = COMIC_FONT_OPTIONS
+  .map(({ id, label }) => `<option value="${id}">${label}</option>`)
+  .join("");
 
 app.innerHTML = `
   <div class="classic-window">
@@ -238,6 +247,8 @@ app.innerHTML = `
         <button type="button" role="menuitemradio" data-command="mode-think">Thought balloon</button>
         <button type="button" role="menuitemradio" data-command="mode-whisper">Whisper balloon</button>
         <button type="button" role="menuitemradio" data-command="mode-action">Action box</button>
+        <hr />
+        <button type="button" data-command="choose-font">Choose balloon font…</button>
       </div></details>
       <details><summary><u>R</u>oom</summary><div class="classic-menu-popup">
         <button type="button" data-command="join-channel">Join/Switch typed channel</button>
@@ -292,6 +303,9 @@ app.innerHTML = `
           <div class="strip-heading">
             <span>Comic view</span>
             <div class="view-options">
+              <label class="font-choice" for="balloon-font">Font
+                <select id="balloon-font">${comicFontOptionsMarkup}</select>
+              </label>
               <label for="panels-across">Panels across
                 <select id="panels-across">
                   <option value="auto">Auto</option>
@@ -432,6 +446,7 @@ const toneReason = element<HTMLElement>("#tone-reason");
 const strip = element<HTMLElement>("#strip");
 const stripCount = element<HTMLElement>("#strip-count");
 const panelsAcrossSelect = element<HTMLSelectElement>("#panels-across");
+const balloonFontSelect = element<HTMLSelectElement>("#balloon-font");
 const panelSizeInput = element<HTMLInputElement>("#panel-size");
 const panelSizeValue = element<HTMLOutputElement>("#panel-size-value");
 const status = element<HTMLElement>("#status");
@@ -507,6 +522,7 @@ let liveState: LiveState = "offline";
 let joinedChannel = "";
 let roomDirectoryLoaded = false;
 let panelsAcross: PanelsAcross = "auto";
+let comicFontId: ComicFontId = "comic-neue";
 let remoteQueue = Promise.resolve();
 const pendingLiveLines: PendingLiveLine[] = [];
 const publicRooms = new Map<string, LiveRoomEvent>();
@@ -1427,12 +1443,13 @@ async function renderStrip(): Promise<void> {
     return;
   }
 
-  await comicFontsReady;
+  const fontChoice = comicFontOption(comicFontId);
+  if (fontChoice.id === "comic-neue") await comicFontsReady;
   const measureContext = document.createElement("canvas").getContext("2d");
   if (!measureContext) throw new Error("Canvas is unavailable");
   const fonts = {
-    normal: balloonFontMetrics(canvasMeasurer(measureContext)),
-    whisper: balloonFontMetrics(canvasMeasurer(measureContext, { italic: true })),
+    normal: balloonFontMetrics(canvasMeasurer(measureContext, { fontFamily: fontChoice.family }), { comicSans: fontChoice.comicMetrics }),
+    whisper: balloonFontMetrics(canvasMeasurer(measureContext, { italic: true, fontFamily: fontChoice.family }), { comicSans: fontChoice.comicMetrics }),
   };
   const castFiles = new Map<string, string>();
   for (const line of conversation) castFiles.set(line.characterName, line.characterFile);
@@ -1488,12 +1505,12 @@ async function renderStrip(): Promise<void> {
   }));
   const titleLayout = layoutTitlePanel(title, uniqueCast, {
     measure: (text, height) => {
-      measureContext.font = `${height}px ${COMIC_FONT_FAMILY}`;
+      measureContext.font = `${height}px ${fontChoice.family}`;
       return measureContext.measureText(text).width;
     },
   });
   const titlePanel = createPanelCanvas(`Title: ${title}`);
-  drawTitlePanel(titlePanel.context, titleLayout, (id) => icons.get(id), { scale: PANEL_SCALE });
+  drawTitlePanel(titlePanel.context, titleLayout, (id) => icons.get(id), { scale: PANEL_SCALE, fontFamily: fontChoice.family });
   titlePanel.card.querySelector<HTMLElement>(".panel-meta")!.textContent = "Title and starring panel";
   fragment.append(titlePanel.card);
   nextCanvases.push(titlePanel.canvas);
@@ -1504,7 +1521,7 @@ async function renderStrip(): Promise<void> {
     drawPanel(panel.context, layout, {
       backdrop: backdropCanvas,
       body: (body) => images.get(String(body.poseRef)),
-    }, { scale: PANEL_SCALE });
+    }, { scale: PANEL_SCALE, fontFamily: fontChoice.family });
     addPanelLinkOverlays(panel.card, layout);
     panel.card.querySelector<HTMLElement>(".panel-meta")!.textContent =
       `Panel ${index + 1} · ${layout.balloons.length} ${layout.balloons.length === 1 ? "balloon" : "balloons"}`;
@@ -1758,6 +1775,19 @@ function updatePanelView(): void {
 
 panelsAcrossSelect.addEventListener("change", updatePanelView);
 panelSizeInput.addEventListener("input", updatePanelView);
+balloonFontSelect.addEventListener("change", () => {
+  comicFontId = parseComicFontId(balloonFontSelect.value);
+  balloonFontSelect.value = comicFontId;
+  try {
+    localStorage.setItem("comic-chat-balloon-font", comicFontId);
+  } catch {}
+  const choice = comicFontOption(comicFontId);
+  balloonFontSelect.style.fontFamily = choice.family;
+  setStatus(`Balloon font changed to ${choice.label}. Reflowing the comic…`);
+  void renderStrip()
+    .then(() => setStatus(`Balloon font: ${choice.label}.`))
+    .catch(showError);
+});
 const stage = strip.closest<HTMLElement>(".stage-wrap");
 if (stage && "ResizeObserver" in window) new ResizeObserver(updatePanelView).observe(stage);
 else window.addEventListener("resize", updatePanelView);
@@ -1829,6 +1859,10 @@ function runMenuCommand(command: string): void {
     case "mode-whisper":
     case "mode-action":
       document.querySelector<HTMLButtonElement>(`.mode-button[data-mode="${command.slice(5)}"]`)?.click();
+      break;
+    case "choose-font":
+      balloonFontSelect.scrollIntoView({ block: "nearest" });
+      balloonFontSelect.focus();
       break;
     case "join-channel":
       connectButton.click();
@@ -2024,7 +2058,10 @@ try {
   avatarDisplayPolicy = parseAvatarDisplayPolicy(localStorage.getItem("comic-chat-avatar-display-policy"), officialCharacterFiles);
   panelsAcrossSelect.value = String(parsePanelsAcross(localStorage.getItem("comic-chat-panels-across")));
   panelSizeInput.value = String(parsePanelZoom(localStorage.getItem("comic-chat-panel-size")));
+  comicFontId = parseComicFontId(localStorage.getItem("comic-chat-balloon-font"));
 } catch {}
+balloonFontSelect.value = comicFontId;
+balloonFontSelect.style.fontFamily = comicFontOption(comicFontId).family;
 updatePanelView();
 const linkedRoom = roomSelectionFromUrl(new URL(window.location.href));
 if (linkedRoom) {

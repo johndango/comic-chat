@@ -149,6 +149,7 @@ button:disabled { color: #808080; text-shadow: 1px 1px #fff; cursor: not-allowed
 .view-options { display: flex; align-items: center; gap: 10px; }
 .view-options > label { display: flex; align-items: center; gap: 5px; white-space: nowrap; }
 .view-options select { width: 66px; height: 24px; }
+.view-options #balloon-font { width: 145px; }
 .panel-size { display: flex; align-items: center; gap: 5px; white-space: nowrap; }
 .panel-size input { width: 105px; height: auto; padding: 0; border: 0; outline: 0; background: transparent; accent-color: var(--navy); }
 .panel-size output { width: 34px; font-variant-numeric: tabular-nums; text-align: right; }
@@ -274,7 +275,7 @@ button:disabled { color: #808080; text-shadow: 1px 1px #fff; cursor: not-allowed
   .stage-wrap { min-height: 420px; max-height: 65vh; border-right: 0; border-bottom: 2px solid #808080; }
   .strip-heading { grid-template-columns: auto 1fr; }
   .strip-heading > strong { display: none; }
-  .view-options { justify-self: end; gap: 6px; }
+  .view-options { justify-self: end; flex-wrap: wrap; gap: 6px; }
   .panel-size input { width: 80px; }
   .controls { grid-template-rows: 170px auto; }
   .member-list { height: 140px; }
@@ -303,5 +304,6 @@ button:disabled { color: #808080; text-shadow: 1px 1px #fff; cursor: not-allowed
   .strip-heading > span { display: none; }
   .view-options { width: 100%; justify-content: space-between; }
   .view-options > label { gap: 3px; }
+  .view-options .font-choice { width: 100%; justify-content: center; }
   .panel-size input { width: 68px; }
 }

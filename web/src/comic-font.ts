@@ -1,6 +1,25 @@
 /** Keep canvas measurement and drawing on the same bundled face everywhere. */
 export const COMIC_FONT_FAMILY = '"Comic Neue", "Comic Sans MS", Arial, sans-serif';
 
+export const COMIC_FONT_OPTIONS = [
+  { id: "comic-neue", label: "Comic Neue (classic)", family: COMIC_FONT_FAMILY, comicMetrics: true },
+  { id: "arial", label: "Arial", family: "Arial, Helvetica, sans-serif", comicMetrics: false },
+  { id: "verdana", label: "Verdana", family: "Verdana, Geneva, sans-serif", comicMetrics: false },
+  { id: "trebuchet", label: "Trebuchet MS", family: '"Trebuchet MS", Arial, sans-serif', comicMetrics: false },
+  { id: "georgia", label: "Georgia", family: 'Georgia, "Times New Roman", serif', comicMetrics: false },
+  { id: "courier", label: "Courier New", family: '"Courier New", Courier, monospace', comicMetrics: false },
+] as const;
+
+export type ComicFontId = typeof COMIC_FONT_OPTIONS[number]["id"];
+
+export function parseComicFontId(value: unknown): ComicFontId {
+  return COMIC_FONT_OPTIONS.some((option) => option.id === value) ? value as ComicFontId : "comic-neue";
+}
+
+export function comicFontOption(id: ComicFontId): typeof COMIC_FONT_OPTIONS[number] {
+  return COMIC_FONT_OPTIONS.find((option) => option.id === id) ?? COMIC_FONT_OPTIONS[0];
+}
+
 export interface ComicFontSet {
   load(font: string, text?: string): PromiseLike<unknown>;
   readonly ready: PromiseLike<unknown>;

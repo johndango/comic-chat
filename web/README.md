@@ -172,6 +172,11 @@ screen, then set `NODE_ENV=production` and
 confirming that cPanel's front end appends the visitor address once. Restart the
 application after each upload or environment change.
 
+The comic view includes a persistent balloon-font selector. Comic Neue remains
+the default, with Arial, Verdana, Trebuchet MS, Georgia, and Courier New as
+system-font alternatives. Changing it remeasures and reflows the whole strip,
+and saved PNG comics use the selected face.
+
 ## Gateway safety boundary
 
 - Listens on loopback by default.
@@ -193,6 +198,7 @@ shorteners are intentionally not blocked wholesale because they also carry
 legitimate links. A future reputation-provider integration should use a
 properly licensed domain list such as [Spamhaus DBL](https://www.spamhaus.org/blocklists/domain-blocklist/)
 rather than copying a stale blacklist into the repository.
+
 - Limits each browser session to five outgoing messages per ten seconds.
 - Requires the exact production origin and rejects originless WebSocket clients.
 - Allows at most three simultaneous sessions and ten upgrade attempts per minute
