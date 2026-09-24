@@ -41,10 +41,17 @@ import {
   roomSelectionFromUrl,
 } from "./room-link";
 import { stripExportGrid } from "./strip-export";
-import { visibleComicLines } from "./comic-filter";
+import {
+  FILTERABLE_COMIC_BOTS,
+  isComicBotNickname,
+  normalizedComicNickname,
+  parseHiddenComicBots,
+  visibleComicLines,
+} from "./comic-filter";
 import { reconcilePanelSelection, selectedPanelIndexes } from "./panel-selection";
 import { shouldFollowLatest } from "./scroll-follow";
 import { blockedLinkMessage, blockedMessageLink, displayMessageLinks } from "./message-links";
+import { censorComicText } from "./content-censor";
 import {
   COMIC_FONT_OPTIONS,
   comicFontOption,
@@ -57,6 +64,11 @@ interface ArtChoice { file: string; label: string; announcementName?: string }
 
 const COLOR_REPLACEMENT_CREDIT_URL = "https://www.phoenix-online-nexus.com/Nexus_21/index.htm#instructionsavb";
 const MICROSOFT_OPEN_SOURCE_URL = "https://opensource.microsoft.com/blog/2026/07/16/microsoft-comic-chat-is-now-open-source/";
+const HIDE_BOT_COMMANDS: Readonly<Record<string, string>> = {
+  "hide-bettybot": "BettyBot",
+  "hide-tonguetiedbot": "TongueTiedBot",
+  "hide-n00bbot": "n00bBot",
+};
 
 const artPackAssets = import.meta.glob("../../v2.5-beta-1-modern/artpack1/*.{avb,bgb}", {
   eager: true,
@@ -264,6 +276,10 @@ app.innerHTML = `
         <button type="button" data-command="browse-channels">Browse channels…</button>
         <hr />
         <button type="button" role="menuitemcheckbox" data-command="hide-bettybot">Hide BettyBot from comic &amp; saved PNGs</button>
+        <button type="button" role="menuitemcheckbox" data-command="hide-tonguetiedbot">Hide TongueTiedBot from comic &amp; saved PNGs</button>
+        <button type="button" role="menuitemcheckbox" data-command="hide-n00bbot">Hide n00bBot from comic &amp; saved PNGs</button>
+        <hr />
+        <button type="button" role="menuitemcheckbox" data-command="censor-content">Censor mature &amp; sensitive text</button>
         <hr />
         <button type="button" data-command="auto-panels">Automatic panel wrapping</button>
         <button type="button" data-command="reset-zoom">Reset zoom to 100%</button>
@@ -296,6 +312,7 @@ app.innerHTML = `
       </div></details>
       <details><summary><u>H</u>elp</summary><div class="classic-menu-popup classic-menu-popup-right">
         <button type="button" data-command="comic-tips">Comic tips (F1)</button>
+        <button type="button" data-command="bot-tips">Bot tips…</button>
         <hr />
         <button type="button" data-command="about">About WebComicChat…</button>
         <a href="mailto:admin@webcomicchat.com">Email WebComicChat…</a>
@@ -443,6 +460,26 @@ app.innerHTML = `
         <footer><a href="${MICROSOFT_OPEN_SOURCE_URL}" target="_blank" rel="noopener noreferrer">Microsoft open-source release</a><button value="cancel">OK</button></footer>
       </form>
     </dialog>
+    <dialog id="bot-tips-dialog" class="classic-dialog bot-tips-dialog" aria-labelledby="bot-tips-title">
+      <form method="dialog">
+        <header><strong id="bot-tips-title">Chatting with the bots</strong><button value="cancel" aria-label="Close">×</button></header>
+        <div class="dialog-body bot-tips-body">
+          <p><strong>Bots only answer when you talk directly to them.</strong></p>
+          <ol>
+            <li>Select a bot in <strong>Members</strong>, then send a normal message; or</li>
+            <li>Start the message with its name, such as <code>TongueTiedBot: tell me about Comic Chat</code>.</li>
+          </ol>
+          <dl>
+            <dt>BettyBot</dt><dd>A command-based helper. Try <code>BettyBot: help</code>, <code>tips</code>, <code>fact</code>, or <code>show happy</code>.</dd>
+            <dt>TongueTiedBot</dt><dd>A friendly conversational AI bot. Address it by name and ask a question.</dd>
+            <dt>n00bBot</dt><dd>A deliberately silly conversational AI gremlin. Address it by name; say <code>n00bBot: go away</code> to quiet it for an hour.</dd>
+          </dl>
+          <p id="bot-tips-presence" class="bot-tips-presence" role="status"></p>
+          <small>Only bots shown in Members are currently available. AI-generated replies are identified on IRC.</small>
+        </div>
+        <footer><button value="cancel">OK</button></footer>
+      </form>
+    </dialog>
     <dialog id="close-dialog" class="classic-dialog close-dialog" aria-labelledby="close-title">
       <form method="dialog">
         <header><strong id="close-title">Microsoft Comic Chat</strong><button value="cancel" aria-label="Close">×</button></header>
@@ -545,6 +582,8 @@ const classicMenu = element<HTMLElement>("#classic-menu");
 const classicMenuSections = [...classicMenu.querySelectorAll<HTMLDetailsElement>("details")];
 const menuCommandButtons = [...classicMenu.querySelectorAll<HTMLButtonElement>("button[data-command]")];
 const aboutDialog = element<HTMLDialogElement>("#about-dialog");
+const botTipsDialog = element<HTMLDialogElement>("#bot-tips-dialog");
+const botTipsPresence = element<HTMLElement>("#bot-tips-presence");
 const closeDialog = element<HTMLDialogElement>("#close-dialog");
 const liveConsole = element<HTMLElement>("#live-console");
 const liveStatus = element<HTMLElement>("#live-status");
@@ -621,7 +660,8 @@ let joinedChannel = "";
 let roomDirectoryLoaded = false;
 let panelsAcross: PanelsAcross = "auto";
 let comicFontId: ComicFontId = "comic-sans-ms";
-let hideBettyBot = false;
+let hiddenComicBots = new Set<string>();
+let censorContent = false;
 let remoteQueue = Promise.resolve();
 const pendingLiveLines: PendingLiveLine[] = [];
 const publicRooms = new Map<string, LiveRoomEvent>();
@@ -1021,6 +1061,38 @@ function showError(error: unknown): void {
   console.error(error);
   status.textContent = error instanceof Error ? error.message : "Something went wrong";
   status.classList.add("error");
+}
+
+function saveComicDisplayPreferences(): void {
+  try {
+    localStorage.setItem("comic-chat-hidden-bots", JSON.stringify([...hiddenComicBots]));
+    localStorage.setItem("comic-chat-censor-content", censorContent ? "1" : "0");
+    localStorage.removeItem("comic-chat-hide-bettybot");
+  } catch {}
+}
+
+function toggleHiddenComicBot(nickname: string): void {
+  const key = normalizedComicNickname(nickname);
+  const hidden = hiddenComicBots.has(key);
+  if (hidden) hiddenComicBots.delete(key);
+  else hiddenComicBots.add(key);
+  saveComicDisplayPreferences();
+  updateControls();
+  void renderStrip().then(() => {
+    setStatus(hidden
+      ? `${nickname} is visible in the comic and saved PNGs.`
+      : `${nickname} is hidden from the comic and saved PNGs. Incoming IRC messages are unchanged.`);
+  }).catch(showError);
+}
+
+function displayLineWithCensor(line: ConversationLine): ConversationLine {
+  if (!censorContent) return line;
+  const censored = censorComicText(line.message);
+  if (censored === line.message) return line;
+  const display = line.linkable
+    ? displayMessageLinks(censored)
+    : { text: censored.length <= 180 ? censored : `${censored.slice(0, 179)}…`, links: [] };
+  return { ...line, displayMessage: display.text, links: display.links };
 }
 
 function automaticCharacterForNickname(nickname: string): string {
@@ -1662,7 +1734,11 @@ function updateControls(): void {
     if (command.startsWith("mode-")) {
       button.setAttribute("aria-checked", String(command.slice(5) === messageMode.value));
     }
-    if (command === "hide-bettybot") button.setAttribute("aria-checked", String(hideBettyBot));
+    const botNickname = HIDE_BOT_COMMANDS[command];
+    if (botNickname) {
+      button.setAttribute("aria-checked", String(hiddenComicBots.has(normalizedComicNickname(botNickname))));
+    }
+    if (command === "censor-content") button.setAttribute("aria-checked", String(censorContent));
     if (command === "select-panels") button.setAttribute("aria-checked", String(panelSelectionMode));
   }
   syncPanelSelectionUi();
@@ -1745,7 +1821,7 @@ async function renderStrip(): Promise<void> {
   const nextCanvases: HTMLCanvasElement[] = [];
   const nextPanelKeys: string[] = [];
   const fragment = document.createDocumentFragment();
-  const renderedConversation = visibleComicLines(conversation, hideBettyBot);
+  const renderedConversation = visibleComicLines(conversation, hiddenComicBots).map(displayLineWithCensor);
   panelCanvases = [];
   panelKeys = [];
   updateControls();
@@ -2348,7 +2424,23 @@ function closeClassicMenus(except?: HTMLDetailsElement): void {
   }
 }
 
+function showBotTips(): void {
+  const online = FILTERABLE_COMIC_BOTS.filter((bot) =>
+    [...knownMembers].some((member) => isComicBotNickname(member, bot)));
+  botTipsPresence.textContent = liveState !== "joined"
+    ? "Join a channel to see which bots are online."
+    : online.length > 0
+      ? `Online here: ${online.join(", ")}.`
+      : "None of the WebComicChat bots appear to be online in this channel right now.";
+  botTipsDialog.showModal();
+}
+
 function runMenuCommand(command: string): void {
+  const botNickname = HIDE_BOT_COMMANDS[command];
+  if (botNickname) {
+    toggleHiddenComicBot(botNickname);
+    return;
+  }
   switch (command) {
     case "new-comic":
     case "clear":
@@ -2383,16 +2475,14 @@ function runMenuCommand(command: string): void {
       panelSizeInput.value = "100";
       updatePanelView();
       break;
-    case "hide-bettybot":
-      hideBettyBot = !hideBettyBot;
-      try {
-        localStorage.setItem("comic-chat-hide-bettybot", hideBettyBot ? "1" : "0");
-      } catch {}
+    case "censor-content":
+      censorContent = !censorContent;
+      saveComicDisplayPreferences();
       updateControls();
       void renderStrip().then(() => {
-        setStatus(hideBettyBot
-          ? "BettyBot is hidden from the comic and saved PNGs. Her messages are still in chat history."
-          : "BettyBot is visible in the comic and saved PNGs.");
+        setStatus(censorContent
+          ? "Mature and sensitive terms are masked with *** in the comic and saved PNGs. IRC messages are unchanged."
+          : "Content censor is off. Original message text is visible again.");
       }).catch(showError);
       break;
     case "mode-say":
@@ -2423,6 +2513,9 @@ function runMenuCommand(command: string): void {
       break;
     case "comic-tips":
       playHelpEgg();
+      break;
+    case "bot-tips":
+      showBotTips();
       break;
     case "about":
       aboutDialog.showModal();
@@ -2632,7 +2725,11 @@ try {
   panelsAcrossSelect.value = String(parsePanelsAcross(localStorage.getItem("comic-chat-panels-across")));
   panelSizeInput.value = String(parsePanelZoom(localStorage.getItem("comic-chat-panel-size")));
   comicFontId = parseComicFontId(localStorage.getItem("comic-chat-balloon-font"));
-  hideBettyBot = localStorage.getItem("comic-chat-hide-bettybot") === "1";
+  hiddenComicBots = parseHiddenComicBots(
+    localStorage.getItem("comic-chat-hidden-bots"),
+    localStorage.getItem("comic-chat-hide-bettybot") === "1",
+  );
+  censorContent = localStorage.getItem("comic-chat-censor-content") === "1";
 } catch {}
 try {
   setCharacterPaneLarge(localStorage.getItem("comic-chat-character-pane-large") === "1", false, false);

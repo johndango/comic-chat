@@ -270,6 +270,15 @@ button:disabled { color: #808080; text-shadow: 1px 1px #fff; cursor: not-allowed
 .about-body p { margin: 6px 0; }
 .about-icon { width: 40px; height: 40px; display: block; object-fit: contain; image-rendering: pixelated; }
 .about-dialog footer a { align-self: center; margin-right: auto; }
+.bot-tips-dialog { width: min(500px, calc(100vw - 24px)); }
+.bot-tips-body > p { margin: 4px 0 9px; }
+.bot-tips-body ol { margin: 0 0 12px; padding-left: 24px; }
+.bot-tips-body li { margin: 5px 0; }
+.bot-tips-body dl { margin: 8px 0 12px; display: grid; grid-template-columns: 105px 1fr; gap: 7px 10px; }
+.bot-tips-body dt { font-weight: 700; }
+.bot-tips-body dd { margin: 0; }
+.bot-tips-body code { padding: 1px 3px; background: #fff; border: 1px solid #aaa; font: 11px "Courier New", monospace; }
+.bot-tips-presence { padding: 6px; color: #000 !important; background: #ffffdf; border: 1px solid #a0a080; }
 .close-dialog { width: min(390px, calc(100vw - 24px)); }
 .close-dialog-body { min-height: 92px; display: flex; align-items: center; gap: 16px; font-size: 14px; }
 .close-dialog-body > span { width: 42px; height: 42px; flex: 0 0 auto; display: grid; place-items: center; color: #fff; background: #000080; border-radius: 50%; font: 700 30px Georgia, serif; }

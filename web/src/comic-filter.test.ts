@@ -1,19 +1,29 @@
 import { describe, expect, it } from "vitest";
-import { visibleComicLines } from "./comic-filter";
+import { parseHiddenComicBots, visibleComicLines } from "./comic-filter";
 
 const lines = [
   { characterName: "BettyBot", message: "Welcome" },
   { characterName: "Reader", message: "Hello" },
   { characterName: "bettybot", message: "Try help" },
+  { characterName: "TongueTiedBot", message: "Hello" },
+  { characterName: "n00bBot", message: "LOL" },
+  { characterName: "n00bBot_42", message: "Temporary fallback nick" },
   { characterName: "BettyBotFan", message: "Not the bot" },
 ];
 
-describe("optional BettyBot comic filter", () => {
+describe("optional bot comic filters", () => {
   it("keeps every line when the preference is off", () => {
-    expect(visibleComicLines(lines, false)).toEqual(lines);
+    expect(visibleComicLines(lines, new Set())).toEqual(lines);
   });
 
-  it("hides only the exact BettyBot nickname, case-insensitively", () => {
-    expect(visibleComicLines(lines, true).map((line) => line.characterName)).toEqual(["Reader", "BettyBotFan"]);
+  it("hides selected exact bot nicknames case-insensitively", () => {
+    expect(visibleComicLines(lines, new Set(["bettybot", "n00bbot"])).map((line) => line.characterName))
+      .toEqual(["Reader", "TongueTiedBot", "BettyBotFan"]);
+  });
+
+  it("loads saved choices safely and migrates the old BettyBot setting", () => {
+    expect([...parseHiddenComicBots('["TongueTiedBot","stranger"]', true)].sort())
+      .toEqual(["bettybot", "tonguetiedbot"]);
+    expect(parseHiddenComicBots("not json").size).toBe(0);
   });
 });
