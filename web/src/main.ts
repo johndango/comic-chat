@@ -42,6 +42,7 @@ import {
 import { stripExportGrid } from "./strip-export";
 import { visibleComicLines } from "./comic-filter";
 import { reconcilePanelSelection, selectedPanelIndexes } from "./panel-selection";
+import { shouldFollowLatest } from "./scroll-follow";
 import { blockedLinkMessage, blockedMessageLink, displayMessageLinks } from "./message-links";
 import {
   COMIC_FONT_OPTIONS,
@@ -505,6 +506,7 @@ const toneValue = element<HTMLElement>("#tone-value");
 const toneReason = element<HTMLElement>("#tone-reason");
 const workspace = element<HTMLElement>("#workspace");
 const strip = element<HTMLElement>("#strip");
+const stage = element<HTMLElement>(".stage-wrap");
 const stripCount = element<HTMLElement>("#strip-count");
 const panelSelectionBar = element<HTMLElement>("#panel-selection-bar");
 const panelSelectionCount = element<HTMLElement>("#panel-selection-count");
@@ -1659,8 +1661,20 @@ function panelContentSignature(layout: PanelLayout): string {
   return `panel:${content}`;
 }
 
+function followNewestPanel(generation: number, previousScrollTop: number): void {
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      if (generation !== renderGeneration) return;
+      // A deliberate scroll during the redraw always wins over auto-follow.
+      if (Math.abs(stage.scrollTop - previousScrollTop) > 2) return;
+      stage.scrollTop = stage.scrollHeight;
+    });
+  });
+}
+
 async function renderStrip(): Promise<void> {
   const generation = ++renderGeneration;
+  const followLatest = shouldFollowLatest(stage);
   const nextCanvases: HTMLCanvasElement[] = [];
   const nextPanelKeys: string[] = [];
   const fragment = document.createDocumentFragment();
@@ -1782,6 +1796,8 @@ async function renderStrip(): Promise<void> {
   });
 
   if (generation !== renderGeneration) return;
+  const stillFollowing = followLatest && shouldFollowLatest(stage);
+  const previousScrollTop = stage.scrollTop;
   strip.replaceChildren(fragment);
   panelCanvases = nextCanvases;
   panelKeys = nextPanelKeys;
@@ -1789,6 +1805,7 @@ async function renderStrip(): Promise<void> {
   const count = page.layouts.length + 1;
   stripCount.textContent = `${count} ${count === 1 ? "panel" : "panels"} · ${renderedConversation.length} ${renderedConversation.length === 1 ? "line" : "lines"}`;
   updateControls();
+  if (stillFollowing) followNewestPanel(generation, previousScrollTop);
 }
 
 function addPanelLinkOverlays(card: HTMLElement, layout: import("./layout/page").PanelLayout): void {
@@ -2095,8 +2112,8 @@ balloonFontSelect.addEventListener("change", () => {
     .then(() => setStatus(`Balloon font: ${choice.label}.`))
     .catch(showError);
 });
-const stage = strip.closest<HTMLElement>(".stage-wrap");
-if (stage && "ResizeObserver" in window) new ResizeObserver(updatePanelView).observe(stage);
+const ResizeObserverConstructor = window.ResizeObserver as typeof ResizeObserver | undefined;
+if (ResizeObserverConstructor) new ResizeObserverConstructor(updatePanelView).observe(stage);
 else window.addEventListener("resize", updatePanelView);
 for (const button of modeButtons) {
   button.addEventListener("click", () => {
