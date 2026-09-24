@@ -5,6 +5,7 @@ import type { BalloonGeometry } from "./balloon";
 import type { PathCommand, Point } from "./geometry";
 import type { BodyLayout, PanelLayout } from "./page";
 import type { TitleLayout } from "./title";
+import { COMIC_FONT_FAMILY } from "../comic-font";
 
 export interface RenderAssets {
   backdrop?: CanvasImageSource & { width: number; height: number };
@@ -142,7 +143,7 @@ function drawBalloon(
   const pointSize = options.pointSize ?? 12;
   const em = pointSize * 20 * s;
   const italic = balloon.mode === "whisper" ? "italic " : "";
-  context.font = `${italic}${em}px ${options.fontFamily ?? '"Comic Sans MS", "Comic Neue", cursive'}`;
+  context.font = `${italic}${em}px ${options.fontFamily ?? COMIC_FONT_FAMILY}`;
   context.fillStyle = "#000";
   context.textBaseline = "alphabetic";
   const ascent = (options.ascentEm ?? 1.102) * em;
@@ -169,7 +170,7 @@ export function canvasMeasurer(
   options: { pointSize?: number; italic?: boolean; fontFamily?: string } = {},
 ): (text: string) => number {
   const em = (options.pointSize ?? 12) * 20;
-  const font = `${options.italic ? "italic " : ""}${em}px ${options.fontFamily ?? '"Comic Sans MS", "Comic Neue", cursive'}`;
+  const font = `${options.italic ? "italic " : ""}${em}px ${options.fontFamily ?? COMIC_FONT_FAMILY}`;
   const cache = new Map<string, number>();
   return (text) => {
     let width = cache.get(text);
@@ -192,7 +193,7 @@ export function drawTitlePanel(
   options: RenderOptions,
 ): void {
   const s = options.scale;
-  const family = options.fontFamily ?? '"Comic Sans MS", "Comic Neue", cursive';
+  const family = options.fontFamily ?? COMIC_FONT_FAMILY;
   const ascentEm = options.ascentEm ?? 1.102;
   context.save();
   context.fillStyle = "#fff";

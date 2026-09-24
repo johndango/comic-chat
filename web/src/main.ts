@@ -40,6 +40,7 @@ import {
 } from "./room-link";
 import { stripExportGrid } from "./strip-export";
 import { blockedLinkMessage, blockedMessageLink, displayMessageLinks } from "./message-links";
+import { COMIC_FONT_FAMILY, loadComicFonts } from "./comic-font";
 
 interface ArtChoice { file: string; label: string; announcementName?: string }
 
@@ -519,6 +520,7 @@ let suppressWheelChange = false;
 let importedAvatarSequence = 0;
 const builderPoses: Array<CreatorPose & { filename: string }> = [];
 let builderBusy = false;
+const comicFontsReady = loadComicFonts(document.fonts);
 
 const emotionWheel = createEmotionWheel({
   size: 132,
@@ -1425,7 +1427,7 @@ async function renderStrip(): Promise<void> {
     return;
   }
 
-  await document.fonts?.ready;
+  await comicFontsReady;
   const measureContext = document.createElement("canvas").getContext("2d");
   if (!measureContext) throw new Error("Canvas is unavailable");
   const fonts = {
@@ -1486,7 +1488,7 @@ async function renderStrip(): Promise<void> {
   }));
   const titleLayout = layoutTitlePanel(title, uniqueCast, {
     measure: (text, height) => {
-      measureContext.font = `${height}px "Comic Sans MS", "Comic Neue", cursive`;
+      measureContext.font = `${height}px ${COMIC_FONT_FAMILY}`;
       return measureContext.measureText(text).width;
     },
   });

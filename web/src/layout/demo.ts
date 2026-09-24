@@ -8,6 +8,7 @@ import { newPoseMemory, type PoseMemory } from "../expression";
 import { balloonFontMetrics, type BalloonMode } from "./balloon";
 import { ComicPage, type ComicLine } from "./page";
 import { canvasMeasurer, drawPanel, drawTitlePanel } from "./render";
+import { COMIC_FONT_FAMILY } from "../comic-font";
 import { layoutTitlePanel } from "./title";
 
 const CAST = [
@@ -143,7 +144,7 @@ async function render(): Promise<void> {
     }));
     const layout = layoutTitlePanel(title, stars, {
       measure: (text, height) => {
-        titleMeasure.font = `${height}px "Comic Sans MS", "Comic Neue", cursive`;
+        titleMeasure.font = `${height}px ${COMIC_FONT_FAMILY}`;
         return titleMeasure.measureText(text).width;
       },
     });
