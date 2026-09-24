@@ -207,7 +207,7 @@ export class BotBrain {
     if (/\b(tip|how|pose|face|express|emot|smile|shout|wave)/.test(q)) return this.nextTip();
     if (/\b(link|url|invite|share|site)\b/.test(q)) return `Bring friends: ${this.config.siteUrl}`;
     if (/\b(schedule|when|busy|chat night|event)/.test(q)) {
-      return this.config.schedule ?? "Nothing's scheduled yet: the room is open any time, so bring a friend and start a comic :)";
+      return this.config.schedule ?? "We'll be announcing a special weekly meetup soon! Until then the room is open any time, so bring a friend and start a comic :)";
     }
     if (/\b(bot|human|real|person|robot)\b/.test(q)) return "Yes, I'm a bot. Everyone else here is a real person :)";
     if (/\b(about|who|what|comic chat)\b/.test(q)) {

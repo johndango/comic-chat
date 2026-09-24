@@ -91,7 +91,7 @@ describe("BotBrain answers", () => {
 
   it("gives a useful schedule answer when none is configured", () => {
     const brain = new BotBrain({ nick: "BettyBot", siteUrl: "https://webcomicchat.com" });
-    expect(brain.answer("schedule", "Anna")).toMatch(/open any time/);
+    expect(brain.answer("schedule", "Anna")).toMatch(/announcing a special weekly meetup soon/);
   });
 
   it("ignores other bots' messages", () => {
