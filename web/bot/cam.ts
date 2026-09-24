@@ -45,7 +45,7 @@ const bot = new IrcBot(
     port: Number(env.IRC_PORT ?? 6697),
     tls: env.IRC_TLS !== "0",
     nick,
-    realname: `AI (LLM) bot for ${siteUrl.replace(/^https?:\/\//, "")}, run by ${admin}`,
+    realname: `AI bot for ${siteUrl.replace(/^https?:\/\//, "")}, admin ${admin}`,
     channels,
     avatar: { name: character },
     ...(env.BOT_ACCOUNT && env.BOT_PASSWORD ? { sasl: { account: env.BOT_ACCOUNT, password: env.BOT_PASSWORD } } : {}),
@@ -67,7 +67,7 @@ const bot = new IrcBot(
   },
 );
 
-log(`CamBot using ${model}, daily budget $${dailyBudgetUsd.toFixed(2)}`);
+log(`${nick} using ${model}, daily budget $${dailyBudgetUsd.toFixed(2)}`);
 bot.start();
 
 for (const signal of ["SIGINT", "SIGTERM"] as const) {

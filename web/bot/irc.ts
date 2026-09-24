@@ -72,6 +72,7 @@ export class IrcBot {
   private attempt = 0;
   private currentNick: string;
   private names = new Map<string, string[]>();
+  private reclaim?: ReturnType<typeof setInterval>;
 
   constructor(
     private readonly options: IrcOptions,
@@ -91,6 +92,7 @@ export class IrcBot {
 
   stop(reason = "Bot shutting down"): void {
     this.stopped = true;
+    if (this.reclaim) clearInterval(this.reclaim);
     if (this.pump) clearTimeout(this.pump);
     if (this.socket && !this.socket.destroyed) {
       this.socket.write(`QUIT :${sanitize(reason)}\r\n`);
@@ -142,6 +144,29 @@ export class IrcBot {
     this.attempt += 1;
     this.status(`Disconnected; retrying in ${Math.round(delay / 1000)} s`);
     setTimeout(() => !this.stopped && this.open(), delay).unref?.();
+  }
+
+  /**
+   * If registration fell back to Name_NN, get the real name back: signed-in
+   * owners can ask NickServ to REGAIN it; otherwise just retry NICK. Checked
+   * now and every minute until it sticks.
+   */
+  private reclaimNick(): void {
+    if (this.reclaim) clearInterval(this.reclaim);
+    const attempt = () => {
+      if (ircCaseFold(this.currentNick) === ircCaseFold(this.options.nick)) {
+        if (this.reclaim) clearInterval(this.reclaim);
+        this.reclaim = undefined;
+        return;
+      }
+      if (this.options.sasl) this.raw(`PRIVMSG NickServ :REGAIN ${this.options.nick}`);
+      else this.raw(`NICK ${this.options.nick}`);
+    };
+    attempt();
+    if (ircCaseFold(this.currentNick) !== ircCaseFold(this.options.nick)) {
+      this.reclaim = setInterval(attempt, 60_000);
+      this.reclaim.unref?.();
+    }
   }
 
   private raw(line: string): void {
@@ -223,6 +248,7 @@ export class IrcBot {
       case "001":
         this.currentNick = m.params[0] ?? this.currentNick;
         this.status(`Registered as ${this.currentNick}`);
+        this.reclaimNick();
         this.raw(`MODE ${this.currentNick} +B`); // mark as a bot where supported
         for (const channel of this.options.channels) this.raw(`JOIN ${channel}`);
         return;
