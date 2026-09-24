@@ -4,7 +4,7 @@
 //   CAM_MODEL          claude-haiku-4-5
 //   CAM_DAILY_BUDGET_USD  1.00                  replies stop for the day past this spend
 //   CAM_ADMIN                                   required; your nick. CamBot only chats while you're in the room
-//   BOT_NICK           CamBot                   BOT_CHANNELS  #webcomicchat
+//   BOT_NICK           TongueTiedBot            BOT_CHANNELS  #webcomicchat
 //   BOT_ACCOUNT / BOT_PASSWORD                  NickServ account for SASL login
 //   BOT_AVATAR         Tongue-Tied              each viewer's colour setting picks the edition
 //   SITE_URL           https://webcomicchat.com
@@ -18,8 +18,8 @@ import { IrcBot } from "./irc";
 const env = process.env;
 const list = (value: string | undefined) => (value ?? "").split(",").map((s) => s.trim()).filter(Boolean);
 
-if (!env.ANTHROPIC_API_KEY) throw new Error("Set ANTHROPIC_API_KEY (in a private env file) before starting CamBot");
-const nick = env.BOT_NICK ?? "CamBot";
+if (!env.ANTHROPIC_API_KEY) throw new Error("Set ANTHROPIC_API_KEY (in a private env file) before starting the AI bot");
+const nick = env.BOT_NICK ?? "TongueTiedBot";
 const siteUrl = env.SITE_URL ?? "https://webcomicchat.com";
 const channels = list(env.BOT_CHANNELS ?? "#webcomicchat");
 if (!channels.every((c) => /^#[A-Za-z0-9_+\-]{1,50}$/.test(c))) throw new Error("BOT_CHANNELS must list #channels");
