@@ -6,6 +6,16 @@ displays gateway data (`web/src/main.ts`, `web/src/irc-client.ts`). The
 baseline is commit `e7930bf`. I read the code only; nothing was run against
 the live site or the IRC networks.
 
+> **Resolution status:** This is a historical review of the v0.6.0 baseline,
+> not a description of the current gateway. Findings 1–7 were resolved by
+> `5025e62` and its tests: right-to-left `TRUST_PROXY_HOPS`, registration/idle/
+> lifetime deadlines, per-session and global reconnect/message budgets,
+> WebSocket backpressure and ping/pong cleanup, same-origin CSP, and security
+> headers on every response. Finding 8 was subsequently verified against the
+> live cPanel/Passenger deployment. The remaining operational recommendation
+> is to coordinate WEBIRC or connection-limit policy with IRC networks before
+> the service grows substantially.
+
 ## Summary
 
 The basics are solid. The gateway only reaches two hard-coded TLS endpoints

@@ -14,6 +14,8 @@ export interface IrcOptions {
   /** Shown in WHOIS; say what the bot is and who runs it. */
   realname: string;
   channels: string[];
+  /** Character announced using Comic Chat's original # Appears as convention. */
+  avatar?: { name: string; url?: string };
   sasl?: { account: string; password: string };
   /** Minimum milliseconds between lines sent (default 1500). */
   pace?: number;
@@ -30,6 +32,7 @@ export interface IrcHandlers {
 }
 
 const MAX_LINE_BYTES = 400;
+const MAX_QUEUED_LINES = 40;
 
 /** Strip control characters that could break out of a PRIVMSG. */
 export function sanitize(text: string): string {
@@ -49,6 +52,12 @@ export function splitForIrc(text: string, max = MAX_LINE_BYTES): string[] {
   }
   if (line) out.push(line);
   return out;
+}
+
+export function appearanceLine(name: string, url?: string): string {
+  if (!/^[A-Za-z0-9_-]{1,60}$/.test(name)) throw new Error("Invalid Comic Chat avatar name");
+  if (url && (!url.startsWith("https://") || url.length > 2048)) throw new Error("Avatar URL must use HTTPS");
+  return `# Appears as ${name}${url ? `.${url}` : ""}`;
 }
 
 export class IrcBot {
@@ -121,6 +130,10 @@ export class IrcBot {
 
   private onClose(): void {
     this.socket = undefined;
+    this.queue = [];
+    if (this.pump) clearTimeout(this.pump);
+    this.pump = undefined;
+    this.names.clear();
     if (this.stopped) return;
     // 5 s, 10 s, 20 s ... capped at 5 minutes, so a ban or outage isn't hammered.
     const delay = Math.min(300_000, 5_000 * 2 ** this.attempt);
@@ -134,6 +147,10 @@ export class IrcBot {
   }
 
   private enqueue(line: string): void {
+    if (this.queue.length >= MAX_QUEUED_LINES) {
+      this.status("Outgoing queue full; dropping a bot response");
+      return;
+    }
     this.queue.push(line);
     this.flush();
   }
@@ -217,7 +234,13 @@ export class IrcBot {
         return;
       case "JOIN": {
         const channel = m.params[0] ?? m.trailing;
-        if (channel) this.handlers.onJoin?.(channel, nicknameFromPrefix(m.prefix));
+        const who = nicknameFromPrefix(m.prefix);
+        if (channel) {
+          this.handlers.onJoin?.(channel, who);
+          if (this.options.avatar && this.isMe(who)) {
+            this.say(channel, appearanceLine(this.options.avatar.name, this.options.avatar.url));
+          }
+        }
         return;
       }
       case "PART":

@@ -50,6 +50,12 @@ public networks, handles IRC registration, retrieves a searchable public-room
 directory, joins the room selected by the visitor, tracks its member list, and
 converts channel messages into a narrow JSON event stream for the browser.
 
+An optional, openly labelled resident lobby bot lives in `bot/`. It can greet
+visitors, explain Comic Chat, publish a room schedule, and announce an official
+or hosted custom avatar using the original `# Appears as` convention. It is a
+separate long-running service, not part of the cPanel web application; see
+[`bot/README.md`](bot/README.md) for setup and behavior.
+
 ## Run it
 
 Node.js 20 or newer is required.

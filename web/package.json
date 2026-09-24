@@ -6,10 +6,13 @@
   "scripts": {
     "dev": "concurrently --kill-others --names web,gateway --prefix-colors blue,magenta \"vite\" \"tsx watch server/index.ts\"",
     "dev:web": "vite",
-    "build": "tsc --noEmit && vite build && npm run build:server",
+    "build": "tsc --noEmit && tsc --noEmit -p bot && vite build && npm run build:server && npm run build:bot",
     "build:server": "esbuild server/index.ts --bundle --platform=node --format=esm --packages=external --outfile=dist-server/index.js",
+    "build:bot": "esbuild bot/index.ts --bundle --platform=node --format=esm --outfile=dist-bot/index.js",
     "start": "node dist-server/index.js",
     "start:dev": "tsx server/index.ts",
+    "bot": "node dist-bot/index.js",
+    "bot:dev": "tsx bot/index.ts",
     "test": "vitest run"
   },
   "devDependencies": {

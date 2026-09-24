@@ -4,6 +4,8 @@
 //   IRC_TLS           1 (0 for plain TCP)      BOT_NICK   BettyBot
 //   BOT_CHANNELS      #webcomicchat            (comma-separated)
 //   BOT_ACCOUNT / BOT_PASSWORD                 NickServ account for SASL login
+//   BOT_AVATAR        Anna                      official or custom character name
+//   BOT_AVATAR_URL                              optional hosted HTTPS .avb URL
 //   SITE_URL          https://webcomicchat.com
 //   BOT_SCHEDULE      e.g. "Chat nights are Fridays at 8pm ET."
 //   BOT_IGNORE        other bots' nicks, comma-separated
@@ -20,6 +22,12 @@ const channels = list(env.BOT_CHANNELS ?? "#webcomicchat");
 if (!channels.every((c) => /^#[A-Za-z0-9_+\-]{1,50}$/.test(c))) {
   throw new Error("BOT_CHANNELS must be a comma-separated list of #channels");
 }
+const avatarName = env.BOT_AVATAR ?? "Anna";
+if (!/^[A-Za-z0-9_-]{1,60}$/.test(avatarName)) throw new Error("BOT_AVATAR is not a valid Comic Chat character name");
+const avatarUrl = env.BOT_AVATAR_URL || undefined;
+if (avatarUrl && (!avatarUrl.startsWith("https://") || avatarUrl.length > 2048)) {
+  throw new Error("BOT_AVATAR_URL must be an HTTPS URL");
+}
 
 const brain = new BotBrain({ nick, siteUrl, schedule: env.BOT_SCHEDULE || undefined, ignore: list(env.BOT_IGNORE) });
 
@@ -33,6 +41,7 @@ const bot = new IrcBot(
     nick,
     realname: `webcomicchat resident bot (${siteUrl})`,
     channels,
+    avatar: { name: avatarName, ...(avatarUrl ? { url: avatarUrl } : {}) },
     ...(env.BOT_ACCOUNT && env.BOT_PASSWORD ? { sasl: { account: env.BOT_ACCOUNT, password: env.BOT_PASSWORD } } : {}),
   },
   {

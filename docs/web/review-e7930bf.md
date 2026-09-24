@@ -5,6 +5,11 @@ findings are in `gateway-security-review.md` and aren't repeated here.
 Everything below comes from reading the code; nothing was run against a
 live network.
 
+> **Resolution status:** This is a historical review of the v0.6.0 room
+> browser. All five findings were resolved in `b370245`, with regression tests
+> for refused and forwarded joins, switching during a pending join, kicks,
+> forced nickname changes, and registration failures/timeouts.
+
 The client and protocol changes are clean. `validateJoinRequest` reuses the
 channel pattern, `connect` makes the channel optional, and both have tests.
 The issues are in how `IrcBridge` handles replies it doesn't expect.

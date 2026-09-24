@@ -1,7 +1,7 @@
 import { createServer, type Socket } from "node:net";
 import { afterEach, describe, expect, it } from "vitest";
 import { BotBrain } from "./brain";
-import { IrcBot, splitForIrc } from "./irc";
+import { appearanceLine, IrcBot, splitForIrc } from "./irc";
 
 const config = { nick: "BettyBot", siteUrl: "https://webcomicchat.com", schedule: "Chat nights are Fridays at 8pm ET." };
 const T0 = 1_000_000;
@@ -118,6 +118,15 @@ describe("splitForIrc", () => {
       expect(p).not.toMatch(/[\r\n]/);
     }
   });
+
+  it("formats only safe Comic Chat character announcements", () => {
+    expect(appearanceLine("Anna")).toBe("# Appears as Anna");
+    expect(appearanceLine("Pip", "https://webcomicchat.com/art/pip.avb")).toBe(
+      "# Appears as Pip.https://webcomicchat.com/art/pip.avb",
+    );
+    expect(() => appearanceLine("bad name")).toThrow("avatar name");
+    expect(() => appearanceLine("Pip", "http://example.com/pip.avb")).toThrow("HTTPS");
+  });
 });
 
 describe("IrcBot against a fake server", () => {
@@ -154,7 +163,7 @@ describe("IrcBot against a fake server", () => {
     const port = (server.address() as { port: number }).port;
     const events: string[] = [];
     const bot = new IrcBot(
-      { host: "127.0.0.1", port, tls: false, nick: "BettyBot", realname: "test bot", channels: ["#c"], pace: 200 },
+      { host: "127.0.0.1", port, tls: false, nick: "BettyBot", realname: "test bot", channels: ["#c"], avatar: { name: "Anna" }, pace: 200 },
       {
         onNames: (channel, nicks) => events.push(`names ${channel} ${nicks.join(",")}`),
         onMessage: (channel, nick, text) => {
@@ -177,6 +186,6 @@ describe("IrcBot against a fake server", () => {
     expect(received).toContain("PONG :abc123");
     expect(events).toEqual(["names #c BettyBot,Anna", "msg #c Anna BettyBot: help"]);
     const sent = received.filter((l) => l.startsWith("PRIVMSG"));
-    expect(sent).toEqual(["PRIVMSG #c :one", "PRIVMSG #c :two"]);
+    expect(sent).toEqual(["PRIVMSG #c :# Appears as Anna", "PRIVMSG #c :one", "PRIVMSG #c :two"]);
   });
 });

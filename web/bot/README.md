@@ -32,7 +32,7 @@ It marks itself with the `+B` bot mode and answers CTCP VERSION.
 cd web
 BOT_CHANNELS="#webcomicchat" \
 BOT_SCHEDULE="Chat nights are Fridays at 8pm ET." \
-npx tsx bot/index.ts
+npm run bot:dev
 ```
 
 | Variable | Default | |
@@ -41,6 +41,8 @@ npx tsx bot/index.ts
 | `BOT_NICK` | `BettyBot` | |
 | `BOT_CHANNELS` | `#webcomicchat` | Comma-separated |
 | `BOT_ACCOUNT` / `BOT_PASSWORD` | — | NickServ account, used with SASL |
+| `BOT_AVATAR` | `Anna` | Official or custom Comic Chat character name |
+| `BOT_AVATAR_URL` | — | HTTPS URL for a hosted custom `.avb` |
 | `SITE_URL` | `https://webcomicchat.com` | |
 | `BOT_SCHEDULE` | — | e.g. `Chat nights are Fridays at 8pm ET.` |
 | `BOT_IGNORE` | — | Other bots' nicks, comma-separated |
@@ -57,8 +59,9 @@ and its WHOIS name points to the site.
 
 It needs a machine that stays on. Your cPanel host will stop idle Node apps,
 so it's not a good home. Put it on the same small VPS as your own IRC server
-when you set that up. A systemd unit is in `bettybot.service`: copy the repo
-to `/opt/webcomicchat`, put secrets in `/etc/webcomicchat/bot.env`, then:
+when you set that up. Run `npm ci && npm run build` in `web/` first. A systemd
+unit is in `bettybot.service`: copy the repo to `/opt/webcomicchat`, put
+secrets in `/etc/webcomicchat/bot.env`, then:
 
 ```sh
 sudo cp web/bot/bettybot.service /etc/systemd/system/
@@ -69,9 +72,9 @@ journalctl -u bettybot -f   # watch what it says
 It reconnects on its own (5 s, 10 s, 20 s… up to 5 minutes), so network
 blips and server restarts need no attention.
 
-## Later: appearing as a Comic Chat character
+## Appearing as a Comic Chat character
 
-The 1998 client announced its character with a channel line
-`# Appears as <Name>.<url>`. The web client doesn't recognise that line yet,
-so it would draw it as a speech balloon. Once the web client hides and uses
-it, the bot can announce a character too; that's a small change here.
+After joining, the bot announces `# Appears as <Name>.<url>` using the original
+1998 convention. The web client consumes that line instead of drawing it as a
+speech balloon. The default `Anna` needs no URL; set both avatar variables once
+the approved custom-art host is available.
