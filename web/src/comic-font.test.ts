@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   COMIC_FONT_FAMILY,
+  COMIC_SANS_MS_FONT_FAMILY,
   comicFontOption,
   loadComicFonts,
   parseComicFontId,
@@ -26,7 +27,9 @@ describe("comic font loading", () => {
 
   it("accepts known preferences and safely defaults unknown stored values", () => {
     expect(parseComicFontId("verdana")).toBe("verdana");
-    expect(parseComicFontId("wingdings")).toBe("comic-neue");
+    expect(parseComicFontId("comic-sans-ms")).toBe("comic-sans-ms");
+    expect(parseComicFontId("wingdings")).toBe("comic-sans-ms");
+    expect(COMIC_SANS_MS_FONT_FAMILY.startsWith('"Comic Sans MS"')).toBe(true);
     expect(comicFontOption("georgia")).toMatchObject({ label: "Georgia", comicMetrics: false });
   });
 });

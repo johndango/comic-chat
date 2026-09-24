@@ -87,6 +87,11 @@ balloon-free reaction shot. F1 adds local expression tips. The original
 creators' credits sequence remains hidden behind the same input phrase and
 Ctrl+Shift Favorites gesture used by the 1998 source.
 
+WebComicChat is crafted using
+[Microsoft's open-source Comic Chat release](https://opensource.microsoft.com/blog/2026/07/16/microsoft-comic-chat-is-now-open-source/)
+with support from other online communities. Project questions and offers of
+help can be sent to [admin@webcomicchat.com](mailto:admin@webcomicchat.com).
+
 Browsers cannot open raw IRC sockets, so `server/` provides a same-origin
 WebSocket-to-IRC bridge. It connects with verified TLS to one of two preset
 public networks, handles IRC registration, retrieves a searchable public-room
@@ -182,10 +187,12 @@ screen, then set `NODE_ENV=production` and
 confirming that cPanel's front end appends the visitor address once. Restart the
 application after each upload or environment change.
 
-The comic view includes a persistent balloon-font selector. Comic Neue remains
-the default, with Arial, Verdana, Trebuchet MS, Georgia, and Courier New as
-system-font alternatives. Changing it remeasures and reflows the whole strip,
-and saved PNG comics use the selected face.
+The comic view includes a persistent balloon-font selector. Comic Sans MS—the
+font used by the original client—is the default when it is installed, with
+bundled Comic Neue as its cross-platform fallback and as a separate explicit
+choice. Arial, Verdana, Trebuchet MS, Georgia, and Courier New are also
+available. Changing the selection remeasures and reflows the whole strip, and
+saved PNG comics use the selected face.
 
 ## Gateway safety boundary
 

@@ -1,8 +1,10 @@
-/** Keep canvas measurement and drawing on the same bundled face everywhere. */
+/** Bundled cross-platform fallback used when the original Microsoft font is absent. */
 export const COMIC_FONT_FAMILY = '"Comic Neue", "Comic Sans MS", Arial, sans-serif';
+export const COMIC_SANS_MS_FONT_FAMILY = '"Comic Sans MS", "Comic Sans", "Comic Neue", Arial, sans-serif';
 
 export const COMIC_FONT_OPTIONS = [
-  { id: "comic-neue", label: "Comic Neue (classic)", family: COMIC_FONT_FAMILY, comicMetrics: true },
+  { id: "comic-sans-ms", label: "Comic Sans MS (original)", family: COMIC_SANS_MS_FONT_FAMILY, comicMetrics: true },
+  { id: "comic-neue", label: "Comic Neue (bundled)", family: COMIC_FONT_FAMILY, comicMetrics: true },
   { id: "arial", label: "Arial", family: "Arial, Helvetica, sans-serif", comicMetrics: false },
   { id: "verdana", label: "Verdana", family: "Verdana, Geneva, sans-serif", comicMetrics: false },
   { id: "trebuchet", label: "Trebuchet MS", family: '"Trebuchet MS", Arial, sans-serif', comicMetrics: false },
@@ -13,7 +15,7 @@ export const COMIC_FONT_OPTIONS = [
 export type ComicFontId = typeof COMIC_FONT_OPTIONS[number]["id"];
 
 export function parseComicFontId(value: unknown): ComicFontId {
-  return COMIC_FONT_OPTIONS.some((option) => option.id === value) ? value as ComicFontId : "comic-neue";
+  return COMIC_FONT_OPTIONS.some((option) => option.id === value) ? value as ComicFontId : "comic-sans-ms";
 }
 
 export function comicFontOption(id: ComicFontId): typeof COMIC_FONT_OPTIONS[number] {

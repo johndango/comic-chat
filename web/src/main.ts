@@ -290,6 +290,7 @@ app.innerHTML = `
         <button type="button" data-command="comic-tips">Comic tips (F1)</button>
         <hr />
         <button type="button" data-command="about">About WebComicChat…</button>
+        <a href="mailto:admin@webcomicchat.com">Email WebComicChat…</a>
         <a href="https://github.com/johndango/comic-chat" target="_blank" rel="noreferrer">Project source ↗</a>
       </div></details>
     </nav>
@@ -407,7 +408,13 @@ app.innerHTML = `
         <header><strong id="about-title">About WebComicChat</strong><button value="cancel" aria-label="Close">×</button></header>
         <div class="dialog-body about-body">
           <img class="about-icon" src="${classicAppIconUrl}" alt="" />
-          <div><strong>WebComicChat</strong><p>An independent, community-built revival of the classic Comic Chat experience for modern browsers.</p><p>Not affiliated with or endorsed by Microsoft.</p></div>
+          <div>
+            <strong>WebComicChat</strong>
+            <p>An independent, community-built revival of the classic Comic Chat experience for modern browsers.</p>
+            <p>Crafted using <a href="https://opensource.microsoft.com/blog/2026/07/16/microsoft-comic-chat-is-now-open-source/" target="_blank" rel="noopener noreferrer">Microsoft's open-source Comic Chat release</a>, with support from other great online communities.</p>
+            <p>Questions, ideas, or help: <a href="mailto:admin@webcomicchat.com">admin@webcomicchat.com</a></p>
+            <p>Not affiliated with or endorsed by Microsoft.</p>
+          </div>
         </div>
         <footer><a href="https://github.com/johndango/comic-chat" target="_blank" rel="noreferrer">View project source</a><button value="cancel">OK</button></footer>
       </form>
@@ -570,7 +577,7 @@ let liveState: LiveState = "offline";
 let joinedChannel = "";
 let roomDirectoryLoaded = false;
 let panelsAcross: PanelsAcross = "auto";
-let comicFontId: ComicFontId = "comic-neue";
+let comicFontId: ComicFontId = "comic-sans-ms";
 let remoteQueue = Promise.resolve();
 const pendingLiveLines: PendingLiveLine[] = [];
 const publicRooms = new Map<string, LiveRoomEvent>();
@@ -1562,7 +1569,7 @@ async function renderStrip(): Promise<void> {
   }
 
   const fontChoice = comicFontOption(comicFontId);
-  if (fontChoice.id === "comic-neue") await comicFontsReady;
+  if (fontChoice.comicMetrics) await comicFontsReady;
   const measureContext = document.createElement("canvas").getContext("2d");
   if (!measureContext) throw new Error("Canvas is unavailable");
   const fonts = {
