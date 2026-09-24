@@ -269,14 +269,14 @@ describe("IrcBot operator tracking", () => {
   });
 });
 
-describe("gremlin persona (CapsLockBot)", () => {
-  const gremlinConfig = { ...config, nick: "CapsLockBot", character: "Kirby", persona: "gremlin" as const };
+describe("gremlin persona (n00bBot)", () => {
+  const gremlinConfig = { ...config, nick: "n00bBot", character: "Kirby", persona: "gremlin" as const };
   const MIN = 60_000;
 
   function gremlin(reply = "OMG MY 56K MODEM IS SO FAST LOL", random = () => 0) {
     const sent: string[] = [];
     const brain = new CamBrain(gremlinConfig, async (_s, c) => (sent.push(c), { text: reply, refused: false, costUsd: 0.001 }), () => {}, random);
-    brain.names("#c", ["@johndango", "Anna", "Dan", "BettyBot", "TongueTiedBot", "CapsLockBot"]);
+    brain.names("#c", ["@johndango", "Anna", "Dan", "BettyBot", "TongueTiedBot", "n00bBot"]);
     return { brain, sent };
   }
 
@@ -336,11 +336,11 @@ describe("gremlin persona (CapsLockBot)", () => {
 
   it("goes away for an hour when anyone asks", async () => {
     const { brain } = gremlin();
-    const bye = await brain.message("#c", "Anna", "CapsLockBot: go away", T0);
+    const bye = await brain.message("#c", "Anna", "n00bBot: go away", T0);
     expect(bye).toEqual(["[AI] FINE. brb in an hour :("]);
     await brain.message("#c", "Dan", "chatting", T0 + 30 * MIN);
     expect(await brain.interject("#c", T0 + 31 * MIN)).toEqual([]);
-    expect(await brain.message("#c", "Dan", "CapsLockBot: hi", T0 + 32 * MIN)).toEqual([]);
+    expect(await brain.message("#c", "Dan", "n00bBot: hi", T0 + 32 * MIN)).toEqual([]);
     await brain.message("#c", "Dan", "chatting", T0 + 61 * MIN);
     expect(await brain.interject("#c", T0 + 62 * MIN)).toHaveLength(1);
   });
@@ -353,5 +353,20 @@ describe("gremlin persona (CapsLockBot)", () => {
     expect(await brain.interject("#c", T0 + MIN)).toEqual([]);
     expect(sent).toHaveLength(0);
   });
-});
 
+  it("does not apply the gremlin's public mute command to the friendly bot", async () => {
+    const { say, sent } = setup();
+    expect((await say("Anna", "CamBot: stop")).some((line) => /FINE|quiet for an hour/.test(line))).toBe(false);
+    expect(sent).toHaveLength(1);
+    expect((await say("Anna", "CamBot: hello again")).length).toBeGreaterThan(0);
+  });
+
+  it("does not interject from activity remembered across a disconnect", async () => {
+    const { brain, sent } = gremlin();
+    await brain.message("#c", "Anna", "chatting", T0);
+    brain.disconnected();
+    brain.names("#c", ["@johndango", "Anna", "n00bBot"]);
+    expect(await brain.interject("#c", T0 + MIN)).toEqual([]);
+    expect(sent).toHaveLength(0);
+  });
+});

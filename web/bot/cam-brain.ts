@@ -152,6 +152,9 @@ export class CamBrain {
   disconnected(): void {
     this.members.clear();
     this.operators.clear();
+    // Do not treat chat from before a network break as current activity when
+    // deciding whether the gremlin may speak on its own after reconnecting.
+    this.lastHumanLine.clear();
   }
 
   operator(channel: string, nick: string, isOperator: boolean): void {
@@ -236,11 +239,12 @@ export class CamBrain {
     }
     if (this.asleep.has(fold(channel))) return [];
 
-    // Anyone can send the gremlin away for an hour.
-    if (/^(go away|shut up|stop|be quiet)[.!]*$/i.test(request)) {
+    // Anyone can send the gremlin away for an hour. Keep this persona-specific
+    // so an ordinary "TongueTiedBot: stop" remains a normal conversation.
+    if (this.config.persona === "gremlin" && /^(go away|shut up|stop|be quiet)[.!]*$/i.test(request)) {
       this.mutedUntil.set(fold(channel), at + MUTE_FOR);
       this.log(`muted in ${channel} by ${nick} for an hour`);
-      return this.mark([this.config.persona === "gremlin" ? "FINE. brb in an hour :(" : "Okay, I'll be quiet for an hour."]);
+      return this.mark(["FINE. brb in an hour :("]);
     }
     if ((this.mutedUntil.get(fold(channel)) ?? 0) > at) return [];
 
