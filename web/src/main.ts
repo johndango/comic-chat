@@ -40,6 +40,7 @@ import {
   roomSelectionFromUrl,
 } from "./room-link";
 import { stripExportGrid } from "./strip-export";
+import { visibleComicLines } from "./comic-filter";
 import { blockedLinkMessage, blockedMessageLink, displayMessageLinks } from "./message-links";
 import {
   COMIC_FONT_OPTIONS,
@@ -257,6 +258,8 @@ app.innerHTML = `
       </div></details>
       <details><summary><u>V</u>iew</summary><div class="classic-menu-popup">
         <button type="button" data-command="browse-channels">Browse channels…</button>
+        <hr />
+        <button type="button" role="menuitemcheckbox" data-command="hide-bettybot">Hide BettyBot from comic &amp; saved PNGs</button>
         <hr />
         <button type="button" data-command="auto-panels">Automatic panel wrapping</button>
         <button type="button" data-command="reset-zoom">Reset zoom to 100%</button>
@@ -581,6 +584,7 @@ let joinedChannel = "";
 let roomDirectoryLoaded = false;
 let panelsAcross: PanelsAcross = "auto";
 let comicFontId: ComicFontId = "comic-sans-ms";
+let hideBettyBot = false;
 let remoteQueue = Promise.resolve();
 const pendingLiveLines: PendingLiveLine[] = [];
 const publicRooms = new Map<string, LiveRoomEvent>();
@@ -1480,7 +1484,7 @@ function updateControls(): void {
       : "Add to comic";
   undoButton.disabled = conversation.length === 0 || isAdding;
   clearButton.disabled = conversation.length === 0 || isAdding;
-  downloadButton.disabled = conversation.length === 0 || isAdding;
+  downloadButton.disabled = panelCanvases.length === 0 || isAdding;
   const room = normalizeRoomSelection(networkSelect.value, channelInput.value);
   const busy = liveState === "connecting" || liveState === "joining";
   const alreadyJoined = liveState === "joined"
@@ -1518,6 +1522,7 @@ function updateControls(): void {
     if (command.startsWith("mode-")) {
       button.setAttribute("aria-checked", String(command.slice(5) === messageMode.value));
     }
+    if (command === "hide-bettybot") button.setAttribute("aria-checked", String(hideBettyBot));
   }
 }
 
@@ -1577,8 +1582,11 @@ async function renderStrip(): Promise<void> {
   const generation = ++renderGeneration;
   const nextCanvases: HTMLCanvasElement[] = [];
   const fragment = document.createDocumentFragment();
+  const renderedConversation = visibleComicLines(conversation, hideBettyBot);
+  panelCanvases = [];
+  updateControls();
 
-  if (conversation.length === 0) {
+  if (renderedConversation.length === 0) {
     const empty = document.createElement("div");
     empty.className = "empty-strip";
     empty.innerHTML = `<span>01</span><strong>Your next line starts the strip.</strong><p>Comic Chat will choose the pose and lay out the panel.</p>`;
@@ -1600,7 +1608,7 @@ async function renderStrip(): Promise<void> {
     whisper: balloonFontMetrics(canvasMeasurer(measureContext, { italic: true, fontFamily: fontChoice.family }), { comicSans: fontChoice.comicMetrics }),
   };
   const castFiles = new Map<string, string>();
-  for (const line of conversation) castFiles.set(line.characterName, line.characterFile);
+  for (const line of renderedConversation) castFiles.set(line.characterName, line.characterFile);
   const images = new Map<string, HTMLCanvasElement>();
   const icons = new Map<string, HTMLCanvasElement>();
   const neutral = new Map<string, { pose: { width: number; height: number; faceX: number }; poseRef: string }>();
@@ -1614,7 +1622,7 @@ async function renderStrip(): Promise<void> {
     const icon = await avatarIcon(avatar);
     if (icon) icons.set(name, icon);
   }));
-  for (const line of conversation) {
+  for (const line of renderedConversation) {
     const avatar = await loadAvatar(line.characterFile);
     const image = cacheBody(avatar, line.body);
     images.set(line.poseRef, image);
@@ -1630,7 +1638,7 @@ async function renderStrip(): Promise<void> {
     neutralPose: (speaker) => neutral.get(speaker),
   });
   const title = page.chooseTitle();
-  for (const line of conversation) {
+  for (const line of renderedConversation) {
     currentTalkTo.set(line.characterName, line.talkTo);
     const image = images.get(line.poseRef)!;
     const comicLine: ComicLine = {
@@ -1649,7 +1657,7 @@ async function renderStrip(): Promise<void> {
   const uniqueCast = [...castFiles].map(([id, file], index) => ({
     id,
     nickname: id,
-    sends: conversation.filter((line) => line.characterName === id && !line.reaction).length,
+    sends: renderedConversation.filter((line) => line.characterName === id && !line.reaction).length,
     self: index === 0,
     file,
   }));
@@ -1683,7 +1691,7 @@ async function renderStrip(): Promise<void> {
   strip.replaceChildren(fragment);
   panelCanvases = nextCanvases;
   const count = page.layouts.length + 1;
-  stripCount.textContent = `${count} ${count === 1 ? "panel" : "panels"} · ${conversation.length} ${conversation.length === 1 ? "line" : "lines"}`;
+  stripCount.textContent = `${count} ${count === 1 ? "panel" : "panels"} · ${renderedConversation.length} ${renderedConversation.length === 1 ? "line" : "lines"}`;
   updateControls();
 }
 
@@ -2136,6 +2144,18 @@ function runMenuCommand(command: string): void {
       panelSizeInput.value = "100";
       updatePanelView();
       break;
+    case "hide-bettybot":
+      hideBettyBot = !hideBettyBot;
+      try {
+        localStorage.setItem("comic-chat-hide-bettybot", hideBettyBot ? "1" : "0");
+      } catch {}
+      updateControls();
+      void renderStrip().then(() => {
+        setStatus(hideBettyBot
+          ? "BettyBot is hidden from the comic and saved PNGs. Her messages are still in chat history."
+          : "BettyBot is visible in the comic and saved PNGs.");
+      }).catch(showError);
+      break;
     case "mode-say":
     case "mode-think":
     case "mode-whisper":
@@ -2373,6 +2393,7 @@ try {
   panelsAcrossSelect.value = String(parsePanelsAcross(localStorage.getItem("comic-chat-panels-across")));
   panelSizeInput.value = String(parsePanelZoom(localStorage.getItem("comic-chat-panel-size")));
   comicFontId = parseComicFontId(localStorage.getItem("comic-chat-balloon-font"));
+  hideBettyBot = localStorage.getItem("comic-chat-hide-bettybot") === "1";
 } catch {}
 try {
   setCharacterPaneLarge(localStorage.getItem("comic-chat-character-pane-large") === "1", false, false);

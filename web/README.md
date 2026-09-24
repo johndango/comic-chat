@@ -45,6 +45,11 @@ their comic, and the sender sees the local copy; uninvolved channel members
 receive nothing. The gateway rejects recipients who are not currently in the
 room and ignores incoming private messages from outsiders.
 
+The remembered **View → Hide BettyBot from comic & saved PNGs** option removes
+the room's help bot from the title cast and rendered panels without deleting
+her messages. The on-screen comic remains an exact preview of the exported PNG,
+and turning the option off restores BettyBot immediately.
+
 **Avatars…** opens local display controls for room members. Official-only mode
 is enabled by default, original `# Appears as …` character announcements are
 recognized, and any member can be forced to a particular bundled or Art Pack
