@@ -1,6 +1,11 @@
 # Character files: reading, writing and building
 
-Two modules in `web/src` make Comic Chat art editable. They are the base for
+The display decoder reads both the version 2 compressed-DIB files shipped in
+the repository and version 1 files with embedded BMP images, including the 21
+color replacements bundled in `colorreplace21/`. The editable document and
+builder path remains version 2 only.
+
+Two modules in `web/src` make Comic Chat version 2 art editable. They are the base for
 a character builder and for user uploads. `avb.ts` is still what the site
 uses to display art; these modules sit beside it.
 
@@ -94,5 +99,13 @@ announcements, defaults to official-only display, and supports persistent
 per-member mappings to official characters. If official-only is disabled, a
 remote custom avatar may load only from the same HTTPS webcomicchat.com origin
 and only after full validation. Arbitrary third-party art hosts remain blocked.
+It also has black-and-white, color, and no-preference display modes. The 21
+known edition pairs swap automatically for announcements, automatic choices,
+the current user's selection, and existing comic lines. Explicit per-member
+mappings intentionally stay exact and take priority over the global preference.
+The replacement files are from
+[The Unofficial MS Chat Add-On Site](https://www.phoenix-online-nexus.com/Nexus_21/index.htm#instructionsavb),
+whose instructions identify the `_C` editions as companions to the original
+black-and-white files.
 The monochrome decoder and writer both use the original white-aura and
 black/white figure semantics.

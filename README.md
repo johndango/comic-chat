@@ -46,12 +46,17 @@ The application connects to standard IRC servers and is fully interoperable with
 ## Web prototype
 
 The [`web/`](web/) experiment is a web-based first slice of a modern client.
-It decodes the repository's original `.avb` avatars and `.bgb` backdrops, ports
+It decodes the repository's original `.avb` avatars and `.bgb` backdrops, plus
+21 restored color editions in the older Comic Chat 2.1 format, ports
 the original text-expression rules, composes multi-panel conversation strips on
 Canvas, exports them as PNG files, and renders public IRC channels through a
 local TLS WebSocket gateway. Safe room links can prefill a network and channel
 without sharing a nickname or joining automatically. Its production home is
 [`webcomicchat.com`](https://webcomicchat.com).
+Users can prefer black-and-white or color art globally; matching editions swap
+automatically, while an explicit per-member avatar assignment remains exact.
+The color replacements are credited to
+[The Unofficial MS Chat Add-On Site](https://www.phoenix-online-nexus.com/Nexus_21/index.htm#instructionsavb).
 See the [web prototype README](web/README.md) for local run instructions.
 
 ## Download Comic Chat

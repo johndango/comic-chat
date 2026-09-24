@@ -1,5 +1,8 @@
+export type AvatarArtPreference = "none" | "monochrome" | "color";
+
 export interface AvatarDisplayPolicy {
   officialOnly: boolean;
+  artPreference: AvatarArtPreference;
   forced: Record<string, string>;
 }
 
@@ -10,8 +13,14 @@ export interface AvatarAnnouncement {
 
 export const DEFAULT_AVATAR_DISPLAY_POLICY: AvatarDisplayPolicy = {
   officialOnly: true,
+  artPreference: "none",
   forced: {},
 };
+
+export interface AvatarEditionPair {
+  monochrome: string;
+  color: string;
+}
 
 export function ircNicknameKey(nickname: string): string {
   return nickname.trim().toLocaleLowerCase().replaceAll("[", "{").replaceAll("]", "}").replaceAll("\\", "|").replaceAll("^", "~");
@@ -24,7 +33,7 @@ export function avatarRuleKey(network: string, nickname: string): string {
 export function parseAvatarDisplayPolicy(raw: string | null, officialFiles: ReadonlySet<string>): AvatarDisplayPolicy {
   if (!raw) return { ...DEFAULT_AVATAR_DISPLAY_POLICY, forced: {} };
   try {
-    const value = JSON.parse(raw) as { officialOnly?: unknown; forced?: unknown };
+    const value = JSON.parse(raw) as { officialOnly?: unknown; artPreference?: unknown; forced?: unknown };
     const forced: Record<string, string> = {};
     if (value.forced && typeof value.forced === "object" && !Array.isArray(value.forced)) {
       for (const [key, file] of Object.entries(value.forced).slice(0, 256)) {
@@ -33,11 +42,22 @@ export function parseAvatarDisplayPolicy(raw: string | null, officialFiles: Read
     }
     return {
       officialOnly: typeof value.officialOnly === "boolean" ? value.officialOnly : true,
+      artPreference: value.artPreference === "monochrome" || value.artPreference === "color" ? value.artPreference : "none",
       forced,
     };
   } catch {
     return { ...DEFAULT_AVATAR_DISPLAY_POLICY, forced: {} };
   }
+}
+
+export function preferAvatarEdition(
+  file: string,
+  preference: AvatarArtPreference,
+  editions?: ReadonlyMap<string, AvatarEditionPair>,
+): string {
+  if (preference === "none" || !editions) return file;
+  const pair = editions.get(file);
+  return pair?.[preference] ?? file;
 }
 
 export function parseAvatarAnnouncement(message: string): AvatarAnnouncement | undefined {
@@ -54,10 +74,14 @@ export function resolveAvatarFile(options: {
   announcedOfficialFile?: string;
   announcedCustomFile?: string;
   officialOnly?: boolean;
+  artPreference?: AvatarArtPreference;
+  editions?: ReadonlyMap<string, AvatarEditionPair>;
   fallbackFile: string;
 }): string {
-  return options.forced[avatarRuleKey(options.network, options.nickname)]
-    ?? options.announcedOfficialFile
+  const forced = options.forced[avatarRuleKey(options.network, options.nickname)];
+  if (forced) return forced;
+  const selected = options.announcedOfficialFile
     ?? (options.officialOnly ? undefined : options.announcedCustomFile)
     ?? options.fallbackFile;
+  return preferAvatarEdition(selected, options.artPreference ?? "none", options.editions);
 }

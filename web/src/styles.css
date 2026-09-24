@@ -194,6 +194,10 @@ button:disabled { color: #808080; text-shadow: 1px 1px #fff; cursor: not-allowed
 .dialog-body > p { margin: 5px 0 12px; color: #333; }
 .official-only { display: flex; align-items: center; gap: 7px; font-weight: 700; }
 .official-only input { width: 15px; height: 15px; padding: 0; outline: 0; }
+.avatar-art-preference { margin: 10px 0 5px; padding: 8px 9px 9px; display: flex; flex-wrap: wrap; gap: 7px 18px; border: 1px solid #808080; }
+.avatar-art-preference legend { padding: 0 4px; font-weight: 700; }
+.avatar-art-preference label { display: flex; align-items: center; gap: 5px; white-space: nowrap; }
+.avatar-art-preference input { width: 14px; height: 14px; margin: 0; padding: 0; outline: 0; }
 .avatar-rule-columns, .avatar-rule-list { display: grid; grid-template-columns: minmax(110px, 1fr) minmax(190px, 1.5fr); gap: 5px 9px; align-items: center; }
 .avatar-rule-columns { padding: 4px 5px; border: 1px solid #808080; background: #ddd; }
 .avatar-rule-list { max-height: 330px; padding: 5px; overflow: auto; border-top: 2px solid #404040; border-left: 2px solid #404040; border-right: 2px solid #fff; border-bottom: 2px solid #fff; background: #fff; }

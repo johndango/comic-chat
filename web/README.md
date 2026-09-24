@@ -2,7 +2,8 @@
 
 This is a web-based Comic Chat client with a desktop modeled after the original
 Microsoft Comic Chat 2.5 interface. It decodes all 35 bundled version 2 `.avb`
-character files—including the alternate Art Pack editions—and all nine `.bgb`
+characters—including the alternate Art Pack editions—plus 21 version 1 color
+replacements and all nine `.bgb`
 backdrops directly, builds a multi-panel conversation strip on Canvas, exports
 the result as a PNG, and can render a live IRC channel through a small local
 gateway.
@@ -34,7 +35,12 @@ as an addressee hint.
 is enabled by default, original `# Appears as …` character announcements are
 recognized, and any member can be forced to a particular bundled or Art Pack
 character. Forced mappings are saved per IRC network and nickname and take
-precedence over announcements and automatic assignment. Users can import a
+precedence over announcements and automatic assignment. A global display
+preference can automatically swap 21 paired characters between their classic
+black-and-white and color editions; forced mappings intentionally remain exact.
+The color files come from
+[The Unofficial MS Chat Add-On Site](https://www.phoenix-online-nexus.com/Nexus_21/index.htm#instructionsavb).
+Users can import a
 custom `.avb` for their own character without uploading it; the file is fully
 validated, stays in the current browser tab, and is clearly marked as local.
 The built-in **Create…** dialog can also turn up to 16 PNG, WebP or JPEG pose

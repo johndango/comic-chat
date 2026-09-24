@@ -7,9 +7,12 @@ import {
   avatarRuleKey,
   parseAvatarAnnouncement,
   parseAvatarDisplayPolicy,
+  preferAvatarEdition,
   resolveAvatarFile,
   type AvatarAnnouncement,
+  type AvatarArtPreference,
   type AvatarDisplayPolicy,
+  type AvatarEditionPair,
 } from "./avatar-policy";
 import { fetchAvatarFile, sameOriginAvatarUrl, validateAvatarImport } from "./avatar-import";
 import {
@@ -30,7 +33,9 @@ import { layoutTitlePanel } from "./layout/title";
 import { panelDisplaySize, parsePanelsAcross, parsePanelZoom, type PanelsAcross } from "./panel-view";
 import { createRoomUrl, normalizeRoomSelection, roomSelectionFromUrl } from "./room-link";
 
-interface ArtChoice { file: string; label: string }
+interface ArtChoice { file: string; label: string; announcementName?: string }
+
+const COLOR_REPLACEMENT_CREDIT_URL = "https://www.phoenix-online-nexus.com/Nexus_21/index.htm#instructionsavb";
 
 const artPackAssets = import.meta.glob("../../v2.5-beta-1-modern/artpack1/*.{avb,bgb}", {
   eager: true,
@@ -43,7 +48,18 @@ const artPack = (file: string): string => {
   return asset;
 };
 
-const characters: ArtChoice[] = [
+const colorReplacementAssets = import.meta.glob("../../colorreplace21/*.AVB", {
+  eager: true,
+  query: "?url",
+  import: "default",
+}) as Record<string, string>;
+const colorReplacement = (file: string): string => {
+  const asset = colorReplacementAssets[`../../colorreplace21/${file}`];
+  if (!asset) throw new Error(`Missing color replacement asset: ${file}`);
+  return asset;
+};
+
+const monochromeCharacters: ArtChoice[] = [
   { file: "anna.avb", label: "Anna" },
   { file: "armando.avb", label: "Armando" },
   { file: "bolo.avb", label: "Bolo" },
@@ -80,11 +96,57 @@ const characters: ArtChoice[] = [
   { file: artPack("denise.avb"), label: "Denise — Art Pack edition" },
   { file: artPack("lynnea.avb"), label: "Lynnea — Art Pack edition" },
 ];
+const colorReplacementDefinitions = [
+  { name: "Anna", source: "ANNA_C.AVB", monochrome: "anna.avb" },
+  { name: "Armando", source: "ARMANDO_C.AVB", monochrome: "armando.avb" },
+  { name: "Bolo", source: "BOLO_C.AVB", monochrome: "bolo.avb" },
+  { name: "Cro", source: "CRO_C.AVB", monochrome: "cro.avb" },
+  { name: "Dan", source: "DAN_C.AVB", monochrome: "dan.avb" },
+  { name: "Denise", source: "DENISE_C.AVB", monochrome: "denise.avb" },
+  { name: "Hugh", source: "HUGH_C.AVB", monochrome: "hugh.avb" },
+  { name: "Jordan", source: "JORDAN_C.AVB", monochrome: "jordan.avb" },
+  { name: "Kevin", source: "KEVIN_C.AVB", monochrome: artPack("kevin.avb") },
+  { name: "Lance", source: "LANCE_C.AVB", monochrome: "lance.avb" },
+  { name: "Lynnea", source: "LYNNEA_C.AVB", monochrome: "lynnea.avb" },
+  { name: "Margaret", source: "MARGARET_C.AVB", monochrome: "margaret.avb" },
+  { name: "Maynard", source: "MAYNARD_C.AVB", monochrome: artPack("maynard.avb") },
+  { name: "Mike", source: "MIKE_C.AVB", monochrome: "mike.avb" },
+  { name: "Rebecca", source: "REBECCA_C.AVB", monochrome: artPack("rebecca.avb") },
+  { name: "Sage", source: "SAGE_C.AVB", monochrome: artPack("sage.avb") },
+  { name: "Scotty", source: "SCOTTY_C.AVB", monochrome: artPack("scotty.avb") },
+  { name: "Susan", source: "SUSAN_C.AVB", monochrome: "susan.avb" },
+  { name: "Tiki", source: "TIKI_C.AVB", monochrome: "tiki.avb" },
+  { name: "Tongue-Tied", source: "TONGTYED_C.AVB", monochrome: "tongtyed.avb" },
+  { name: "Xeno", source: "XENO_C.AVB", monochrome: "xeno.avb" },
+] as const;
+const colorCharacters: ArtChoice[] = colorReplacementDefinitions.map(({ name, source }) => ({
+  file: colorReplacement(source),
+  label: `${name} — Color edition`,
+  announcementName: source.replace(/\.AVB$/u, ""),
+}));
+const characters: ArtChoice[] = [...monochromeCharacters, ...colorCharacters];
+const characterOptionMarkup = `
+  <optgroup label="Classic &amp; Art Pack">
+    ${monochromeCharacters.map(({ file, label }) => `<option value="${file}">${label}</option>`).join("")}
+  </optgroup>
+  <optgroup label="Color replacements">
+    ${colorCharacters.map(({ file, label }) => `<option value="${file}">${label}</option>`).join("")}
+  </optgroup>`;
+const avatarEditions = new Map<string, AvatarEditionPair>();
+for (const definition of colorReplacementDefinitions) {
+  const color = colorReplacement(definition.source);
+  const pair = { monochrome: definition.monochrome, color };
+  avatarEditions.set(pair.monochrome, pair);
+  avatarEditions.set(pair.color, pair);
+}
 const officialCharacterFiles = new Set(characters.map(({ file }) => file));
 const officialCharacterByName = new Map<string, string>();
 for (const { file, label } of characters) {
   const name = label.split(" —")[0].toLocaleLowerCase();
   if (!officialCharacterByName.has(name)) officialCharacterByName.set(name, file);
+}
+for (const definition of colorReplacementDefinitions) {
+  officialCharacterByName.set(definition.source.replace(/\.AVB$/u, "").toLocaleLowerCase(), colorReplacement(definition.source));
 }
 
 const backdrops: ArtChoice[] = [
@@ -199,7 +261,7 @@ app.innerHTML = `
             <header>Your character</header>
             <canvas id="character-preview" class="character-figure" width="200" height="108" aria-label="Selected Comic Chat character"></canvas>
             <label for="character">Character</label>
-            <select id="character">${characters.map(({ file, label }) => `<option value="${file}">${label}</option>`).join("")}</select>
+            <select id="character">${characterOptionMarkup}</select>
             <div class="character-actions">
               <button id="import-avatar" type="button">Import .avb…</button>
               <button id="create-avatar" type="button">Create…</button>
@@ -236,7 +298,7 @@ app.innerHTML = `
       </section>
       <footer class="classic-statusbar">
         <p id="status" class="status" role="status">Loading original art…</p>
-        <span>Original Comic Chat 2.5 art and expression rules · <a href="${comicNeueLicenseUrl}" target="_blank" rel="noreferrer">font notice</a></span>
+        <span>Original Comic Chat art and expression rules · <a href="${COLOR_REPLACEMENT_CREDIT_URL}" target="_blank" rel="noreferrer">color editions credit</a> · <a href="${comicNeueLicenseUrl}" target="_blank" rel="noreferrer">font notice</a></span>
       </footer>
     </main>
     <dialog id="avatar-rules-dialog" class="classic-dialog" aria-labelledby="avatar-rules-title">
@@ -245,6 +307,13 @@ app.innerHTML = `
         <div class="dialog-body">
           <label class="official-only"><input id="official-avatars-only" type="checkbox" /> Show only official Comic Chat avatars</label>
           <p>Room-provided custom art is ignored when this is checked. When off, only validated avatars hosted on webcomicchat.com can load. A forced character always wins.</p>
+          <fieldset class="avatar-art-preference">
+            <legend>Preferred character art</legend>
+            <label><input type="radio" name="avatar-art-preference" value="none" /> No preference</label>
+            <label><input type="radio" name="avatar-art-preference" value="monochrome" /> Black &amp; white</label>
+            <label><input type="radio" name="avatar-art-preference" value="color" /> Color</label>
+          </fieldset>
+          <p>Matching black-and-white and color editions swap automatically. Explicit member mappings below are left exactly as chosen. Color replacements from <a href="${COLOR_REPLACEMENT_CREDIT_URL}" target="_blank" rel="noreferrer">The Unofficial MS Chat Add-On Site</a>.</p>
           <div class="avatar-rule-columns"><strong>Room member</strong><strong>Display as</strong></div>
           <div id="avatar-rule-list" class="avatar-rule-list"></div>
         </div>
@@ -318,6 +387,7 @@ const memberTargetSummary = element<HTMLElement>("#member-target-summary");
 const avatarRulesButton = element<HTMLButtonElement>("#avatar-rules-button");
 const avatarRulesDialog = element<HTMLDialogElement>("#avatar-rules-dialog");
 const officialAvatarsOnly = element<HTMLInputElement>("#official-avatars-only");
+const avatarArtPreferenceInputs = [...document.querySelectorAll<HTMLInputElement>('input[name="avatar-art-preference"]')];
 const avatarRuleList = element<HTMLElement>("#avatar-rule-list");
 const resetAvatarRulesButton = element<HTMLButtonElement>("#reset-avatar-rules");
 const roomTabLabel = element<HTMLElement>("#room-tab-label");
@@ -361,7 +431,7 @@ const publicRooms = new Map<string, LiveRoomEvent>();
 const knownMembers = new Set<string>();
 const selectedAddressees = new Set<string>();
 const announcedAvatars = new Map<string, AvatarAnnouncement>();
-let avatarDisplayPolicy: AvatarDisplayPolicy = { officialOnly: true, forced: {} };
+let avatarDisplayPolicy: AvatarDisplayPolicy = { officialOnly: true, artPreference: "none", forced: {} };
 let totalPublicRooms = 0;
 let currentWheelEmotion: WheelEmotion = { emotion: 0, intensity: 0 };
 let suppressWheelChange = false;
@@ -636,7 +706,7 @@ function addressedPeople(message: string, speaker: string, selected: readonly st
 }
 
 function displayCharacterName(avatar: AvatarFile, file: string): string {
-  const name = avatar.name || characters.find((choice) => choice.file === file)?.label.split(" —")[0] || "Character";
+  const name = characters.find((choice) => choice.file === file)?.label.split(" —")[0] || avatar.name || "Character";
   return name.toLocaleLowerCase().replace(/(^|[\s-])\p{L}/gu, (letter) => letter.toLocaleUpperCase());
 }
 
@@ -688,7 +758,7 @@ function automaticCharacterForNickname(nickname: string): string {
     hash ^= character.codePointAt(0) ?? 0;
     hash = Math.imul(hash, 16777619);
   }
-  return characters[Math.abs(hash) % characters.length].file;
+  return monochromeCharacters[Math.abs(hash) % monochromeCharacters.length].file;
 }
 
 function memberAvatarRuleKey(nickname: string): string {
@@ -702,7 +772,18 @@ function announcedOfficialFile(nickname: string): string | undefined {
 
 function selectedOfficialAvatarName(): string | undefined {
   const choice = characters.find(({ file }) => file === characterSelect.value);
-  return choice?.label.split(" —")[0];
+  return choice?.announcementName ?? choice?.label.split(" —")[0];
+}
+
+function preferredAvatarFile(file: string): string {
+  return preferAvatarEdition(file, avatarDisplayPolicy.artPreference, avatarEditions);
+}
+
+function applyPreferenceToSelectedCharacter(): boolean {
+  const preferred = preferredAvatarFile(characterSelect.value);
+  if (preferred === characterSelect.value) return false;
+  characterSelect.value = preferred;
+  return true;
 }
 
 function announceSelectedAvatar(): boolean {
@@ -728,6 +809,8 @@ function characterForNickname(nickname: string): string {
     announcedOfficialFile: announcedOfficialFile(nickname),
     announcedCustomFile: hosted && acceptedHostedAvatars.has(hosted) ? hosted : undefined,
     officialOnly: avatarDisplayPolicy.officialOnly,
+    artPreference: avatarDisplayPolicy.artPreference,
+    editions: avatarEditions,
     fallbackFile: automaticCharacterForNickname(nickname),
   });
 }
@@ -752,8 +835,22 @@ async function refreshMemberAvatars(nicknames?: ReadonlySet<string>): Promise<vo
   await renderStrip();
 }
 
+async function refreshAvatarArtPreference(): Promise<void> {
+  const generation = ++avatarRemapGeneration;
+  const replacements = await Promise.all(conversation.map(async (line) => {
+    const member = [...knownMembers].find((nickname) => nickname.toLocaleLowerCase() === line.characterName.toLocaleLowerCase());
+    const nextFile = member ? characterForNickname(member) : preferredAvatarFile(line.characterFile);
+    if (line.characterFile === nextFile) return line;
+    return createConversationLine(nextFile, line.message, line.characterName, line.mode, line.talkTo);
+  }));
+  if (generation !== avatarRemapGeneration) return;
+  conversation.splice(0, conversation.length, ...replacements);
+  await renderStrip();
+}
+
 function renderAvatarRules(): void {
   officialAvatarsOnly.checked = avatarDisplayPolicy.officialOnly;
+  for (const input of avatarArtPreferenceInputs) input.checked = input.value === avatarDisplayPolicy.artPreference;
   avatarRuleList.replaceChildren();
   const self = nicknameInput.value.trim().toLocaleLowerCase();
   const members = [...knownMembers]
@@ -773,7 +870,13 @@ function renderAvatarRules(): void {
     const select = document.createElement("select");
     select.setAttribute("aria-label", `Display ${nickname} as`);
     select.append(new Option("Automatic", ""));
-    for (const character of characters) select.append(new Option(character.label, character.file));
+    const classicGroup = document.createElement("optgroup");
+    classicGroup.label = "Classic & Art Pack";
+    for (const character of monochromeCharacters) classicGroup.append(new Option(character.label, character.file));
+    const colorGroup = document.createElement("optgroup");
+    colorGroup.label = "Color replacements";
+    for (const character of colorCharacters) colorGroup.append(new Option(character.label, character.file));
+    select.append(classicGroup, colorGroup);
     select.value = avatarDisplayPolicy.forced[memberAvatarRuleKey(nickname)] ?? "";
     select.addEventListener("change", () => {
       const key = memberAvatarRuleKey(nickname);
@@ -1328,11 +1431,15 @@ messageInput.addEventListener("keydown", (event) => {
 });
 backdropSelect.addEventListener("change", () => loadBackdrop().catch(showError));
 characterSelect.addEventListener("change", () => {
+  const swapped = applyPreferenceToSelectedCharacter();
   resetEmotionWheel();
   frozenPoses.delete(characterSelect.value);
   updateControls();
   void updateCharacterPreview().then(() => {
-    if (!liveClient.joined) return;
+    if (!liveClient.joined) {
+      if (swapped) setStatus(`Your ${avatarDisplayPolicy.artPreference === "color" ? "color" : "black-and-white"} preference selected the matching edition.`);
+      return;
+    }
     const announced = announceSelectedAvatar();
     setStatus(announced
       ? `You are now appearing as ${selectedOfficialAvatarName()}.`
@@ -1505,6 +1612,26 @@ officialAvatarsOnly.addEventListener("change", () => {
       : `Official-only mode is off. ${loaded} hosted custom ${loaded === 1 ? "avatar" : "avatars"} loaded${rejected ? `; ${rejected} rejected` : ""}.`);
   })().catch(showError);
 });
+for (const input of avatarArtPreferenceInputs) {
+  input.addEventListener("change", () => {
+    if (!input.checked) return;
+    avatarDisplayPolicy.artPreference = input.value as AvatarArtPreference;
+    saveAvatarDisplayPolicy();
+    const selfChanged = applyPreferenceToSelectedCharacter();
+    resetEmotionWheel();
+    renderMembers();
+    void (async () => {
+      await Promise.all([updateCharacterPreview(), refreshAvatarArtPreference()]);
+      if (selfChanged && liveClient.joined) announceSelectedAvatar();
+      const label = avatarDisplayPolicy.artPreference === "none"
+        ? "No art preference"
+        : avatarDisplayPolicy.artPreference === "color"
+          ? "Color preference"
+          : "Black-and-white preference";
+      setStatus(`${label} saved. Matching character editions have been updated; forced member mappings were preserved.`);
+    })().catch(showError);
+  });
+}
 resetAvatarRulesButton.addEventListener("click", () => {
   avatarDisplayPolicy.forced = {};
   saveAvatarDisplayPolicy();

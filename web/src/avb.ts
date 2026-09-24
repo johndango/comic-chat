@@ -1,8 +1,13 @@
 const MAGIC = 0x8181;
+const LEGACY_MAGIC = 0x0081;
 const TAG_START_DATA = 6;
 const TAG_NAME = 1;
 const TAG_FLAGS = 2;
+const TAG_ICON_LEGACY = 3;
+const TAG_FACES_LEGACY = 4;
+const TAG_TORSOS_LEGACY = 5;
 const TAG_STYLE = 8;
+const TAG_BODIES_LEGACY = 9;
 const TAG_FACES = 10;
 const TAG_TORSOS = 11;
 const TAG_BODIES = 12;
@@ -238,13 +243,53 @@ function readPoseList(
   return Array.from({ length: count }, () => readPose(reader, adjustment, kind));
 }
 
+function legacyDescriptor(offset: number, adjustment: number, paletteType = PaletteType.None): ImageDescriptor {
+  return { offset: adjustedOffset(offset, adjustment), format: 0, paletteType };
+}
+
+/** Version 1 records are packed structs with 16 unused compatibility bytes. */
+function readLegacyPose(reader: Reader, adjustment: number, kind: "body" | "face" | "torso"): PoseDescriptor {
+  const imageOffset = reader.u32();
+  const maskOffset = reader.u32();
+  const auraOffset = reader.u32();
+  const emotion = reader.u16();
+  const intensity = reader.u8();
+  let x: number;
+  let y: number;
+  let anchor: PoseDescriptor["anchor"];
+  if (kind === "face") {
+    anchor = { cx: reader.i16(), cy: reader.i16(), cxDelta: reader.i16(), cyDelta: reader.i16() };
+    x = reader.u16();
+    y = reader.u16();
+  } else {
+    x = kind === "torso" ? reader.i16() : reader.u16();
+    y = kind === "torso" ? reader.i16() : reader.u16();
+  }
+  reader.bytes(16);
+  return {
+    image: legacyDescriptor(imageOffset, adjustment),
+    mask: legacyDescriptor(maskOffset, adjustment, PaletteType.Monochrome),
+    aura: legacyDescriptor(auraOffset, adjustment, PaletteType.Monochrome),
+    emotion,
+    intensity,
+    x,
+    y,
+    ...(anchor ? { anchor } : {}),
+  };
+}
+
+function readLegacyPoseList(reader: Reader, adjustment: number, kind: "body" | "face" | "torso"): PoseDescriptor[] {
+  const count = reader.u16();
+  if (count > 512) throw new Error(`Invalid Comic Chat pose count: ${count}`);
+  return Array.from({ length: count }, () => readLegacyPose(reader, adjustment, kind));
+}
+
 export function parseAvatar(buffer: ArrayBuffer): AvatarFile {
   const reader = new Reader(buffer);
   const magic = reader.u16();
-  if (magic !== MAGIC) {
-    throw new Error("This is not a version 2 Comic Chat art file");
+  if (magic !== MAGIC && magic !== LEGACY_MAGIC) {
+    throw new Error("This is not a supported Comic Chat art file");
   }
-
   const type = reader.u16() as AvatarType;
   const version = reader.u16();
   let name = "";
@@ -276,6 +321,18 @@ export function parseAvatar(buffer: ArrayBuffer): AvatarFile {
         break;
       case TAG_STYLE:
         style = reader.u16();
+        break;
+      case TAG_ICON_LEGACY:
+        icon = legacyDescriptor(reader.u32(), adjustment);
+        break;
+      case TAG_BODIES_LEGACY:
+        bodies = readLegacyPoseList(reader, adjustment, "body");
+        break;
+      case TAG_FACES_LEGACY:
+        faces = readLegacyPoseList(reader, adjustment, "face");
+        break;
+      case TAG_TORSOS_LEGACY:
+        torsos = readLegacyPoseList(reader, adjustment, "torso");
         break;
       case TAG_ICON:
         icon = readImageDescriptor(reader, adjustment);
@@ -355,72 +412,20 @@ function pixelIndex(data: Uint8Array, rowStart: number, x: number, bitCount: num
   }
 }
 
-/**
- * AIP_MASKEDMONO packs drawing, mask, and aura into one 2-bit pixel. The
- * original expands the low bit into the drawing, the high bit into the mask,
- * and any non-zero pair into the white aura. Its GDI MERGEPAINT/SRCAND pass
- * therefore produces: transparent background, white aura, white figure, and
- * black figure for indices 0 through 3 respectively.
- */
-export function maskedMonochromePixel(index: number): readonly [number, number, number, number] {
-  if (index === 0) return [255, 255, 255, 0];
-  if (index === 3) return [0, 0, 0, 255];
-  return [255, 255, 255, 255];
-}
-
-async function inflate(data: Uint8Array): Promise<Uint8Array> {
-  const input = new Uint8Array(data);
-  const stream = new Blob([input]).stream().pipeThrough(new DecompressionStream("deflate"));
-  return new Uint8Array(await new Response(stream).arrayBuffer());
-}
-
-export async function decodeImage(
-  buffer: ArrayBuffer,
-  descriptor: ImageDescriptor,
-  globalPalette: Rgb[] = [],
-): Promise<DecodedBitmap> {
-  if (!descriptor.offset) throw new Error("Image descriptor has no data offset");
-  if (descriptor.format !== 1) throw new Error(`Unsupported Comic Chat image format: ${descriptor.format}`);
-
-  const reader = new Reader(buffer);
-  reader.offset = descriptor.offset;
-  const palette = paletteFor(descriptor.paletteType, globalPalette, reader);
-  const headerSize = reader.u32();
-  if (headerSize < 40 || headerSize > 240) throw new Error(`Invalid DIB header size: ${headerSize}`);
-
-  const width = reader.i32();
-  const signedHeight = reader.i32();
-  const planes = reader.u16();
-  const bitCount = reader.u16();
-  const compression = reader.u32();
-  reader.u32(); // declared image size
-  reader.i32(); // horizontal resolution
-  reader.i32(); // vertical resolution
-  reader.u32(); // colors used
-  reader.u32(); // important colors
-  if (headerSize > 40) reader.bytes(headerSize - 40);
-
-  if (planes !== 1 || compression !== 0 || width <= 0 || signedHeight === 0) {
-    throw new Error("Unsupported DIB layout in Comic Chat asset");
-  }
-
-  const uncompressedSize = reader.u32();
-  const compressedSize = reader.u32();
-  const bitmapData = await inflate(reader.bytes(compressedSize));
-  if (bitmapData.byteLength !== uncompressedSize) {
-    throw new Error("Comic Chat bitmap decompressed to an unexpected size");
-  }
-
+function bitmapFromPixels(
+  bitmapData: Uint8Array,
+  width: number,
+  signedHeight: number,
+  bitCount: number,
+  palette: Rgb[],
+  isMaskedMono: boolean,
+): DecodedBitmap {
   const height = Math.abs(signedHeight);
   const stride = Math.ceil((width * bitCount) / 32) * 4;
-  if (stride * height !== bitmapData.byteLength) {
-    throw new Error("Comic Chat bitmap dimensions do not match its data");
-  }
-
+  if (stride * height !== bitmapData.byteLength) throw new Error("Comic Chat bitmap dimensions do not match its data");
+  if (bitmapData.byteLength > 8 * 1024 * 1024) throw new Error("Comic Chat bitmap is too large");
   const pixels = new Uint8ClampedArray(width * height * 4);
-  const isMaskedMono = descriptor.paletteType === PaletteType.MaskedMonochrome;
   const isBottomUp = signedHeight > 0;
-
   for (let y = 0; y < height; y += 1) {
     const sourceY = isBottomUp ? height - 1 - y : y;
     const rowStart = sourceY * stride;
@@ -453,8 +458,110 @@ export async function decodeImage(
       }
     }
   }
-
   return { width, height, pixels };
+}
+
+function decodeLegacyBmp(buffer: ArrayBuffer, descriptor: ImageDescriptor): DecodedBitmap {
+  const reader = new Reader(buffer);
+  reader.offset = descriptor.offset;
+  if (reader.u16() !== 0x4d42) throw new Error("Legacy Comic Chat image is not a BMP");
+  const fileSize = reader.u32();
+  reader.u16();
+  reader.u16();
+  const bitsOffset = reader.u32();
+  const headerSize = reader.u32();
+  if (headerSize < 40 || headerSize > 240) throw new Error(`Invalid legacy DIB header size: ${headerSize}`);
+  const width = reader.i32();
+  const signedHeight = reader.i32();
+  const planes = reader.u16();
+  const bitCount = reader.u16();
+  const compression = reader.u32();
+  reader.u32();
+  reader.i32();
+  reader.i32();
+  const colorsUsed = reader.u32();
+  reader.u32();
+  if (planes !== 1 || compression !== 0 || width <= 0 || width > 4096 || signedHeight === 0 || Math.abs(signedHeight) > 4096) {
+    throw new Error("Unsupported legacy DIB layout in Comic Chat asset");
+  }
+  if (![1, 2, 4, 8, 24, 32].includes(bitCount)) throw new Error(`Unsupported Comic Chat color depth: ${bitCount}`);
+  if (fileSize < bitsOffset || descriptor.offset + fileSize > buffer.byteLength) throw new Error("Legacy Comic Chat bitmap is truncated");
+  reader.offset = descriptor.offset + 14 + headerSize;
+  const colorCount = bitCount <= 8 ? (colorsUsed || 2 ** bitCount) : 0;
+  if (colorCount > 256) throw new Error("Legacy Comic Chat palette is too large");
+  const palette: Rgb[] = [];
+  for (let index = 0; index < colorCount; index += 1) {
+    const b = reader.u8();
+    const g = reader.u8();
+    const r = reader.u8();
+    reader.u8();
+    palette.push({ r, g, b });
+  }
+  const stride = Math.ceil((width * bitCount) / 32) * 4;
+  const byteLength = stride * Math.abs(signedHeight);
+  if (bitsOffset + byteLength > fileSize) throw new Error("Legacy Comic Chat bitmap data is truncated");
+  reader.offset = descriptor.offset + bitsOffset;
+  return bitmapFromPixels(reader.bytes(byteLength), width, signedHeight, bitCount, palette, false);
+}
+
+/**
+ * AIP_MASKEDMONO packs drawing, mask, and aura into one 2-bit pixel. The
+ * original expands the low bit into the drawing, the high bit into the mask,
+ * and any non-zero pair into the white aura. Its GDI MERGEPAINT/SRCAND pass
+ * therefore produces: transparent background, white aura, white figure, and
+ * black figure for indices 0 through 3 respectively.
+ */
+export function maskedMonochromePixel(index: number): readonly [number, number, number, number] {
+  if (index === 0) return [255, 255, 255, 0];
+  if (index === 3) return [0, 0, 0, 255];
+  return [255, 255, 255, 255];
+}
+
+async function inflate(data: Uint8Array): Promise<Uint8Array> {
+  const input = new Uint8Array(data);
+  const stream = new Blob([input]).stream().pipeThrough(new DecompressionStream("deflate"));
+  return new Uint8Array(await new Response(stream).arrayBuffer());
+}
+
+export async function decodeImage(
+  buffer: ArrayBuffer,
+  descriptor: ImageDescriptor,
+  globalPalette: Rgb[] = [],
+): Promise<DecodedBitmap> {
+  if (!descriptor.offset) throw new Error("Image descriptor has no data offset");
+  if (descriptor.format === 0) return decodeLegacyBmp(buffer, descriptor);
+  if (descriptor.format !== 1) throw new Error(`Unsupported Comic Chat image format: ${descriptor.format}`);
+
+  const reader = new Reader(buffer);
+  reader.offset = descriptor.offset;
+  const palette = paletteFor(descriptor.paletteType, globalPalette, reader);
+  const headerSize = reader.u32();
+  if (headerSize < 40 || headerSize > 240) throw new Error(`Invalid DIB header size: ${headerSize}`);
+
+  const width = reader.i32();
+  const signedHeight = reader.i32();
+  const planes = reader.u16();
+  const bitCount = reader.u16();
+  const compression = reader.u32();
+  reader.u32(); // declared image size
+  reader.i32(); // horizontal resolution
+  reader.i32(); // vertical resolution
+  reader.u32(); // colors used
+  reader.u32(); // important colors
+  if (headerSize > 40) reader.bytes(headerSize - 40);
+
+  if (planes !== 1 || compression !== 0 || width <= 0 || signedHeight === 0) {
+    throw new Error("Unsupported DIB layout in Comic Chat asset");
+  }
+
+  const uncompressedSize = reader.u32();
+  const compressedSize = reader.u32();
+  const bitmapData = await inflate(reader.bytes(compressedSize));
+  if (bitmapData.byteLength !== uncompressedSize) {
+    throw new Error("Comic Chat bitmap decompressed to an unexpected size");
+  }
+
+  return bitmapFromPixels(bitmapData, width, signedHeight, bitCount, palette, descriptor.paletteType === PaletteType.MaskedMonochrome);
 }
 
 export function noImage(): ImageDescriptor {

@@ -4,6 +4,7 @@ import {
   ircNicknameKey,
   parseAvatarAnnouncement,
   parseAvatarDisplayPolicy,
+  preferAvatarEdition,
   resolveAvatarFile,
 } from "./avatar-policy";
 
@@ -16,11 +17,35 @@ describe("avatar display policy", () => {
   });
 
   it("defaults safely and discards unknown forced files", () => {
-    expect(parseAvatarDisplayPolicy(null, official)).toEqual({ officialOnly: true, forced: {} });
+    expect(parseAvatarDisplayPolicy(null, official)).toEqual({ officialOnly: true, artPreference: "none", forced: {} });
     expect(parseAvatarDisplayPolicy(JSON.stringify({
       officialOnly: false,
+      artPreference: "color",
       forced: { "libera:alice": "anna.avb", "libera:bob": "stranger.avb" },
-    }), official)).toEqual({ officialOnly: false, forced: { "libera:alice": "anna.avb" } });
+    }), official)).toEqual({ officialOnly: false, artPreference: "color", forced: { "libera:alice": "anna.avb" } });
+  });
+
+  it("swaps paired editions while leaving unpaired art alone", () => {
+    const pair = { monochrome: "anna.avb", color: "anna-color.avb" };
+    const editions = new Map([[pair.monochrome, pair], [pair.color, pair]]);
+    expect(preferAvatarEdition(pair.monochrome, "color", editions)).toBe(pair.color);
+    expect(preferAvatarEdition(pair.color, "monochrome", editions)).toBe(pair.monochrome);
+    expect(preferAvatarEdition(pair.color, "none", editions)).toBe(pair.color);
+    expect(preferAvatarEdition("custom.avb", "color", editions)).toBe("custom.avb");
+  });
+
+  it("does not override an explicit forced mapping with an art preference", () => {
+    const pair = { monochrome: "anna.avb", color: "anna-color.avb" };
+    const editions = new Map([[pair.monochrome, pair], [pair.color, pair]]);
+    expect(resolveAvatarFile({
+      network: "libera",
+      nickname: "Alice",
+      forced: { "libera:alice": pair.monochrome },
+      announcedOfficialFile: pair.color,
+      artPreference: "color",
+      editions,
+      fallbackFile: pair.color,
+    })).toBe(pair.monochrome);
   });
 
   it("gives a forced mapping precedence over an announced avatar", () => {
