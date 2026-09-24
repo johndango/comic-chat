@@ -153,6 +153,9 @@ button:disabled { color: #808080; text-shadow: 1px 1px #fff; cursor: not-allowed
 .strip-heading > span { font-weight: 700; }
 .strip-heading strong { font-weight: 400; }
 .strip-heading > strong { justify-self: end; }
+.panel-selection-bar { position: sticky; z-index: 8; top: 0; min-height: 38px; padding: 5px 6px; display: flex; align-items: center; gap: 6px; border-top: 1px solid #fff; border-bottom: 2px solid #404040; background: #ffffdf; box-shadow: 0 1px 0 #fff; }
+.panel-selection-bar > span { min-width: 130px; margin-right: auto; }
+.panel-selection-bar button { min-height: 25px; white-space: nowrap; }
 .view-options { display: flex; align-items: center; gap: 10px; }
 .view-options > label { display: flex; align-items: center; gap: 5px; white-space: nowrap; }
 .view-options select { width: 66px; height: 24px; }
@@ -164,6 +167,13 @@ button:disabled { color: #808080; text-shadow: 1px 1px #fff; cursor: not-allowed
 .comic-strip[data-panels-across] { width: max-content; min-width: 100%; display: grid; grid-template-columns: repeat(var(--panels-across), var(--panel-display-size)); justify-content: center; }
 .panel-card { position: relative; width: var(--panel-display-size); max-width: 100%; flex: 0 1 var(--panel-display-size); padding-bottom: 24px; border: 1px solid #000; background: #fff; }
 .panel-card canvas { display: block; width: 100%; height: auto; background: #fff; }
+.comic-strip.selecting-panels .panel-card { cursor: pointer; user-select: none; }
+.comic-strip.selecting-panels .panel-card::after { content: "Tap to include"; position: absolute; z-index: 4; top: 5px; right: 5px; padding: 3px 6px; color: #fff; background: rgb(0 0 0 / 72%); border: 1px solid #fff; font: 700 10px "MS Sans Serif", Tahoma, sans-serif; }
+.comic-strip.selecting-panels .panel-card.panel-selected { outline: 5px solid #000080; outline-offset: -5px; }
+.comic-strip.selecting-panels .panel-card.panel-selected::after { content: "✓ Included"; background: #000080; }
+.comic-strip.selecting-panels .panel-card:focus-visible { outline: 5px dotted #000080; outline-offset: -5px; }
+.comic-strip.selecting-panels .panel-link-layer { pointer-events: none; }
+.comic-strip.selecting-panels .panel-link-hitbox { pointer-events: none; }
 .panel-link-layer { position: absolute; z-index: 2; inset: 0 0 auto; width: 100%; aspect-ratio: 1; pointer-events: none; }
 .panel-link-hitbox { position: absolute; display: block; min-width: 2px; cursor: pointer; pointer-events: auto; }
 .panel-link-hitbox:hover { background: rgb(0 0 128 / 12%); outline: 1px dotted #000080; }
@@ -322,6 +332,8 @@ button:disabled { color: #808080; text-shadow: 1px 1px #fff; cursor: not-allowed
   .stage-wrap { min-height: 420px; max-height: 65vh; border-right: 0; border-bottom: 2px solid #808080; }
   .strip-heading { grid-template-columns: auto 1fr; }
   .strip-heading > strong { display: none; }
+  .panel-selection-bar { flex-wrap: wrap; }
+  .panel-selection-bar > span { width: 100%; order: 2; }
   .view-options { justify-self: end; flex-wrap: wrap; gap: 6px; }
   .panel-size input { width: 80px; }
   .controls { grid-template-rows: minmax(170px, 32vh) auto; }

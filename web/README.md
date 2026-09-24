@@ -50,6 +50,12 @@ the room's help bot from the title cast and rendered panels without deleting
 her messages. The on-screen comic remains an exact preview of the exported PNG,
 and turning the option off restores BettyBot immediately.
 
+For highlights from a longer conversation, choose **Select Panels…** beside
+Save Comic (or **File → Select panels to save…**), then tap any title or story
+panels to include them. **Save selected** exports only those panels in their
+original comic order. Selections follow unchanged panel content while new chat
+arrives, and are discarded safely when a selected panel itself changes.
+
 **Avatars…** opens local display controls for room members. Official-only mode
 is enabled by default, original `# Appears as …` character announcements are
 recognized, and any member can be forced to a particular bundled or Art Pack

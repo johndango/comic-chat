@@ -28,7 +28,7 @@ import { createEmotionWheel, posesForWheel, type WheelEmotion } from "./emotion-
 import { describeOptions, emotionOptions, newPoseMemory, type PoseChoice, type PoseMemory } from "./expression";
 import { IrcWebClient, type LiveEvent, type LiveMessageEvent, type LiveRoomEvent, type LiveState } from "./irc-client";
 import { balloonFontMetrics, type BalloonMode } from "./layout/balloon";
-import { ComicPage, type ComicLine } from "./layout/page";
+import { ComicPage, type ComicLine, type PanelLayout } from "./layout/page";
 import { canvasMeasurer, drawPanel, drawTitlePanel } from "./layout/render";
 import { layoutTitlePanel } from "./layout/title";
 import { panelDisplaySize, parsePanelsAcross, parsePanelZoom, type PanelsAcross } from "./panel-view";
@@ -41,6 +41,7 @@ import {
 } from "./room-link";
 import { stripExportGrid } from "./strip-export";
 import { visibleComicLines } from "./comic-filter";
+import { reconcilePanelSelection, selectedPanelIndexes } from "./panel-selection";
 import { blockedLinkMessage, blockedMessageLink, displayMessageLinks } from "./message-links";
 import {
   COMIC_FONT_OPTIONS,
@@ -248,6 +249,7 @@ app.innerHTML = `
         <button type="button" data-command="import-avatar">Import character…</button>
         <button type="button" data-command="create-avatar">Create character…</button>
         <hr />
+        <button type="button" role="menuitemcheckbox" data-command="select-panels">Select panels to save…</button>
         <button type="button" data-command="save-comic">Save comic…</button>
       </div></details>
       <details><summary><u>E</u>dit</summary><div class="classic-menu-popup">
@@ -351,6 +353,14 @@ app.innerHTML = `
             </div>
             <strong id="strip-count">0 panels</strong>
           </div>
+          <div id="panel-selection-bar" class="panel-selection-bar" role="toolbar" aria-label="Choose panels for saved comic" hidden>
+            <strong>Choose panels</strong>
+            <span id="panel-selection-count" aria-live="polite">Tap the panels you want to save.</span>
+            <button id="select-all-panels" type="button">Select all</button>
+            <button id="clear-panel-selection" type="button">Clear</button>
+            <button id="save-selected-panels" type="button" disabled>Save selected</button>
+            <button id="finish-panel-selection" type="button">Done</button>
+          </div>
           <div id="strip" class="comic-strip" aria-live="polite"></div>
         </div>
 
@@ -399,6 +409,7 @@ app.innerHTML = `
         <div class="strip-actions">
           <button id="undo-panel" class="small-action" type="button">Undo</button>
           <button id="clear-strip" class="small-action" type="button">Clear</button>
+          <button id="select-panels" class="small-action" type="button" aria-pressed="false">Select Panels…</button>
           <button id="download" class="download-button" type="button" disabled>Save Comic</button>
         </div>
       </section>
@@ -495,6 +506,12 @@ const toneReason = element<HTMLElement>("#tone-reason");
 const workspace = element<HTMLElement>("#workspace");
 const strip = element<HTMLElement>("#strip");
 const stripCount = element<HTMLElement>("#strip-count");
+const panelSelectionBar = element<HTMLElement>("#panel-selection-bar");
+const panelSelectionCount = element<HTMLElement>("#panel-selection-count");
+const selectAllPanelsButton = element<HTMLButtonElement>("#select-all-panels");
+const clearPanelSelectionButton = element<HTMLButtonElement>("#clear-panel-selection");
+const saveSelectedPanelsButton = element<HTMLButtonElement>("#save-selected-panels");
+const finishPanelSelectionButton = element<HTMLButtonElement>("#finish-panel-selection");
 const panelsAcrossSelect = element<HTMLSelectElement>("#panels-across");
 const balloonFontSelect = element<HTMLSelectElement>("#balloon-font");
 const panelSizeInput = element<HTMLInputElement>("#panel-size");
@@ -503,6 +520,7 @@ const status = element<HTMLElement>("#status");
 const addButton = element<HTMLButtonElement>("#add-panel");
 const undoButton = element<HTMLButtonElement>("#undo-panel");
 const clearButton = element<HTMLButtonElement>("#clear-strip");
+const selectPanelsButton = element<HTMLButtonElement>("#select-panels");
 const downloadButton = element<HTMLButtonElement>("#download");
 const classicWindow = element<HTMLElement>("#classic-window");
 const classicTitlebar = element<HTMLElement>("#classic-titlebar");
@@ -571,6 +589,9 @@ const sessionCustomAvatars = new Set<string>();
 const conversation: ConversationLine[] = [];
 const frozenPoses = new Map<string, PoseChoice>();
 let panelCanvases: HTMLCanvasElement[] = [];
+let panelKeys: string[] = [];
+let selectedPanelKeys = new Set<string>();
+let panelSelectionMode = false;
 let backdropBitmap: DecodedBitmap;
 let backdropCanvas: HTMLCanvasElement;
 let backdropGeneration = 0;
@@ -1458,6 +1479,53 @@ function handleLiveEvent(event: LiveEvent): void {
 
 const liveClient = new IrcWebClient(handleLiveEvent);
 
+function syncPanelSelectionUi(): void {
+  const selectedCount = selectedPanelIndexes(panelKeys, selectedPanelKeys).length;
+  panelSelectionBar.hidden = !panelSelectionMode;
+  strip.classList.toggle("selecting-panels", panelSelectionMode);
+  selectPanelsButton.setAttribute("aria-pressed", String(panelSelectionMode));
+  selectPanelsButton.textContent = panelSelectionMode ? "Cancel Selection" : "Select Panels…";
+  panelSelectionCount.textContent = selectedCount === 0
+    ? "Tap the panels you want to save."
+    : `${selectedCount} ${selectedCount === 1 ? "panel" : "panels"} selected.`;
+  selectAllPanelsButton.disabled = panelKeys.length === 0 || selectedCount === panelKeys.length;
+  clearPanelSelectionButton.disabled = selectedCount === 0;
+  saveSelectedPanelsButton.disabled = selectedCount === 0 || isAdding || panelCanvases.length === 0;
+  downloadButton.textContent = panelSelectionMode
+    ? selectedCount > 0 ? `Save Selected (${selectedCount})` : "Save Selected"
+    : "Save Comic";
+
+  [...strip.querySelectorAll<HTMLElement>(".panel-card")].forEach((card, index) => {
+    const key = panelKeys[index];
+    const selected = Boolean(key && selectedPanelKeys.has(key));
+    card.classList.toggle("panel-selected", panelSelectionMode && selected);
+    if (panelSelectionMode && key) {
+      card.tabIndex = 0;
+      card.setAttribute("role", "checkbox");
+      card.setAttribute("aria-checked", String(selected));
+      card.setAttribute("aria-label", `${selected ? "Included" : "Not included"}: ${card.querySelector("canvas")?.getAttribute("aria-label") ?? `panel ${index + 1}`}`);
+    } else {
+      card.removeAttribute("tabindex");
+      card.removeAttribute("role");
+      card.removeAttribute("aria-checked");
+      card.removeAttribute("aria-label");
+    }
+    for (const link of card.querySelectorAll<HTMLAnchorElement>("a")) {
+      if (panelSelectionMode) {
+        if (link.dataset.selectionTabindex === undefined) {
+          link.dataset.selectionTabindex = link.getAttribute("tabindex") ?? "";
+        }
+        link.tabIndex = -1;
+      } else if (link.dataset.selectionTabindex !== undefined) {
+        const previous = link.dataset.selectionTabindex;
+        if (previous === "") link.removeAttribute("tabindex");
+        else link.setAttribute("tabindex", previous);
+        delete link.dataset.selectionTabindex;
+      }
+    }
+  });
+}
+
 function updateControls(): void {
   const options = emotionOptions(messageInput.value);
   countLabel.textContent = String(messageInput.value.length);
@@ -1484,7 +1552,9 @@ function updateControls(): void {
       : "Add to comic";
   undoButton.disabled = conversation.length === 0 || isAdding;
   clearButton.disabled = conversation.length === 0 || isAdding;
-  downloadButton.disabled = panelCanvases.length === 0 || isAdding;
+  const selectedPanelCount = selectedPanelIndexes(panelKeys, selectedPanelKeys).length;
+  downloadButton.disabled = panelCanvases.length === 0 || isAdding || (panelSelectionMode && selectedPanelCount === 0);
+  selectPanelsButton.disabled = !panelSelectionMode && panelCanvases.length === 0;
   const room = normalizeRoomSelection(networkSelect.value, channelInput.value);
   const busy = liveState === "connecting" || liveState === "joining";
   const alreadyJoined = liveState === "joined"
@@ -1519,11 +1589,14 @@ function updateControls(): void {
     else if (command === "browse-channels") button.disabled = browseRoomsButton.disabled;
     else if (command === "copy-channel") button.disabled = shareRoomButton.disabled;
     else if (command === "disconnect") button.disabled = disconnectButton.disabled;
+    else if (command === "select-panels") button.disabled = !panelSelectionMode && panelCanvases.length === 0;
     if (command.startsWith("mode-")) {
       button.setAttribute("aria-checked", String(command.slice(5) === messageMode.value));
     }
     if (command === "hide-bettybot") button.setAttribute("aria-checked", String(hideBettyBot));
+    if (command === "select-panels") button.setAttribute("aria-checked", String(panelSelectionMode));
   }
+  syncPanelSelectionUi();
 }
 
 async function copyText(value: string): Promise<boolean> {
@@ -1578,12 +1651,22 @@ function createPanelCanvas(label: string): { card: HTMLElement; canvas: HTMLCanv
   return { card, canvas, context, ratio };
 }
 
+function panelContentSignature(layout: PanelLayout): string {
+  const content = JSON.stringify({
+    balloons: layout.balloons.map(({ mode, speakerId, text }) => [mode, speakerId, text]),
+    bodies: layout.bodies.map(({ id, poseRef, listener }) => [id, String(poseRef ?? ""), listener]),
+  });
+  return `panel:${content}`;
+}
+
 async function renderStrip(): Promise<void> {
   const generation = ++renderGeneration;
   const nextCanvases: HTMLCanvasElement[] = [];
+  const nextPanelKeys: string[] = [];
   const fragment = document.createDocumentFragment();
   const renderedConversation = visibleComicLines(conversation, hideBettyBot);
   panelCanvases = [];
+  panelKeys = [];
   updateControls();
 
   if (renderedConversation.length === 0) {
@@ -1594,6 +1677,8 @@ async function renderStrip(): Promise<void> {
     if (generation !== renderGeneration) return;
     strip.replaceChildren(fragment);
     panelCanvases = [];
+    panelKeys = [];
+    selectedPanelKeys = reconcilePanelSelection(selectedPanelKeys, panelKeys);
     stripCount.textContent = "0 panels";
     updateControls();
     return;
@@ -1670,9 +1755,12 @@ async function renderStrip(): Promise<void> {
   const titlePanel = createPanelCanvas(`Title: ${title}`);
   drawTitlePanel(titlePanel.context, titleLayout, (id) => icons.get(id), { scale: PANEL_SCALE, fontFamily: fontChoice.family });
   titlePanel.card.querySelector<HTMLElement>(".panel-meta")!.textContent = "Title and starring panel";
+  titlePanel.card.dataset.panelKey = "title";
   fragment.append(titlePanel.card);
   nextCanvases.push(titlePanel.canvas);
+  nextPanelKeys.push("title");
 
+  const panelKeyOccurrences = new Map<string, number>();
   page.layouts.forEach((layout, index) => {
     const speakers = layout.bodies.filter((body) => !body.listener).map((body) => body.id);
     const panel = createPanelCanvas(`Panel ${index + 1}: ${speakers.join(", ")}`);
@@ -1683,13 +1771,21 @@ async function renderStrip(): Promise<void> {
     addPanelLinkOverlays(panel.card, layout);
     panel.card.querySelector<HTMLElement>(".panel-meta")!.textContent =
       `Panel ${index + 1} · ${layout.balloons.length} ${layout.balloons.length === 1 ? "balloon" : "balloons"}`;
+    const panelKeyBase = panelContentSignature(layout);
+    const occurrence = panelKeyOccurrences.get(panelKeyBase) ?? 0;
+    panelKeyOccurrences.set(panelKeyBase, occurrence + 1);
+    const panelKey = `${panelKeyBase}:${occurrence}`;
+    panel.card.dataset.panelKey = panelKey;
     fragment.append(panel.card);
     nextCanvases.push(panel.canvas);
+    nextPanelKeys.push(panelKey);
   });
 
   if (generation !== renderGeneration) return;
   strip.replaceChildren(fragment);
   panelCanvases = nextCanvases;
+  panelKeys = nextPanelKeys;
+  selectedPanelKeys = reconcilePanelSelection(selectedPanelKeys, panelKeys);
   const count = page.layouts.length + 1;
   stripCount.textContent = `${count} ${count === 1 ? "panel" : "panels"} · ${renderedConversation.length} ${renderedConversation.length === 1 ? "line" : "lines"}`;
   updateControls();
@@ -1828,8 +1924,12 @@ async function addPanel(): Promise<void> {
 }
 
 function downloadStrip(): void {
-  if (panelCanvases.length === 0) return;
-  const grid = stripExportGrid(panelCanvases.length, PANEL_PIXELS);
+  const indexes = panelSelectionMode
+    ? selectedPanelIndexes(panelKeys, selectedPanelKeys)
+    : panelCanvases.map((_, index) => index);
+  const exportCanvases = indexes.map((index) => panelCanvases[index]).filter(Boolean);
+  if (exportCanvases.length === 0) return;
+  const grid = stripExportGrid(exportCanvases.length, PANEL_PIXELS);
   const output = document.createElement("canvas");
   output.width = grid.width;
   output.height = grid.height;
@@ -1837,15 +1937,38 @@ function downloadStrip(): void {
   if (!context) throw new Error("Canvas is unavailable");
   context.fillStyle = "#fff";
   context.fillRect(0, 0, output.width, output.height);
-  panelCanvases.forEach((canvas, index) => {
+  exportCanvases.forEach((canvas, index) => {
     const { x, y } = grid.position(index);
     context.drawImage(canvas, x, y, PANEL_PIXELS, PANEL_PIXELS);
   });
 
   const link = document.createElement("a");
-  link.download = `comic-chat-strip-${Date.now()}.png`;
+  link.download = `comic-chat-${panelSelectionMode ? "selection" : "strip"}-${Date.now()}.png`;
   link.href = output.toDataURL("image/png");
   link.click();
+  setStatus(panelSelectionMode
+    ? `Saved ${exportCanvases.length} selected ${exportCanvases.length === 1 ? "panel" : "panels"} in comic order.`
+    : `Saved the complete ${exportCanvases.length}-panel comic.`);
+}
+
+function setPanelSelectionMode(enabled: boolean): void {
+  panelSelectionMode = enabled;
+  selectedPanelKeys = new Set<string>();
+  updateControls();
+  if (enabled) {
+    panelSelectionBar.scrollIntoView({ block: "nearest" });
+    setStatus("Panel selection is on. Tap any title or comic panel to include it, then choose Save selected.");
+  } else {
+    setStatus("Panel selection closed. Save Comic will save the complete strip.");
+  }
+}
+
+function toggleSelectedPanel(card: HTMLElement): void {
+  const key = card.dataset.panelKey;
+  if (!panelSelectionMode || !key) return;
+  if (selectedPanelKeys.has(key)) selectedPanelKeys.delete(key);
+  else selectedPanelKeys.add(key);
+  updateControls();
 }
 
 async function initialLoad(): Promise<void> {
@@ -2000,6 +2123,33 @@ clearButton.addEventListener("click", () => {
   setStatus("Strip cleared. Write a line to begin again.");
 });
 downloadButton.addEventListener("click", downloadStrip);
+selectPanelsButton.addEventListener("click", () => setPanelSelectionMode(!panelSelectionMode));
+finishPanelSelectionButton.addEventListener("click", () => setPanelSelectionMode(false));
+selectAllPanelsButton.addEventListener("click", () => {
+  selectedPanelKeys = new Set(panelKeys);
+  updateControls();
+});
+clearPanelSelectionButton.addEventListener("click", () => {
+  selectedPanelKeys.clear();
+  updateControls();
+});
+saveSelectedPanelsButton.addEventListener("click", downloadStrip);
+strip.addEventListener("click", (event) => {
+  if (!panelSelectionMode) return;
+  const target = event.target instanceof Element ? event.target : undefined;
+  const card = target?.closest<HTMLElement>(".panel-card");
+  if (!card || !strip.contains(card)) return;
+  event.preventDefault();
+  toggleSelectedPanel(card);
+});
+strip.addEventListener("keydown", (event) => {
+  if (!panelSelectionMode || (event.key !== "Enter" && event.key !== " ")) return;
+  const target = event.target instanceof Element ? event.target : undefined;
+  const card = target?.closest<HTMLElement>(".panel-card");
+  if (!card || !strip.contains(card)) return;
+  event.preventDefault();
+  toggleSelectedPanel(card);
+});
 
 function setSystemMenuOpen(open: boolean): void {
   systemMenu.hidden = !open;
@@ -2126,6 +2276,9 @@ function runMenuCommand(command: string): void {
       break;
     case "save-comic":
       downloadButton.click();
+      break;
+    case "select-panels":
+      setPanelSelectionMode(!panelSelectionMode);
       break;
     case "undo":
       undoButton.click();
