@@ -13,15 +13,16 @@ single bot that says it's a bot.
 - Mentions your schedule (`BOT_SCHEDULE`) to someone who arrives in an
   empty room.
 - Answers when addressed (`BettyBot: help`) or messaged privately, with
-  help, tips on how poses work, the site link, the schedule, and what
-  Comic Chat was. It admits it's a bot when asked.
+  help, tips on how poses work, expression demonstrations (`show happy`),
+  original comic titles, rotating history facts, the site link, the schedule,
+  and what Comic Chat was. It admits it's a bot when asked.
 - Keeps company: if someone speaks in an otherwise empty room and nobody
   answers within 3 minutes, it replies once with a tip.
 
 **What it won't do**
 - Repeat anything a user typed (all answers are canned).
-- Answer more than 3 times a minute per person, or send more than one line
-  every 1.5 seconds.
+- Answer more than 6 times a minute per person. It gives one friendly pause
+  notice before going quiet, and sends no more than one line every 1.5 seconds.
 - Talk to other bots or services.
 
 It marks itself with the `+B` bot mode and answers CTCP VERSION.
