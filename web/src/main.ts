@@ -52,6 +52,7 @@ import {
 interface ArtChoice { file: string; label: string; announcementName?: string }
 
 const COLOR_REPLACEMENT_CREDIT_URL = "https://www.phoenix-online-nexus.com/Nexus_21/index.htm#instructionsavb";
+const MICROSOFT_OPEN_SOURCE_URL = "https://opensource.microsoft.com/blog/2026/07/16/microsoft-comic-chat-is-now-open-source/";
 
 const artPackAssets = import.meta.glob("../../v2.5-beta-1-modern/artpack1/*.{avb,bgb}", {
   eager: true,
@@ -291,7 +292,7 @@ app.innerHTML = `
         <hr />
         <button type="button" data-command="about">About WebComicChat…</button>
         <a href="mailto:admin@webcomicchat.com">Email WebComicChat…</a>
-        <a href="https://github.com/johndango/comic-chat" target="_blank" rel="noreferrer">Project source ↗</a>
+        <a href="${MICROSOFT_OPEN_SOURCE_URL}" target="_blank" rel="noopener noreferrer">Microsoft open-source release ↗</a>
       </div></details>
     </nav>
 
@@ -411,12 +412,12 @@ app.innerHTML = `
           <div>
             <strong>WebComicChat</strong>
             <p>An independent, community-built revival of the classic Comic Chat experience for modern browsers.</p>
-            <p>Crafted using <a href="https://opensource.microsoft.com/blog/2026/07/16/microsoft-comic-chat-is-now-open-source/" target="_blank" rel="noopener noreferrer">Microsoft's open-source Comic Chat release</a>, with support from other great online communities.</p>
+            <p>Crafted using <a href="${MICROSOFT_OPEN_SOURCE_URL}" target="_blank" rel="noopener noreferrer">Microsoft's open-source Comic Chat release</a>, with support from other great online communities.</p>
             <p>Questions, ideas, or help: <a href="mailto:admin@webcomicchat.com">admin@webcomicchat.com</a></p>
             <p>Not affiliated with or endorsed by Microsoft.</p>
           </div>
         </div>
-        <footer><a href="https://github.com/johndango/comic-chat" target="_blank" rel="noreferrer">View project source</a><button value="cancel">OK</button></footer>
+        <footer><a href="${MICROSOFT_OPEN_SOURCE_URL}" target="_blank" rel="noopener noreferrer">Microsoft open-source release</a><button value="cancel">OK</button></footer>
       </form>
     </dialog>
     <dialog id="close-dialog" class="classic-dialog close-dialog" aria-labelledby="close-title">
