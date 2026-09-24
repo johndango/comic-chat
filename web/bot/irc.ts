@@ -28,6 +28,8 @@ export interface IrcHandlers {
   onPart?(channel: string, nick: string): void;
   onNames?(channel: string, nicks: string[]): void;
   onMessage?(target: string | null, nick: string, text: string): void;
+  /** Channel operator status granted (+o) or removed (-o). */
+  onOperator?(channel: string, nick: string, isOperator: boolean): void;
   onStatus?(status: string): void;
 }
 
@@ -266,7 +268,22 @@ export class IrcBot {
         }
         return;
       }
-      case "PRIVMSG": {
+      case "MODE": {
+        // MODE #channel +o-o nick nick: report operator changes, skip other modes.
+        const [channel, modes, ...args] = [...m.params, ...(m.trailing !== undefined ? [m.trailing] : [])];
+        if (!channel || !/^[#&]/.test(channel) || !modes) return;
+        let adding = true;
+        let argIndex = 0;
+        for (const mode of modes) {
+          if (mode === "+" || mode === "-") adding = mode === "+";
+          else if (mode === "o") {
+            const who = args[argIndex++];
+            if (who) this.handlers.onOperator?.(channel, who, adding);
+          } else if ("vhbeIqkl".includes(mode) && (adding || "vhbeIqk".includes(mode))) argIndex += 1;
+        }
+        return;
+      }
+            case "PRIVMSG": {
         const target = m.params[0];
         const text = m.trailing ?? "";
         const nick = nicknameFromPrefix(m.prefix);
