@@ -130,10 +130,10 @@ After joining, the bot announces `# Appears as <Name>.<url>` using the original
 speech balloon. The default `Anna` needs no URL; set both avatar variables once
 the approved custom-art host is available.
 
-## CapsLockBot: the nostalgic gremlin
+## n00bBot: the nostalgic gremlin
 
-The same AI bot with `BOT_PERSONA=gremlin` becomes **CapsLockBot** (as Kirby,
-$0.50/day by default): a nostalgically annoying 1998 chat-room kid. ALL CAPS,
+The same AI bot with `BOT_PERSONA=gremlin` becomes **n00bBot** (as a random pick of Tux,
+Tiki, Xeno, Hugh, Lance, Kirby or Armando each time it starts; $0.50/day by default): a nostalgically annoying 1998 chat-room kid. ALL CAPS,
 "brb mom needs the phone line", 56k-modem bragging, GeoCities plugs, and snide
 remarks about the other bots. It is told, and checked in code, never to put
 down real people.
@@ -144,15 +144,15 @@ down real people.
   while people are chatting, and only on half of those chances.
 - Those unprompted lines never read the room: the model is told only which
   bots are present. Any unprompted line that names a real person is dropped.
-- Anyone can say `CapsLockBot: go away` to mute it for an hour; operators can
+- Anyone can say `n00bBot: go away` to mute it for an hour; operators can
   still use sleep and wake.
 
 Run it with its own settings file (its own NickServ account):
 
 ```
 BOT_PERSONA=gremlin
-BOT_NICK=CapsLockBot
-BOT_ACCOUNT=CapsLockBot
+BOT_NICK=n00bBot
+BOT_ACCOUNT=n00bBot
 BOT_PASSWORD=...
 ANTHROPIC_API_KEY=...
 CAM_ADMIN=johndango

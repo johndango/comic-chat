@@ -5,10 +5,11 @@
 //   CAM_DAILY_BUDGET_USD  1.00                  replies stop for the day past this spend
 //   CAM_ADMIN                                   required; your nick. CamBot only chats while you're in the room
 //   BOT_PERSONA        friendly                 or "gremlin": a nostalgically annoying 1998 kid who
-//                                               also blurts out one-liners (defaults CapsLockBot as Kirby, $0.50/day)
+//                                               also blurts out one-liners (defaults n00bBot, $0.50/day)
 //   BOT_NICK           TongueTiedBot            BOT_CHANNELS  #webcomicchat
 //   BOT_ACCOUNT / BOT_PASSWORD                  NickServ account for SASL login
-//   BOT_AVATAR         Tongue-Tied              each viewer's colour setting picks the edition
+//   BOT_AVATAR         Tongue-Tied              one or more names, comma-separated: one is picked at random
+//                                               each start (gremlin: Tux,Tiki,Xeno,Hugh,Lance,Kirby,Armando)
 //   SITE_URL           https://webcomicchat.com
 //   BOT_IGNORE         other bots' nicks, comma-separated
 //   IRC_HOST / IRC_PORT / IRC_TLS               default irc.libera.chat / 6697 / 1
@@ -24,12 +25,16 @@ if (!env.ANTHROPIC_API_KEY) throw new Error("Set ANTHROPIC_API_KEY (in a private
 const persona = env.BOT_PERSONA === "gremlin" ? "gremlin" : "friendly";
 if (env.BOT_PERSONA && env.BOT_PERSONA !== persona) throw new Error('BOT_PERSONA must be "friendly" or "gremlin"');
 const gremlin = persona === "gremlin";
-const nick = env.BOT_NICK ?? (gremlin ? "CapsLockBot" : "TongueTiedBot");
+const nick = env.BOT_NICK ?? (gremlin ? "n00bBot" : "TongueTiedBot");
 const siteUrl = env.SITE_URL ?? "https://webcomicchat.com";
 const channels = list(env.BOT_CHANNELS ?? "#webcomicchat");
 if (!channels.length || !channels.every((c) => /^#[A-Za-z0-9_+\-]{1,50}$/.test(c))) throw new Error("BOT_CHANNELS must list at least one #channel");
-const character = env.BOT_AVATAR ?? (gremlin ? "Kirby" : "Tongue-Tied");
-if (!/^[A-Za-z0-9_-]{1,60}$/.test(character)) throw new Error("BOT_AVATAR is not a valid Comic Chat character name");
+// BOT_AVATAR may list several characters; one is picked at random each start.
+const characters = list(env.BOT_AVATAR ?? (gremlin ? "Tux,Tiki,Xeno,Hugh,Lance,Kirby,Armando" : "Tongue-Tied"));
+if (!characters.length || !characters.every((name) => /^[A-Za-z0-9_-]{1,60}$/.test(name))) {
+  throw new Error("BOT_AVATAR must be one or more valid Comic Chat character names, comma-separated");
+}
+const character = characters[Math.floor(Math.random() * characters.length)];
 const model = env.CAM_MODEL ?? "claude-haiku-4-5";
 const dailyBudgetUsd = Number(env.CAM_DAILY_BUDGET_USD ?? (gremlin ? "0.5" : "1"));
 const admin = env.CAM_ADMIN ?? "";
@@ -97,6 +102,7 @@ if (gremlin) {
   }, 60_000).unref();
 }
 
+log(`${nick} appearing as ${character}`);
 log(`${nick} using ${model}, daily budget $${dailyBudgetUsd.toFixed(2)}`);
 bot.start();
 
