@@ -19,10 +19,11 @@ uses to display art; these modules sit beside it.
 - Rewritten files are about 2% larger than the originals. The browser's zlib
   compressor stands in for the original's level-9 setting; files are
   otherwise equivalent.
-- Hostile files are rejected before they allocate much memory: bitmaps are
-  capped at 4096 px per side, there are at most 1,024 images, at most 512
-  poses per list and at most 256 palette colours, and every decompressed
-  size is checked against its dimensions.
+- Hostile files are rejected with bounded memory use: imported files are at
+  most 2 MB, an individual decoded bitmap is at most 8 MB, total decoded art
+  is at most 64 MB, and every decompressed size is checked against its
+  dimensions. The document reader also caps dimensions, image and pose counts,
+  and palette size. Browser sessions accept no more than 24 custom avatars.
 
 ## Building a character
 
@@ -65,6 +66,14 @@ point to self), and neutral poses rotated when nothing matches. A useful
 character needs at least a neutral pose. Happy, sad, laugh, shout, wave and
 the points cover nearly every rule that fires.
 
+The web client's **Create…** dialog exposes the simple-character path. It
+accepts up to 16 PNG, WebP or JPEG pose images, lets the artist assign an
+emotion and intensity to each, offers monochrome/color encoding and aura
+width, and adds a name and credit. The resulting `.avb` is validated again,
+selected locally, and downloaded. **Import .avb…** similarly validates and
+uses an existing version 2 character for the current tab; neither action
+uploads anything.
+
 ## The download URL
 
 `url` is written as the file's `AK_ORIGINAL_URL` record. The 1998 client
@@ -74,12 +83,16 @@ stable URL on webcomicchat.com keeps that path open.
 
 ## Not yet done
 
-- The builder page itself (upload images, click to set face and neck
-  points, preview on the emotion wheel and in panels, download the `.avb`).
 - Hosted upload, moderation and a shared gallery.
-- Loading approved hosted art after a remote `# Appears as …` announcement.
+- An advanced visual editor for separate face/torso layers and clickable face
+  and neck anchor points. The underlying complex-character writer is complete.
+- Persistent local libraries; imported and newly built characters currently
+  last for the browser tab.
 
-The web client's **Avatars…** dialog already recognizes those announcements,
-defaults to official-only display, and supports persistent per-member mappings
-to official characters. The monochrome decoder and writer both use the
-original white-aura and black/white figure semantics.
+The web client's **Avatars…** dialog recognizes original `# Appears as …`
+announcements, defaults to official-only display, and supports persistent
+per-member mappings to official characters. If official-only is disabled, a
+remote custom avatar may load only from the same HTTPS webcomicchat.com origin
+and only after full validation. Arbitrary third-party art hosts remain blocked.
+The monochrome decoder and writer both use the original white-aura and
+black/white figure semantics.
