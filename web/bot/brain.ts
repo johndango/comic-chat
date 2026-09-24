@@ -60,6 +60,61 @@ const TIPS = [
   "Long messages continue across panels with ... like the original.",
 ];
 
+/**
+ * `show <expression>`: a line crafted to trigger that expression under the
+ * original Comic Chat rules (expression.ts), so Betty's character acts it out.
+ * Angry, scared and bored shipped with no text rules, so only the wheel can
+ * reach them.
+ */
+const SHOWS: [RegExp, string][] = [
+  [/shout|yell|caps/, "LOOK AT ME SHOUT!!! ALL CAPS OR THREE !!! DOES IT"],
+  [/laugh|lol|haha/, "LOL! Typing LOL, ROTFL or hehe makes you laugh like this"],
+  [/happy|smile|grin/, "This is my happy face :) any :) or :-) does it"],
+  [/sad|frown|cry/, "Aww, this is my sad face :( any :( or :-( does it"],
+  [/coy|wink|flirt/, "Here's my coy look ;) a wink does it"],
+  [/wave|hello|hi|greet/, "Hello! Start a line with Hi, Hello, Welcome or Howdy and you'll wave like this"],
+  [/point|you/, "You get pointed at when a line starts with You, like this one"],
+  [/self|me|myself/, "I point at myself whenever a line starts with I, like this one"],
+];
+
+const WHEEL_ONLY = /angry|mad|scared|afraid|bored/;
+
+/** chat.rc IDS_TITLE1..16: the random titles Comic Chat gave each comic. */
+const TITLES = [
+  "EVERYONE'S A COMIC",
+  "DOGGY DOGGY WAH WAH",
+  "YOU SHOULDA BEEN THERE",
+  "NO EXIT",
+  "WISH YOU WERE HERE",
+  "DEEPEST DARKEST DESIRES",
+  "JUST US CHUMPS",
+  "SIGHTED IN CYBERSPACE",
+  "THE GANG'S ALL HERE",
+  "BORN TO CHAT",
+  "NETWORKED NERDS",
+  "VIRTUALLY VACUOUS",
+  "IF I ONLY HAD A BRAIN",
+  "SLUMBER PARTY",
+  "MEET MARKET",
+  "MICROSOFT CHAT",
+];
+
+/** Comic Chat history, checked against the original source and archives. */
+const FACTS = [
+  "Comic Chat began as a Microsoft Research project by David Kurlander, and version 1.0 shipped with Internet Explorer 3 in 1996.",
+  "The original characters were drawn by the cartoonist Jim Woodring. His name is in the copyright line of every character file.",
+  "Later versions were renamed Microsoft Chat and came with Internet Explorer 4 and Windows 98.",
+  "Microsoft's own Comic Chat servers closed for good on 21 February 2001, but fans kept chatting on other IRC networks.",
+  "The rules that turn your text into expressions weren't code. They were strings like CheckWord*(\"LOL\") stored in the program's resources.",
+  "A quirk in the 1998 code means only the first sentence of a message can make you wave or point.",
+  "18 of the 25 original characters are built from separate heads and torsos, chosen independently, so you can wave and smile at once.",
+  "The same character never speaks twice in one panel. Saying a second line always starts a new panel.",
+  "Balloons are smooth Beta-spline curves around the text, and each tail is kept to a 45-degree slant.",
+  "Microsoft shipped a sample bot called Betty that filled demo rooms with 16 pretend chatters. I'm named after her, but there's only one of me.",
+  "Comic Chat clients told each other which character they were with a line starting \"# Appears as\".",
+  "Every comic got a random title, from EVERYONE'S A COMIC to DOGGY DOGGY WAH WAH. Ask me for one with: title",
+];
+
 interface ChannelState {
   name: string;
   members: Set<string>;
@@ -79,7 +134,13 @@ export class BotBrain {
   private tipIndex = 0;
   private readonly ignore: Set<string>;
 
-  constructor(private readonly config: BotConfig) {
+  private factIndex = 0;
+
+  constructor(
+    private readonly config: BotConfig,
+    /** Injected for tests; returns [0, 1). */
+    private readonly random: () => number = Math.random,
+  ) {
     this.ignore = new Set((config.ignore ?? []).map(fold));
   }
 
@@ -198,11 +259,31 @@ export class BotBrain {
     return tip;
   }
 
+  private show(q: string): string {
+    const what = q.replace(/^show\s*(me\s+)?(a\s+|an\s+|your\s+)?/, "");
+    if (!what) return "Ask me to show: shout, laugh, happy, sad, coy, wave, point, or self.";
+    if (WHEEL_ONLY.test(what)) {
+      return "There's no text trigger for that one. Drag the emotion wheel to it, and your next line uses it.";
+    }
+    const match = SHOWS.find(([pattern]) => pattern.test(what));
+    return match ? match[1] : "I can show: shout, laugh, happy, sad, coy, wave, point, or self.";
+  }
+
   /** Canned answers only: nothing the user typed is ever echoed back. */
   answer(request: string, nick: string): string {
     const q = fold(request);
     if (/^(help|commands|\?)?$/.test(q)) {
-      return `Hi ${nick}! Ask me for: tips, link, about, or schedule. Or just chat and watch the comic draw itself :)`;
+      return `Hi ${nick}! Ask me for: tips, show, title, fact, link, about, or schedule. Or just chat and watch the comic draw itself :)`;
+    }
+    if (/^show\b/.test(q)) return this.show(q);
+    if (/\btitle\b/.test(q)) {
+      const title = TITLES[Math.min(TITLES.length - 1, Math.floor(this.random() * TITLES.length))];
+      return `Tonight's comic is called "${title}"`;
+    }
+    if (/\b(fact|trivia|history)\b/.test(q)) {
+      const fact = FACTS[this.factIndex % FACTS.length];
+      this.factIndex += 1;
+      return fact;
     }
     if (/\b(tip|how|pose|face|express|emot|smile|shout|wave)/.test(q)) return this.nextTip();
     if (/\b(link|url|invite|share|site)\b/.test(q)) return `Bring friends: ${this.config.siteUrl}`;

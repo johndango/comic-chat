@@ -1,5 +1,6 @@
 import { createServer, type Socket } from "node:net";
 import { afterEach, describe, expect, it } from "vitest";
+import { EM, emotionOptions } from "../src/expression";
 import { BotBrain } from "./brain";
 import { appearanceLine, IrcBot, splitForIrc } from "./irc";
 
@@ -52,7 +53,7 @@ describe("BotBrain answers", () => {
     expect(brain.handle({ type: "message", channel: "#c", nick: "Anna", text: "help", at: T0 })).toEqual([]);
     const out = brain.handle({ type: "message", channel: "#c", nick: "Anna", text: "BettyBot: help", at: T0 });
     expect(out[0].target).toBe("#c");
-    expect(out[0].text).toContain("tips, link, about");
+    expect(out[0].text).toContain("tips, show, title, fact, link, about");
   });
 
   it("answers private messages privately", () => {
@@ -200,3 +201,50 @@ describe("IrcBot against a fake server", () => {
     expect(sent).toEqual(["PRIVMSG #c :# Appears as Anna", "PRIVMSG #c :one", "PRIVMSG #c :two"]);
   });
 });
+
+describe("show, title and fact", () => {
+  const strongest = (text: string) => [...emotionOptions(text)].sort((a, b) => b.priority - a.priority)[0]?.emotion;
+
+  it.each([
+    ["shout", EM.SHOUT],
+    ["laugh", EM.LAUGH],
+    ["happy", EM.HAPPY],
+    ["sad", EM.SAD],
+    ["coy", EM.COY],
+    ["wave", EM.WAVE],
+    ["point", EM.POINTOTHER],
+    ["self", EM.POINTSELF],
+  ])("show %s makes Betty's character act it out under the original rules", (what, emotion) => {
+    const brain = new BotBrain(config);
+    const line = brain.answer(`show ${what}`, "Anna");
+    expect(strongest(line)).toBe(emotion);
+  });
+
+  it("show understands casual phrasing and explains wheel-only expressions", () => {
+    const brain = new BotBrain(config);
+    expect(strongest(brain.answer("show me a smile", "Anna"))).toBe(EM.HAPPY);
+    expect(brain.answer("show angry", "Anna")).toMatch(/emotion wheel/);
+    expect(brain.answer("show", "Anna")).toMatch(/shout, laugh, happy/);
+    expect(brain.answer("show banana", "Anna")).toMatch(/^I can show/);
+  });
+
+  it("title picks one of the 16 original titles", () => {
+    const first = new BotBrain(config, () => 0).answer("title", "Anna");
+    const last = new BotBrain(config, () => 0.999).answer("title", "Anna");
+    expect(first).toBe(`Tonight's comic is called "EVERYONE'S A COMIC"`);
+    expect(last).toBe(`Tonight's comic is called "MICROSOFT CHAT"`);
+  });
+
+  it("fact cycles through history without repeating until all are told", () => {
+    const brain = new BotBrain(config);
+    const facts = Array.from({ length: 12 }, () => brain.answer("fact", "Anna"));
+    expect(new Set(facts).size).toBe(12);
+    expect(facts[0]).toMatch(/Microsoft Research/);
+    expect(brain.answer("tell me some trivia", "Anna")).toBe(facts[0]);
+  });
+
+  it("help lists the new commands", () => {
+    expect(new BotBrain(config).answer("help", "Anna")).toMatch(/tips, show, title, fact/);
+  });
+});
+
