@@ -37,6 +37,9 @@ character. Forced mappings are saved per IRC network and nickname and take
 precedence over announcements and automatic assignment. Users can import a
 custom `.avb` for their own character without uploading it; the file is fully
 validated, stays in the current browser tab, and is clearly marked as local.
+The built-in **Create…** dialog can also turn up to 16 PNG, WebP or JPEG pose
+images into a classic monochrome or color version 2 `.avb`, assign an
+emotion and intensity to each pose, use the result immediately, and download it.
 When official-only mode is switched off, room announcements may load validated
 custom avatars from the same HTTPS webcomicchat.com origin. Arbitrary external
 art hosts remain blocked. The client announces official character changes using

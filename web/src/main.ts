@@ -12,6 +12,13 @@ import {
   type AvatarDisplayPolicy,
 } from "./avatar-policy";
 import { fetchAvatarFile, sameOriginAvatarUrl, validateAvatarImport } from "./avatar-import";
+import {
+  avatarDownloadName,
+  BUILDER_EMOTIONS,
+  buildSimpleAvatar,
+  imageFileToRgba,
+  type CreatorPose,
+} from "./avatar-creator";
 import { bodyForText, composeChoice, type ComposedBody } from "./composite";
 import { createEmotionWheel, posesForWheel, type WheelEmotion } from "./emotion-wheel";
 import { describeOptions, emotionOptions, newPoseMemory, type PoseChoice, type PoseMemory } from "./expression";
@@ -195,6 +202,7 @@ app.innerHTML = `
             <select id="character">${characters.map(({ file, label }) => `<option value="${file}">${label}</option>`).join("")}</select>
             <div class="character-actions">
               <button id="import-avatar" type="button">Import .avb…</button>
+              <button id="create-avatar" type="button">Create…</button>
               <input id="avatar-file" class="visually-hidden" type="file" accept=".avb,application/octet-stream" />
             </div>
             <small class="local-avatar-note">Imported characters stay in this browser tab until hosted.</small>
@@ -241,6 +249,28 @@ app.innerHTML = `
           <div id="avatar-rule-list" class="avatar-rule-list"></div>
         </div>
         <footer><button id="reset-avatar-rules" type="button">Reset mappings</button><button value="cancel">Close</button></footer>
+      </form>
+    </dialog>
+    <dialog id="avatar-builder-dialog" class="classic-dialog avatar-builder-dialog" aria-labelledby="avatar-builder-title">
+      <form method="dialog">
+        <header><strong id="avatar-builder-title">Create a Comic Chat character</strong><button value="cancel" aria-label="Close">×</button></header>
+        <div class="dialog-body">
+          <p>Build a simple character from transparent pose images. It stays local unless you choose to host the downloaded .avb later.</p>
+          <div class="builder-fields">
+            <label>Name <input id="builder-name" maxlength="60" placeholder="Character name" /></label>
+            <label>Art credit <input id="builder-credit" maxlength="240" placeholder="Your name and license (optional)" /></label>
+            <label>Style <select id="builder-style"><option value="mono">Classic black &amp; white</option><option value="color">Color</option></select></label>
+            <label>Aura <span><input id="builder-aura" type="range" min="0" max="8" value="3" /><output id="builder-aura-value">3 px</output></span></label>
+          </div>
+          <div class="builder-add-row">
+            <button id="builder-add-poses" type="button">Add pose images…</button>
+            <input id="builder-files" class="visually-hidden" type="file" accept="image/png,image/webp,image/jpeg" multiple />
+            <small>PNG with transparency works best · up to 16 images · 512×512 maximum</small>
+          </div>
+          <div id="builder-pose-list" class="builder-pose-list"></div>
+          <p id="builder-status" class="builder-status" role="status">Add at least one neutral pose.</p>
+        </div>
+        <footer><button id="builder-clear" type="button">Clear poses</button><button value="cancel">Cancel</button><button id="builder-download" type="button" disabled>Build, use &amp; download</button></footer>
       </form>
     </dialog>
   </div>
@@ -296,6 +326,19 @@ const characterPreview = element<HTMLCanvasElement>("#character-preview");
 const emotionWheelHost = element<HTMLElement>("#emotion-wheel");
 const importAvatarButton = element<HTMLButtonElement>("#import-avatar");
 const avatarFileInput = element<HTMLInputElement>("#avatar-file");
+const createAvatarButton = element<HTMLButtonElement>("#create-avatar");
+const avatarBuilderDialog = element<HTMLDialogElement>("#avatar-builder-dialog");
+const builderNameInput = element<HTMLInputElement>("#builder-name");
+const builderCreditInput = element<HTMLInputElement>("#builder-credit");
+const builderStyleSelect = element<HTMLSelectElement>("#builder-style");
+const builderAuraInput = element<HTMLInputElement>("#builder-aura");
+const builderAuraValue = element<HTMLOutputElement>("#builder-aura-value");
+const builderAddPosesButton = element<HTMLButtonElement>("#builder-add-poses");
+const builderFilesInput = element<HTMLInputElement>("#builder-files");
+const builderPoseList = element<HTMLElement>("#builder-pose-list");
+const builderStatus = element<HTMLElement>("#builder-status");
+const builderClearButton = element<HTMLButtonElement>("#builder-clear");
+const builderDownloadButton = element<HTMLButtonElement>("#builder-download");
 
 const avatarCache = new Map<string, Promise<LoadedAvatar>>();
 const acceptedHostedAvatars = new Set<string>();
@@ -323,6 +366,8 @@ let totalPublicRooms = 0;
 let currentWheelEmotion: WheelEmotion = { emotion: 0, intensity: 0 };
 let suppressWheelChange = false;
 let importedAvatarSequence = 0;
+const builderPoses: Array<CreatorPose & { filename: string }> = [];
+let builderBusy = false;
 
 const emotionWheel = createEmotionWheel({
   size: 132,
@@ -401,6 +446,153 @@ async function importLocalAvatar(file: File): Promise<void> {
   await updateCharacterPreview();
   updateControls();
   setStatus(`${imported.name} is now appearing locally. It stays in this tab and is not uploaded or shared.`);
+}
+
+function setBuilderStatus(message: string, error = false): void {
+  builderStatus.textContent = message;
+  builderStatus.classList.toggle("error", error);
+}
+
+function updateBuilderControls(): void {
+  builderAuraValue.value = `${builderAuraInput.value} px`;
+  builderAddPosesButton.disabled = builderBusy;
+  builderDownloadButton.disabled = builderBusy || builderPoses.length === 0 || builderNameInput.value.trim().length === 0;
+  builderClearButton.disabled = builderBusy || builderPoses.length === 0;
+}
+
+function drawBuilderThumbnail(canvas: HTMLCanvasElement, pose: CreatorPose): void {
+  const source = document.createElement("canvas");
+  source.width = pose.art.width;
+  source.height = pose.art.height;
+  source.getContext("2d")?.putImageData(
+    new ImageData(new Uint8ClampedArray(pose.art.pixels), pose.art.width, pose.art.height),
+    0,
+    0,
+  );
+  const context = canvas.getContext("2d");
+  if (!context) return;
+  context.fillStyle = "#fff";
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  const scale = Math.min((canvas.width - 4) / source.width, (canvas.height - 4) / source.height);
+  context.imageSmoothingEnabled = false;
+  context.drawImage(source, (canvas.width - source.width * scale) / 2, canvas.height - source.height * scale - 2, source.width * scale, source.height * scale);
+}
+
+function renderBuilderPoses(): void {
+  builderPoseList.replaceChildren();
+  if (builderPoses.length === 0) {
+    const empty = document.createElement("p");
+    empty.className = "builder-empty";
+    empty.textContent = "No pose images yet.";
+    builderPoseList.append(empty);
+    updateBuilderControls();
+    return;
+  }
+  builderPoses.forEach((pose, index) => {
+    const row = document.createElement("article");
+    row.className = "builder-pose-row";
+    const preview = document.createElement("canvas");
+    preview.width = 54;
+    preview.height = 64;
+    preview.setAttribute("aria-hidden", "true");
+    drawBuilderThumbnail(preview, pose);
+    const details = document.createElement("div");
+    const filename = document.createElement("strong");
+    filename.textContent = pose.filename;
+    filename.title = pose.filename;
+    const emotion = document.createElement("select");
+    emotion.setAttribute("aria-label", `Emotion for ${pose.filename}`);
+    for (const [value, label] of BUILDER_EMOTIONS) emotion.append(new Option(label, String(value)));
+    emotion.value = String(pose.emotion);
+    emotion.addEventListener("change", () => { pose.emotion = Number(emotion.value); });
+    const intensityLabel = document.createElement("label");
+    intensityLabel.textContent = "Intensity ";
+    const intensity = document.createElement("input");
+    intensity.type = "range";
+    intensity.min = "0";
+    intensity.max = "100";
+    intensity.value = String(Math.round(pose.intensity * 100));
+    const intensityValue = document.createElement("output");
+    intensityValue.value = `${intensity.value}%`;
+    intensity.addEventListener("input", () => {
+      pose.intensity = Number(intensity.value) / 100;
+      intensityValue.value = `${intensity.value}%`;
+    });
+    intensityLabel.append(intensity, intensityValue);
+    details.append(filename, emotion, intensityLabel);
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.textContent = "Remove";
+    remove.setAttribute("aria-label", `Remove ${pose.filename}`);
+    remove.addEventListener("click", () => {
+      builderPoses.splice(index, 1);
+      renderBuilderPoses();
+      setBuilderStatus(builderPoses.length ? `${builderPoses.length} pose images ready.` : "Add at least one neutral pose.");
+    });
+    row.append(preview, details, remove);
+    builderPoseList.append(row);
+  });
+  updateBuilderControls();
+}
+
+async function addBuilderPoseFiles(files: readonly File[]): Promise<void> {
+  if (builderPoses.length + files.length > 16) throw new Error("A character can have at most 16 poses");
+  const defaults = [9, 1, 5, 6, 10, 8, 7, 14];
+  builderBusy = true;
+  updateBuilderControls();
+  try {
+    for (const file of files) {
+      setBuilderStatus(`Reading ${file.name}…`);
+      const art = await imageFileToRgba(file);
+      const emotion = defaults[builderPoses.length % defaults.length];
+      builderPoses.push({ filename: file.name, art, emotion, intensity: emotion === 9 ? 0 : 0.8 });
+    }
+  } finally {
+    builderBusy = false;
+    renderBuilderPoses();
+  }
+  setBuilderStatus(`${builderPoses.length} pose ${builderPoses.length === 1 ? "image" : "images"} ready. Assign the matching emotion to each.`);
+}
+
+function downloadAvatar(buffer: ArrayBuffer, name: string): void {
+  const url = URL.createObjectURL(new Blob([buffer], { type: "application/octet-stream" }));
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = avatarDownloadName(name);
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1_000);
+}
+
+async function buildAndUseAvatar(): Promise<void> {
+  if (sessionCustomAvatars.size >= MAX_SESSION_CUSTOM_AVATARS) throw new Error("This tab already has the maximum of 24 custom avatars");
+  builderBusy = true;
+  updateBuilderControls();
+  setBuilderStatus("Building the Comic Chat character…");
+  try {
+    const name = builderNameInput.value.trim();
+    const buffer = await buildSimpleAvatar({
+      name,
+      credit: builderCreditInput.value,
+      style: builderStyleSelect.value === "color" ? "color" : "mono",
+      aura: Number(builderAuraInput.value),
+      poses: builderPoses,
+    });
+    const imported = await validateAvatarImport(buffer, avatarDownloadName(name));
+    const key = `local-avatar:${++importedAvatarSequence}`;
+    avatarCache.set(key, Promise.resolve(loadedAvatar(buffer, imported.metadata)));
+    sessionCustomAvatars.add(key);
+    characterSelect.append(new Option(`${imported.name} — created`, key));
+    characterSelect.value = key;
+    resetEmotionWheel();
+    await updateCharacterPreview();
+    downloadAvatar(buffer, imported.name);
+    avatarBuilderDialog.close();
+    updateControls();
+    setStatus(`${imported.name} was built, selected, and downloaded. It remains local until you host the .avb.`);
+  } finally {
+    builderBusy = false;
+    updateBuilderControls();
+  }
 }
 
 async function prepareHostedAvatar(nickname: string): Promise<string | undefined> {
@@ -1152,6 +1344,33 @@ avatarFileInput.addEventListener("change", () => {
   const file = avatarFileInput.files?.[0];
   avatarFileInput.value = "";
   if (file) void importLocalAvatar(file).catch(showError);
+});
+createAvatarButton.addEventListener("click", () => {
+  renderBuilderPoses();
+  avatarBuilderDialog.showModal();
+  builderNameInput.focus();
+});
+builderNameInput.addEventListener("input", updateBuilderControls);
+builderAuraInput.addEventListener("input", updateBuilderControls);
+builderAddPosesButton.addEventListener("click", () => builderFilesInput.click());
+builderFilesInput.addEventListener("change", () => {
+  const files = [...(builderFilesInput.files ?? [])];
+  builderFilesInput.value = "";
+  if (files.length) void addBuilderPoseFiles(files).catch((error) => {
+    setBuilderStatus(error instanceof Error ? error.message : "Could not read those pose images", true);
+    updateBuilderControls();
+  });
+});
+builderClearButton.addEventListener("click", () => {
+  builderPoses.length = 0;
+  renderBuilderPoses();
+  setBuilderStatus("Add at least one neutral pose.");
+});
+builderDownloadButton.addEventListener("click", () => {
+  void buildAndUseAvatar().catch((error) => {
+    setBuilderStatus(error instanceof Error ? error.message : "Could not build the avatar", true);
+    updateBuilderControls();
+  });
 });
 messageMode.addEventListener("change", updateControls);
 function horizontalPadding(target: Element): number {
