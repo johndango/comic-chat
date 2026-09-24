@@ -14,7 +14,8 @@ on settings captured from the original client. The independent zoom slider
 scales the reading view from 60% to 160%; both preferences are remembered.
 Panels never shrink below the original client's 2,300-twip minimum and use a
 scrollable comic surface on narrow screens. Saved PNGs retain the original
-resolution and add a narrow white gutter between adjacent panel borders. In
+resolution and add the same narrow white gutter between adjacent panel borders
+and around all four outer edges. In
 offline mode the selected character remains selected until the
 user chooses another one.
 
