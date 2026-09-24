@@ -109,8 +109,19 @@ button:active:not(:disabled) { border-top-color: #333; border-left-color: #333; 
 button:focus-visible { outline: 1px dotted #000; outline-offset: -5px; }
 button:disabled { color: #808080; text-shadow: 1px 1px #fff; cursor: not-allowed; box-shadow: none; }
 .live-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
-.connect-button { font-weight: 700; }
+.connect-button { grid-column: 1 / -1; min-height: 34px; font-weight: 700; font-size: 13px; }
+.live-console[data-state="offline"] .connect-button,
+.live-console[data-state="disconnected"] .connect-button,
+.live-console[data-state="browsing"] .connect-button,
+.live-console[data-state="error"] .connect-button { color: #fff; background: var(--navy); border-top-color: #4a84e8; border-left-color: #4a84e8; border-right-color: #000040; border-bottom-color: #000040; }
+.live-console[data-state="offline"] .connect-button:active:not(:disabled),
+.live-console[data-state="disconnected"] .connect-button:active:not(:disabled),
+.live-console[data-state="browsing"] .connect-button:active:not(:disabled),
+.live-console[data-state="error"] .connect-button:active:not(:disabled) { color: #fff; background: #000060; }
 .libera-web-chat { grid-column: 1 / -1; color: #000080; text-align: center; white-space: nowrap; }
+.connection-guidance { grid-column: 1 / -1; margin: 0; padding: 7px 9px; border-top: 1px solid #808080; border-left: 1px solid #808080; border-right: 1px solid #fff; border-bottom: 1px solid #fff; background: #ffffdf; }
+.live-console[data-state="connecting"] .connection-guidance,
+.live-console[data-state="joining"] .connection-guidance { background: #fff; }
 
 .room-browser { margin: 8px; padding: 3px; border-top: 2px solid #fff; border-left: 2px solid #fff; border-right: 2px solid #333; border-bottom: 2px solid #333; background: var(--face); }
 .room-browser > header { height: 24px; padding: 4px 6px; display: flex; justify-content: space-between; color: #fff; background: var(--navy); }

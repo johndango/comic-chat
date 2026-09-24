@@ -249,18 +249,19 @@ app.innerHTML = `
       <section id="live-console" class="live-console" data-state="offline" aria-label="IRC connection">
         <div class="live-heading">
           <span id="live-dot" class="live-dot"></span>
-          <span><small>Connection</small><strong id="live-status">Not connected</strong></span>
+          <span><small>Connection</small><strong id="live-status">Offline — not connected</strong></span>
         </div>
         <label>Server<select id="network"><option value="libera">Libera.Chat</option><option value="oftc">OFTC</option></select></label>
         <label>Nickname<input id="nickname" maxlength="16" autocomplete="nickname" /></label>
         <label>Channel<input id="channel" maxlength="52" value="${DEFAULT_ROOM_SELECTION.channel}" placeholder="#channel" spellcheck="false" /></label>
         <div class="live-actions">
-          <button id="connect-live" class="connect-button" type="button">Connect &amp; join</button>
+          <button id="connect-live" class="connect-button" type="button">Join ${DEFAULT_ROOM_SELECTION.channel}</button>
           <button id="browse-rooms" type="button">Browse channels…</button>
           <button id="share-room" class="share-room-button" type="button">Copy channel link</button>
           <button id="disconnect-live" type="button" disabled>Disconnect</button>
           <a id="libera-web-chat" class="libera-web-chat" href="${createLiberaWebChatUrl(DEFAULT_ROOM_SELECTION.channel)}" target="_blank" rel="noreferrer">Open ${DEFAULT_ROOM_SELECTION.channel} in Libera web chat ↗</a>
         </div>
+        <p id="connection-guidance" class="connection-guidance" role="status"><strong>You’re offline.</strong> Choose a nickname, then join ${DEFAULT_ROOM_SELECTION.channel} to start chatting.</p>
       </section>
 
       <section id="room-browser" class="room-browser" hidden aria-label="Public room directory">
@@ -433,6 +434,7 @@ const menuCommandButtons = [...classicMenu.querySelectorAll<HTMLButtonElement>("
 const aboutDialog = element<HTMLDialogElement>("#about-dialog");
 const liveConsole = element<HTMLElement>("#live-console");
 const liveStatus = element<HTMLElement>("#live-status");
+const connectionGuidance = element<HTMLElement>("#connection-guidance");
 const networkSelect = element<HTMLSelectElement>("#network");
 const nicknameInput = element<HTMLInputElement>("#nickname");
 const channelInput = element<HTMLInputElement>("#channel");
@@ -1157,16 +1159,31 @@ function renderRoomList(): void {
   roomSummary.textContent = `${matching.length} shown · ${totalPublicRooms || publicRooms.size} public channels found`;
 }
 
+function setConnectionGuidance(lead: string, detail: string): void {
+  const strong = document.createElement("strong");
+  strong.textContent = lead;
+  connectionGuidance.replaceChildren(strong, ` ${detail}`);
+}
+
 function updateLiveUi(state: LiveState, message: string): void {
   liveState = state;
   liveConsole.dataset.state = state;
-  liveStatus.textContent = message;
+  liveStatus.textContent = state === "offline" || state === "disconnected" ? "Offline — not connected" : message;
   const active = state === "connecting" || state === "browsing" || state === "joining" || state === "joined";
   const busy = state === "connecting" || state === "joining";
   networkSelect.disabled = active;
   nicknameInput.disabled = active;
   channelInput.disabled = busy;
-  connectButton.textContent = state === "joined" ? "Switch channel" : state === "browsing" ? "Join channel" : "Connect & join";
+  connectionGuidance.hidden = state === "joined";
+  if (state === "offline" || state === "disconnected") {
+    setConnectionGuidance("You’re offline.", `Choose a nickname, then join ${channelInput.value || DEFAULT_ROOM_SELECTION.channel} to start chatting.`);
+  } else if (state === "browsing") {
+    setConnectionGuidance("You’re connected to IRC, but not in a channel.", "Choose a channel below or type one above.");
+  } else if (state === "connecting") {
+    setConnectionGuidance("Connecting to IRC…", "This normally takes only a moment.");
+  } else if (state === "joining") {
+    setConnectionGuidance(`Joining ${channelInput.value}…`, "Waiting for the channel to accept the connection.");
+  }
   connectButton.disabled = busy;
   browseRoomsButton.disabled = busy;
   disconnectButton.disabled = !active;
@@ -1246,8 +1263,20 @@ function updateControls(): void {
   downloadButton.disabled = conversation.length === 0 || isAdding;
   const room = normalizeRoomSelection(networkSelect.value, channelInput.value);
   const busy = liveState === "connecting" || liveState === "joining";
+  const alreadyJoined = liveState === "joined"
+    && room !== undefined
+    && room.channel.toLocaleLowerCase() === joinedChannel.toLocaleLowerCase();
   shareRoomButton.disabled = !room;
-  connectButton.disabled = busy || !room;
+  connectButton.disabled = busy || !room || alreadyJoined;
+  connectButton.textContent = busy
+    ? liveState === "joining" && room ? `Joining ${room.channel}…` : "Connecting…"
+    : alreadyJoined
+      ? `Joined ${joinedChannel}`
+      : liveState === "joined" && room
+        ? `Switch to ${room.channel}`
+        : room
+          ? `Join ${room.channel}`
+          : "Enter a #channel";
   browseRoomsButton.disabled = busy;
   disconnectButton.disabled = !liveClient.active;
   refreshRoomsButton.disabled = roomBrowser.hidden || (liveState !== "browsing" && liveState !== "joined");
@@ -1820,7 +1849,12 @@ disconnectButton.addEventListener("click", () => liveClient.disconnect());
 closeRoomBrowserButton.addEventListener("click", () => setRoomBrowserVisible(false));
 shareRoomButton.addEventListener("click", () => copyRoomLink().catch(showError));
 networkSelect.addEventListener("change", updateControls);
-channelInput.addEventListener("input", updateControls);
+channelInput.addEventListener("input", () => {
+  updateControls();
+  if (liveState === "offline" || liveState === "disconnected") {
+    setConnectionGuidance("You’re offline.", `Choose a nickname, then join ${channelInput.value || DEFAULT_ROOM_SELECTION.channel} to start chatting.`);
+  }
+});
 roomFilter.addEventListener("input", renderRoomList);
 refreshRoomsButton.addEventListener("click", () => {
   try {
