@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { AvatarType, parseAvatar } from "./avb";
-import { bodyForEmotion, placeHeadOnTorso } from "./composite";
+import { applyMonochromeAura, bodyForEmotion, placeHeadOnTorso } from "./composite";
 import { analyzeMessage } from "./emotion";
 
 const artDirectory = new URL("../../v2.5-beta-1-modern/comicart/", import.meta.url);
@@ -42,6 +42,32 @@ describe("colour avatars with dual masks", () => {
     const fraction = opaque / (body.bitmap.width * body.bitmap.height);
     expect(fraction).toBeGreaterThan(0.15);
     expect(fraction).toBeLessThan(0.85);
+  });
+});
+
+describe("colour avatars with separate monochrome auras", () => {
+  it("inverts the old GDI mask into RGBA transparency", () => {
+    const image = {
+      width: 2,
+      height: 1,
+      pixels: new Uint8ClampedArray([
+        200, 40, 20, 255,
+        255, 255, 255, 255,
+      ]),
+    };
+    const aura = {
+      width: 2,
+      height: 1,
+      pixels: new Uint8ClampedArray([
+        0, 0, 0, 255,
+        255, 255, 255, 255,
+      ]),
+    };
+    const result = applyMonochromeAura(image, aura);
+    expect(Array.from(result.pixels)).toEqual([
+      200, 40, 20, 255,
+      255, 255, 255, 0,
+    ]);
   });
 });
 

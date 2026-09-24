@@ -143,7 +143,30 @@ export function applyDualMask(image: DecodedBitmap, mask: DecodedBitmap): Decode
   return { width: image.width, height: image.height, pixels: out };
 }
 
-/** Decode a pose's art, applying its dual mask when it has one. */
+/**
+ * Apply the separate 1-bit aura record used by older colour avatars.
+ * Its GDI mask is white outside the complete figure/nimbus and black wherever
+ * the drawing should remain. In an RGBA result that is exactly an inverted
+ * alpha mask: white becomes transparent and black becomes opaque.
+ */
+export function applyMonochromeAura(image: DecodedBitmap, aura: DecodedBitmap): DecodedBitmap {
+  const out = new Uint8ClampedArray(image.pixels);
+  for (let y = 0; y < image.height; y += 1) {
+    for (let x = 0; x < image.width; x += 1) {
+      const target = (y * image.width + x) * 4;
+      if (x >= aura.width || y >= aura.height) {
+        out[target + 3] = 0;
+        continue;
+      }
+      const source = (y * aura.width + x) * 4;
+      const luminance = aura.pixels[source] + aura.pixels[source + 1] + aura.pixels[source + 2];
+      out[target + 3] = luminance < 384 ? 255 : 0;
+    }
+  }
+  return { width: image.width, height: image.height, pixels: out };
+}
+
+/** Decode a pose's art, applying either supported transparency representation. */
 export async function decodePose(
   buffer: ArrayBuffer,
   pose: PoseDescriptor,
@@ -152,8 +175,17 @@ export async function decodePose(
 ): Promise<DecodedBitmap> {
   const image = await decode(buffer, pose.image, avatar.palette);
   if (pose.image.paletteType === PaletteType.MaskedMonochrome) return image;
-  if (!pose.mask.offset || pose.mask.paletteType !== PaletteType.DualMask) return image;
-  return applyDualMask(image, await decode(buffer, pose.mask, avatar.palette));
+  if (pose.mask.offset && pose.mask.paletteType === PaletteType.DualMask) {
+    return applyDualMask(image, await decode(buffer, pose.mask, avatar.palette));
+  }
+  const separateAura = pose.aura.offset && pose.aura.paletteType === PaletteType.Monochrome
+    ? pose.aura
+    : !pose.aura.offset && pose.mask.offset && pose.mask.paletteType === PaletteType.Monochrome
+      ? pose.mask
+      : undefined;
+  return separateAura
+    ? applyMonochromeAura(image, await decode(buffer, separateAura, avatar.palette))
+    : image;
 }
 
 /**
