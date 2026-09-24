@@ -248,3 +248,31 @@ describe("show, title and fact", () => {
   });
 });
 
+describe("about mentions the AI bot while it's present", () => {
+  const withFriend = { ...config, aiFriend: "TongueTiedBot" };
+  const ask = (brain: BotBrain) => brain.handle({ type: "message", channel: "#c", nick: "Anna", text: "BettyBot: about", at: T0 })[0].text;
+
+  it("explains how to talk to TongueTiedBot when it's in the room", () => {
+    const brain = new BotBrain(withFriend);
+    brain.handle({ type: "names", channel: "#c", nicks: ["BettyBot", "TongueTiedBot", "Anna"], at: T0 });
+    const text = ask(brain);
+    expect(text).toMatch(/Comic Chat did in 1996/);
+    expect(text).toMatch(/TongueTiedBot is here too/);
+    expect(text).toMatch(/start a line with "TongueTiedBot:"/);
+    expect(Buffer.byteLength(text)).toBeLessThanOrEqual(400);
+  });
+
+  it("leaves it out when the AI bot isn't there", () => {
+    const brain = new BotBrain(withFriend);
+    brain.handle({ type: "names", channel: "#c", nicks: ["BettyBot", "Anna"], at: T0 });
+    expect(ask(brain)).not.toMatch(/TongueTiedBot/);
+  });
+
+  it("notices the AI bot leaving", () => {
+    const brain = new BotBrain(withFriend);
+    brain.handle({ type: "names", channel: "#c", nicks: ["BettyBot", "TongueTiedBot", "Anna"], at: T0 });
+    brain.handle({ type: "part", channel: "#c", nick: "TongueTiedBot", at: T0 });
+    expect(ask(brain)).not.toMatch(/TongueTiedBot/);
+  });
+});
+

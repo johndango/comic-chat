@@ -1,3 +1,4 @@
+import { addressedText, parseAddressing, withoutAiMarker } from "./addressing";
 import "@fontsource/comic-neue/400.css";
 import "@fontsource/comic-neue/400-italic.css";
 import comicNeueLicenseUrl from "@fontsource/comic-neue/LICENSE?url";
@@ -1225,14 +1226,18 @@ async function addRemoteMessage(event: LiveMessageEvent): Promise<void> {
   }
   renderMembers();
   const normalized = normalizeIrcText(event.message);
-  const { text } = normalized;
+  // Draw bots' AI-marked lines without the marker; take a "Name:" prefix off
+  // the balloon and turn the speaker toward those people instead.
+  const addressed = parseAddressing(withoutAiMarker(event.nickname, normalized.text), knownMembers);
+  const { text } = addressed;
   if (!text) return;
   // A whisper shows in this room's comic only for the person it was sent to,
   // with the sender facing them, as Comic Chat drew it.
   const mode: BalloonMode = event.whisper && normalized.mode !== "action" ? "whisper" : normalized.mode;
   const characterFile = characterForNickname(event.nickname);
   const whisperTarget = typeof event.to === "string" ? [event.to] : [];
-  const line = await createConversationLine(characterFile, text, event.nickname, mode, whisperTarget, !event.whisper);
+  const faceToward = event.whisper ? whisperTarget : addressed.to;
+  const line = await createConversationLine(characterFile, text, event.nickname, mode, faceToward, !event.whisper);
   appendConversationLine(line, true);
   setStatus(`${event.nickname}${event.whisper ? " whispered to you" : ""}: ${line.expression} · live IRC`);
 }
@@ -1925,7 +1930,9 @@ async function addPanel(): Promise<void> {
     if (liveState === "joined") {
       // Whispers go privately to each selected member; nobody else receives them.
       if (mode === "whisper") liveClient.whisper(whisperTo, message);
-      else liveClient.say(message, mode === "action");
+      // Say who the line is for with IRC's usual "Name:" prefix, so other
+      // comics (and bots) know who you're talking to. Actions stay as they are.
+      else liveClient.say(mode === "action" ? message : addressedText(message, whisperTo), mode === "action");
       const sentNote = mode === "whisper" ? ` · whispered to ${whisperTo.join(", ")}` : " · sent to IRC";
       pendingLiveLines.push({ line, sentNote });
       setStatus(`Sending ${line.mode === "whisper" ? "whisper" : "message"}…`);

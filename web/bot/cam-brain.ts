@@ -117,10 +117,36 @@ export class CamBrain {
     return this.operators.get(key)!;
   }
 
+  /** The bot's name plus friendly variants: TongueTiedBot → tonguetied, tongue-tied, tongue tied. */
+  private aliases(): string[] {
+    const nick = this.config.nick;
+    const base = nick.replace(/bot[_\d]*$/i, "");
+    const names = new Set([nick.toLowerCase()]);
+    // Short bases ("Cam") would match ordinary words, so only longer ones count.
+    if (base.length >= 5) {
+      names.add(base.toLowerCase());
+      const words = base.replace(/([a-z])([A-Z])/g, "$1 $2").toLowerCase();
+      names.add(words);
+      names.add(words.replace(/ /g, "-"));
+    }
+    return [...names];
+  }
+
+  /**
+   * The request if this line is addressed to the bot, else null. Counts:
+   * "Name: hi" / "@Name hi" / "Anna, Name: hi" (what the site sends when you
+   * pick people in the member list), or the name anywhere in the line.
+   */
   private addressed(text: string): string | null {
-    const nick = this.config.nick.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const match = text.match(new RegExp(`^\\s*@?${nick}\\b[\\s,:]*(.*)$`, "i"));
-    return match ? match[1].trim() : null;
+    const names = this.aliases();
+    // "Anna, Name: hi" (a list needs the colon) or "Name, hi" (one name, comma).
+    const prefix = text.match(/^\s*@?([^:]{1,120}?)\s*:\s+(\S[\s\S]*)$/u) ?? text.match(/^\s*@?([^\s,:]{1,32}),\s+(\S[\s\S]*)$/u);
+    if (prefix) {
+      const listed = prefix[1].split(/\s*,\s*|\s+and\s+/u).map((name) => name.replace(/^@/, "").toLowerCase());
+      if (listed.some((name) => names.includes(name))) return prefix[2].trim();
+    }
+    const anywhere = new RegExp(`(^|[^a-z0-9_])@?(${names.map((n) => n.replace(/[.*+?^${}()|[\]\\-]/g, "\\$&")).join("|")})(?=$|[^a-z0-9_])`, "i");
+    return anywhere.test(text) ? text.trim() : null;
   }
 
   /**

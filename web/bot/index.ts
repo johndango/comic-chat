@@ -9,6 +9,7 @@
 //   SITE_URL          https://webcomicchat.com
 //   BOT_SCHEDULE      e.g. "Chat nights are Fridays at 8pm ET."
 //   BOT_IGNORE        other bots' nicks, comma-separated
+//   BOT_AI_FRIEND     TongueTiedBot             the room's AI bot, explained by "about" while present
 
 import { BotBrain, type BotEvent } from "./brain";
 import { IrcBot } from "./irc";
@@ -29,7 +30,13 @@ if (avatarUrl && (!avatarUrl.startsWith("https://") || avatarUrl.length > 2048))
   throw new Error("BOT_AVATAR_URL must be an HTTPS URL");
 }
 
-const brain = new BotBrain({ nick, siteUrl, schedule: env.BOT_SCHEDULE || undefined, ignore: list(env.BOT_IGNORE) });
+const brain = new BotBrain({
+  nick,
+  siteUrl,
+  schedule: env.BOT_SCHEDULE || undefined,
+  ignore: list(env.BOT_IGNORE),
+  aiFriend: env.BOT_AI_FRIEND ?? "TongueTiedBot",
+});
 
 const log = (s: string) => console.log(`${new Date().toISOString()} ${s}`);
 

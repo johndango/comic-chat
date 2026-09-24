@@ -9,6 +9,8 @@
 export interface BotConfig {
   nick: string;
   siteUrl: string;
+  /** The room's AI bot, if any; "about" explains how to chat with it while it's present. */
+  aiFriend?: string;
   /** Shown to people who arrive in an empty room, e.g. "Chat nights are Fridays at 8pm ET". */
   schedule?: string;
   /** Nicks (lower case) never to greet or answer, e.g. other bots. */
@@ -250,7 +252,8 @@ export class BotBrain {
     if (allowed === "notice") {
       return [{ target: replyTo, text: `Catching my breath, ${event.nick}. Ask me again in a minute :)`, delay: 1500 }];
     }
-    return [{ target: replyTo, text: this.answer(request, event.nick), delay: 1500 }];
+    const aiPresent = !!event.channel && !!this.config.aiFriend && this.aiFriendIn(event.channel);
+    return [{ target: replyTo, text: this.answer(request, event.nick, aiPresent), delay: 1500 }];
   }
 
   private nextTip(): string {
@@ -270,7 +273,12 @@ export class BotBrain {
   }
 
   /** Canned answers only: nothing the user typed is ever echoed back. */
-  answer(request: string, nick: string): string {
+  private aiFriendIn(channel: string): boolean {
+    const friend = fold(this.config.aiFriend ?? "");
+    return [...this.channel(channel).members].some((member) => fold(member) === friend);
+  }
+
+  answer(request: string, nick: string, aiPresent = false): string {
     const q = fold(request);
     if (/^(help|commands|\?)?$/.test(q)) {
       return `Hi ${nick}! Ask me for: tips, show, title, fact, link, about, or schedule. Or just chat and watch the comic draw itself :)`;
@@ -292,7 +300,10 @@ export class BotBrain {
     }
     if (/\b(bot|human|real|person|robot)\b/.test(q)) return "Yes, I'm a bot. Everyone else here is a real person :)";
     if (/\b(about|who|what|comic chat)\b/.test(q)) {
-      return "This room is drawn live as a comic, like Microsoft Comic Chat did in 1996. The site rebuilt it from the original source code.";
+      const about = "This room is drawn live as a comic, like Microsoft Comic Chat did in 1996. The site rebuilt it from the original source code.";
+      const friend = this.config.aiFriend;
+      if (!aiPresent || !friend) return about;
+      return `${about} ${friend} is here too, an AI you can chat with any time: start a line with "${friend}:" or pick it in the member list. Lines you address to it go to Anthropic's Claude.`;
     }
     if (/\b(hi|hello|hey|howdy)\b/.test(q)) return `Hi ${nick} :)`;
     if (/\b(thanks|thank you|thx|ty)\b/.test(q)) return "Any time :)";
