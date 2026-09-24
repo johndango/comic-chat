@@ -26,7 +26,7 @@ import {
 } from "./avatar-creator";
 import { bodyForText, composeChoice, type ComposedBody } from "./composite";
 import { createEmotionWheel, posesForWheel, type WheelEmotion } from "./emotion-wheel";
-import { describeOptions, emotionOptions, newPoseMemory, type PoseChoice, type PoseMemory } from "./expression";
+import { choosePoses, describeOptions, EM, emotionOptions, newPoseMemory, type PoseChoice, type PoseMemory } from "./expression";
 import { IrcWebClient, type LiveEvent, type LiveMessageEvent, type LiveRoomEvent, type LiveState } from "./irc-client";
 import { balloonFontMetrics, type BalloonMode } from "./layout/balloon";
 import { ComicPage, type ComicLine, type PanelLayout } from "./layout/page";
@@ -222,7 +222,46 @@ interface ConversationLine {
   linkable: boolean;
   breakBefore?: boolean;
   reaction?: boolean;
+  studioPose?: StudioPoseId;
 }
+
+type StudioPoseId = "auto" | "neutral" | "happy" | "coy" | "bored" | "scared" | "sad" | "angry" | "shout" | "laugh" | "wave" | "point-other" | "point-self" | "shrug";
+
+const STUDIO_POSES: ReadonlyArray<{ id: StudioPoseId; label: string }> = [
+  { id: "auto", label: "Automatic (from words)" },
+  { id: "neutral", label: "Neutral" },
+  { id: "happy", label: "Happy" },
+  { id: "coy", label: "Coy / wink" },
+  { id: "bored", label: "Bored" },
+  { id: "scared", label: "Scared" },
+  { id: "sad", label: "Sad" },
+  { id: "angry", label: "Angry" },
+  { id: "shout", label: "Shouting" },
+  { id: "laugh", label: "Laughing" },
+  { id: "wave", label: "Wave" },
+  { id: "point-other", label: "Point outward" },
+  { id: "point-self", label: "Point at self" },
+  { id: "shrug", label: "Shrug" },
+];
+
+const STUDIO_WHEEL_EMOTIONS: Partial<Record<StudioPoseId, number>> = {
+  neutral: EM.NEUTRAL,
+  happy: EM.HAPPY,
+  coy: EM.COY,
+  bored: EM.BORED,
+  scared: EM.SCARED,
+  sad: EM.SAD,
+  angry: EM.ANGRY,
+  shout: EM.SHOUT,
+  laugh: EM.LAUGH,
+};
+
+const STUDIO_GESTURES: Partial<Record<StudioPoseId, number>> = {
+  wave: EM.WAVE,
+  "point-other": EM.POINTOTHER,
+  "point-self": EM.POINTSELF,
+  shrug: EM.SHRUG,
+};
 
 interface PendingLiveLine {
   line: ConversationLine;
@@ -260,7 +299,7 @@ app.innerHTML = `
     <nav id="classic-menu" class="classic-menu" aria-label="Application menu">
       <details><summary><u>F</u>ile</summary><div class="classic-menu-popup">
         <button type="button" data-command="new-comic">New comic</button>
-        <button type="button" data-command="strip-workshop">Open Strip Workshop…</button>
+        <button type="button" data-command="strip-workshop">Open Offline Comic Studio…</button>
         <button type="button" data-command="import-avatar">Import character…</button>
         <button type="button" data-command="create-avatar">Create character…</button>
         <hr />
@@ -351,7 +390,7 @@ app.innerHTML = `
         <p>Double-click a channel—or use Join—to enter it. You can always type another channel above and choose Join/Switch.</p>
       </section>
 
-      <div class="room-tab"><span aria-hidden="true">▰</span><strong id="room-tab-label">Offline comic</strong><button id="open-strip-workshop" type="button">Edit offline strip…</button></div>
+      <div class="room-tab"><span aria-hidden="true">▰</span><strong id="room-tab-label">Offline comic</strong><button id="open-strip-workshop" type="button">Open Comic Studio…</button></div>
       <section id="workspace" class="workspace" aria-label="Comic conversation editor">
         <div class="stage-wrap conversation-stage">
           <div class="strip-heading">
@@ -509,12 +548,12 @@ app.innerHTML = `
     </dialog>
     <dialog id="strip-workshop-dialog" class="classic-dialog strip-workshop-dialog" aria-labelledby="strip-workshop-title">
       <form method="dialog">
-        <header><strong id="strip-workshop-title">Strip Workshop</strong><button value="cancel" aria-label="Close">×</button></header>
+        <header><strong id="strip-workshop-title">Offline Comic Studio</strong><button value="cancel" aria-label="Close">×</button></header>
         <div class="dialog-body workshop-body">
           <div class="workshop-intro">
             <div>
               <strong>Direct the comic one line at a time.</strong>
-              <p>Recast speakers, rewrite dialogue, move beats, or mark where a new panel must begin. The Comic Chat engine still chooses poses and lays out every shot.</p>
+              <p>Build a cast, direct expressions and gestures, rewrite dialogue, move beats, or mark where a new panel begins. The Comic Chat engine composes the finished shots.</p>
             </div>
             <output id="workshop-summary">0 lines</output>
           </div>
@@ -523,11 +562,34 @@ app.innerHTML = `
             <input id="workshop-comic-title" maxlength="80" placeholder="Automatic Comic Chat title" />
             <button id="workshop-apply-title" type="button">Apply title</button>
           </div>
+          <details class="workshop-help">
+            <summary>How to build an offline comic</summary>
+            <ol>
+              <li>Choose a character under <strong>Add a new beat</strong>. Pick a different character for each new line to build your cast.</li>
+              <li>Choose <strong>Automatic</strong> to let words and emoticons choose the pose, or select an exact expression or gesture.</li>
+              <li>Use <strong>Add speaking line</strong> for dialogue. Use <strong>Add silent panel</strong> to create a new panel with a posed character and no text.</li>
+              <li><strong>Start a new panel</strong> begins a fresh shot. Leave it off when you want the engine to try placing another character in the current shot.</li>
+              <li>Edit, recast, pose, reorder, or remove existing beats below, then use <strong>Save Comic</strong> in the main window to export the PNG.</li>
+            </ol>
+            <p>Studio changes stay in this browser and are never sent to IRC. Comic Chat may start a new panel automatically when a character speaks twice or a shot becomes full.</p>
+          </details>
+          <section class="workshop-add" aria-labelledby="workshop-add-title">
+            <header><strong id="workshop-add-title">Add a new beat</strong><span>Choose a new character here to add them to the cast.</span></header>
+            <div class="workshop-add-fields">
+              <label>Character<select id="workshop-add-character"></select></label>
+              <label>Display name<input id="workshop-add-name" maxlength="32" placeholder="Character name" /></label>
+              <label>Pose<select id="workshop-add-pose"></select></label>
+              <label>Balloon<select id="workshop-add-mode"><option value="say">Say</option><option value="think">Think</option><option value="whisper">Whisper</option><option value="action">Action / narration</option></select></label>
+              <label class="workshop-add-dialogue">Dialogue<textarea id="workshop-add-message" maxlength="180" rows="2" placeholder="Type a line, or use Add silent panel without one"></textarea></label>
+              <label class="workshop-add-break"><input id="workshop-add-break" type="checkbox" /> Start a new panel</label>
+              <div class="workshop-add-actions"><button id="workshop-add-speaking" type="button">Add speaking line</button><button id="workshop-add-silent" type="button">Add silent panel</button></div>
+            </div>
+          </section>
           <div class="workshop-key" aria-hidden="true"><span>Sequence</span><span>Script &amp; staging</span><span>Line tools</span></div>
           <div id="workshop-lines" class="workshop-lines"></div>
           <p class="workshop-local-note">Workshop edits change only this local comic. They are never sent back to IRC.</p>
         </div>
-        <footer><button id="workshop-compose" type="button">Add a line with the composer…</button><button value="cancel">Close</button></footer>
+        <footer><span>Tip: every beat can use a different character and pose.</span><button value="cancel">Close</button></footer>
       </form>
     </dialog>
     <dialog id="avatar-builder-dialog" class="classic-dialog avatar-builder-dialog" aria-labelledby="avatar-builder-title">
@@ -643,8 +705,15 @@ const stripWorkshopDialog = element<HTMLDialogElement>("#strip-workshop-dialog")
 const workshopSummary = element<HTMLOutputElement>("#workshop-summary");
 const workshopComicTitle = element<HTMLInputElement>("#workshop-comic-title");
 const workshopApplyTitleButton = element<HTMLButtonElement>("#workshop-apply-title");
+const workshopAddCharacter = element<HTMLSelectElement>("#workshop-add-character");
+const workshopAddName = element<HTMLInputElement>("#workshop-add-name");
+const workshopAddPose = element<HTMLSelectElement>("#workshop-add-pose");
+const workshopAddMode = element<HTMLSelectElement>("#workshop-add-mode");
+const workshopAddMessage = element<HTMLTextAreaElement>("#workshop-add-message");
+const workshopAddBreak = element<HTMLInputElement>("#workshop-add-break");
+const workshopAddSpeakingButton = element<HTMLButtonElement>("#workshop-add-speaking");
+const workshopAddSilentButton = element<HTMLButtonElement>("#workshop-add-silent");
 const workshopLines = element<HTMLElement>("#workshop-lines");
-const workshopComposeButton = element<HTMLButtonElement>("#workshop-compose");
 const roomTabLabel = element<HTMLElement>("#room-tab-label");
 const windowRoom = element<HTMLElement>("#window-room");
 const characterPane = element<HTMLElement>("#character-pane");
@@ -1049,6 +1118,20 @@ function displayCharacterName(avatar: AvatarFile, file: string): string {
   return name.toLocaleLowerCase().replace(/(^|[\s-])\p{L}/gu, (letter) => letter.toLocaleUpperCase());
 }
 
+function studioPoseChoice(avatar: AvatarFile, pose: StudioPoseId): PoseChoice | undefined {
+  if (pose === "auto") return undefined;
+  const wheelEmotion = STUDIO_WHEEL_EMOTIONS[pose];
+  if (wheelEmotion !== undefined) {
+    return posesForWheel(avatar, {
+      emotion: wheelEmotion,
+      intensity: pose === "neutral" ? 0 : 1,
+    }, newPoseMemory());
+  }
+  const gesture = STUDIO_GESTURES[pose];
+  if (gesture === undefined) return undefined;
+  return choosePoses(avatar, [{ emotion: gesture, intensity: 1, priority: 100, source: "Offline Comic Studio" }], newPoseMemory());
+}
+
 async function createConversationLine(
   characterFile: string,
   message: string,
@@ -1056,12 +1139,15 @@ async function createConversationLine(
   mode: BalloonMode = "say",
   selected: readonly string[] = [],
   linkable = mode !== "whisper",
+  studioPose: StudioPoseId = "auto",
 ): Promise<ConversationLine> {
   const avatar = await loadAvatar(characterFile);
-  const frozen = frozenPoses.get(characterFile);
+  const explicitStudioPose = studioPoseChoice(avatar.metadata, studioPose);
+  const frozen = studioPose === "auto" ? frozenPoses.get(characterFile) : undefined;
   if (frozen) frozenPoses.delete(characterFile);
-  const body = frozen
-    ? await composeChoice(avatar.buffer, avatar.metadata, frozen)
+  const chosenPose = explicitStudioPose ?? frozen;
+  const body = chosenPose
+    ? await composeChoice(avatar.buffer, avatar.metadata, chosenPose)
     : await bodyForText(avatar.buffer, avatar.metadata, message, avatar.memory);
   cacheBody(avatar, body);
   const options = emotionOptions(message);
@@ -1078,9 +1164,12 @@ async function createConversationLine(
     mode,
     body,
     poseRef: `${characterFile}|${body.key}`,
-    expression: frozen ? "wheel selection" : describeOptions(options),
+    expression: explicitStudioPose
+      ? STUDIO_POSES.find((candidate) => candidate.id === studioPose)?.label ?? "studio pose"
+      : frozen ? "wheel selection" : describeOptions(options),
     talkTo: addressedPeople(message, characterName, selected),
     linkable,
+    studioPose,
   };
 }
 
@@ -1206,7 +1295,7 @@ async function refreshMemberAvatars(nicknames?: ReadonlySet<string>): Promise<vo
     if (!member || (nicknames && !nicknames.has(member))) return line;
     const nextFile = characterForNickname(member);
     if (line.characterFile === nextFile) return line;
-    const replacement = await createConversationLine(nextFile, line.message, line.characterName, line.mode, line.talkTo, line.linkable);
+    const replacement = await createConversationLine(nextFile, line.message, line.characterName, line.mode, line.talkTo, line.linkable, line.studioPose);
     return { ...replacement, breakBefore: line.breakBefore, reaction: line.reaction };
   }));
   if (generation !== avatarRemapGeneration) return;
@@ -1220,7 +1309,7 @@ async function refreshAvatarArtPreference(): Promise<void> {
     const member = [...knownMembers].find((nickname) => nickname.toLocaleLowerCase() === line.characterName.toLocaleLowerCase());
     const nextFile = member ? characterForNickname(member) : preferredAvatarFile(line.characterFile);
     if (line.characterFile === nextFile) return line;
-    const replacement = await createConversationLine(nextFile, line.message, line.characterName, line.mode, line.talkTo, line.linkable);
+    const replacement = await createConversationLine(nextFile, line.message, line.characterName, line.mode, line.talkTo, line.linkable, line.studioPose);
     return { ...replacement, breakBefore: line.breakBefore, reaction: line.reaction };
   }));
   if (generation !== avatarRemapGeneration) return;
@@ -1841,6 +1930,7 @@ function workshopCharacterSelect(line: ConversationLine, index: number): HTMLSel
   select.removeAttribute("id");
   select.value = line.characterFile;
   select.setAttribute("aria-label", `Character for line ${index + 1}`);
+  select.title = "Character";
   if (!select.value) {
     select.append(new Option(`${line.characterName} — current`, line.characterFile));
     select.value = line.characterFile;
@@ -1851,6 +1941,7 @@ function workshopCharacterSelect(line: ConversationLine, index: number): HTMLSel
 function workshopModeSelect(line: ConversationLine, index: number): HTMLSelectElement {
   const select = document.createElement("select");
   select.setAttribute("aria-label", `Balloon style for line ${index + 1}`);
+  select.title = "Balloon style";
   select.append(
     new Option("Say", "say"),
     new Option("Think", "think"),
@@ -1859,6 +1950,64 @@ function workshopModeSelect(line: ConversationLine, index: number): HTMLSelectEl
   );
   select.value = line.mode;
   return select;
+}
+
+function appendStudioPoseOptions(select: HTMLSelectElement): void {
+  select.replaceChildren(...STUDIO_POSES.map(({ id, label }) => new Option(label, id)));
+}
+
+function workshopPoseSelect(line: ConversationLine, index: number): HTMLSelectElement {
+  const select = document.createElement("select");
+  appendStudioPoseOptions(select);
+  select.value = line.studioPose ?? "auto";
+  select.setAttribute("aria-label", `Pose for line ${index + 1}`);
+  select.title = "Expression or gesture";
+  return select;
+}
+
+function selectedWorkshopCharacterName(): string {
+  return workshopAddCharacter.selectedOptions[0]?.textContent?.split(" —")[0].trim() || "Character";
+}
+
+function prepareWorkshopAddForm(resetCharacter = false): void {
+  const previous = resetCharacter ? characterSelect.value : workshopAddCharacter.value;
+  workshopAddCharacter.replaceChildren(...[...characterSelect.children].map((child) => child.cloneNode(true)));
+  workshopAddCharacter.value = previous;
+  if (!workshopAddCharacter.value) workshopAddCharacter.selectedIndex = 0;
+  if (resetCharacter || !workshopAddName.value.trim()) workshopAddName.value = selectedWorkshopCharacterName();
+  if (workshopAddPose.options.length === 0) appendStudioPoseOptions(workshopAddPose);
+}
+
+async function addWorkshopBeat(silent: boolean): Promise<void> {
+  const message = silent ? "" : workshopAddMessage.value.trim();
+  if (!silent && !message) throw new Error("Type some dialogue, or choose Add silent panel");
+  const mode = workshopAddMode.value as BalloonMode;
+  const unsafeLink = blockedMessageLink(message);
+  if (unsafeLink && mode !== "whisper") throw new Error(blockedLinkMessage(unsafeLink));
+  setWorkshopBusy(true);
+  try {
+    const line = await createConversationLine(
+      workshopAddCharacter.value,
+      message,
+      workshopAddName.value.trim() || undefined,
+      mode,
+      [],
+      mode !== "whisper",
+      workshopAddPose.value as StudioPoseId,
+    );
+    line.breakBefore = silent || workshopAddBreak.checked;
+    line.reaction = silent;
+    conversation.push(line);
+    await renderStrip();
+    workshopAddMessage.value = "";
+    workshopAddBreak.checked = false;
+    renderStripWorkshop();
+    setStatus(silent
+      ? `${line.characterName} was added in a new silent panel using the ${line.expression} pose.`
+      : `${line.characterName}'s line was added locally using the ${line.expression} pose.`);
+  } finally {
+    setWorkshopBusy(false);
+  }
 }
 
 function setWorkshopBusy(busy: boolean): void {
@@ -1874,6 +2023,7 @@ async function applyWorkshopLine(
   character: HTMLSelectElement,
   name: HTMLInputElement,
   mode: HTMLSelectElement,
+  pose: HTMLSelectElement,
   message: HTMLTextAreaElement,
   breakBefore: HTMLInputElement,
   reaction: HTMLInputElement,
@@ -1894,6 +2044,7 @@ async function applyWorkshopLine(
       mode.value as BalloonMode,
       current.talkTo,
       mode.value !== "whisper",
+      pose.value as StudioPoseId,
     );
     next.breakBefore = breakBefore.checked;
     next.reaction = reaction.checked;
@@ -1914,7 +2065,7 @@ function renderStripWorkshop(): void {
   if (conversation.length === 0) {
     const empty = document.createElement("div");
     empty.className = "workshop-empty";
-    empty.innerHTML = "<strong>The script track is empty.</strong><span>Add a line below the comic, then return here to shape the strip.</span>";
+    empty.innerHTML = "<strong>The script track is empty.</strong><span>Use Add a new beat above to introduce the first character.</span>";
     workshopLines.append(empty);
     return;
   }
@@ -1940,7 +2091,9 @@ function renderStripWorkshop(): void {
     name.maxLength = 32;
     name.placeholder = "Display name";
     name.setAttribute("aria-label", `Display name for line ${index + 1}`);
+    name.title = "Display name";
     const mode = workshopModeSelect(line, index);
+    const pose = workshopPoseSelect(line, index);
     const message = document.createElement("textarea");
     message.rows = 2;
     message.maxLength = 180;
@@ -1965,7 +2118,7 @@ function renderStripWorkshop(): void {
     });
     message.disabled = reaction.checked;
     staging.append(breakLabel, reactionLabel);
-    script.append(cast, name, mode, message, staging);
+    script.append(cast, name, mode, pose, message, staging);
 
     const tools = document.createElement("div");
     tools.className = "workshop-line-tools";
@@ -1974,7 +2127,7 @@ function renderStripWorkshop(): void {
     apply.className = "workshop-apply";
     apply.textContent = "Apply";
     apply.addEventListener("click", () => {
-      void applyWorkshopLine(index, row, cast, name, mode, message, breakBefore, reaction).catch(showError);
+      void applyWorkshopLine(index, row, cast, name, mode, pose, message, breakBefore, reaction).catch(showError);
     });
     const earlier = document.createElement("button");
     earlier.type = "button";
@@ -2015,6 +2168,7 @@ function renderStripWorkshop(): void {
 }
 
 function openStripWorkshop(): void {
+  prepareWorkshopAddForm(true);
   renderStripWorkshop();
   stripWorkshopDialog.showModal();
 }
@@ -2508,11 +2662,20 @@ workshopApplyTitleButton.addEventListener("click", () => {
     setStatus(comicTitleOverride ? `Opening title changed to “${comicTitleOverride}”.` : "The opening title is automatic again.");
   }).catch(showError);
 });
-workshopComposeButton.addEventListener("click", () => {
-  stripWorkshopDialog.close();
-  messageInput.scrollIntoView({ block: "center" });
-  messageInput.focus();
-  setStatus("Write the next line below the comic, then choose Add to comic.");
+workshopAddCharacter.addEventListener("change", () => {
+  workshopAddName.value = selectedWorkshopCharacterName();
+});
+workshopAddSpeakingButton.addEventListener("click", () => {
+  void addWorkshopBeat(false).catch(showError);
+});
+workshopAddSilentButton.addEventListener("click", () => {
+  void addWorkshopBeat(true).catch(showError);
+});
+workshopAddMessage.addEventListener("keydown", (event) => {
+  if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+    event.preventDefault();
+    void addWorkshopBeat(false).catch(showError);
+  }
 });
 downloadButton.addEventListener("click", downloadStrip);
 selectPanelsButton.addEventListener("click", () => setPanelSelectionMode(!panelSelectionMode));
