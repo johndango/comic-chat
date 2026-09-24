@@ -86,6 +86,31 @@ describe("CamBot follows Libera.Chat's LLM policy", () => {
     expect(sent).toHaveLength(0);
     expect(lines[0]).toMatch(/only chat in #webcomicchat/);
   });
+
+  it("allows one trusted resident bot to start a marked daily exchange without bot loops", async () => {
+    const sent: string[] = [];
+    const brain = new CamBrain(
+      { ...config, dailyStarter: "BettyBot" },
+      async (_system, content) => {
+        sent.push(content);
+        return { text: "Thought balloons are obviously more dramatic ;)", refused: false, costUsd: 0.001 };
+      },
+    );
+    brain.names("#webcomicchat", ["@johndango", "BettyBot", "OtherBot", "CamBot"]);
+    const lines = await brain.message("#webcomicchat", "BettyBot", "CamBot: speech balloons or thought balloons?", T0);
+    expect(sent).toHaveLength(1);
+    expect(lines).toEqual(["[AI] Thought balloons are obviously more dramatic ;)"]);
+    expect(await brain.message("#webcomicchat", "OtherBot", "CamBot: keep talking", T0 + 1000)).toEqual([]);
+  });
+
+  it("does not answer a daily bot prompt without its required administrator", async () => {
+    const configured = new CamBrain(
+      { ...config, dailyStarter: "BettyBot" },
+      async () => ({ text: "hello", refused: false, costUsd: 0.001 }),
+    );
+    configured.names("#webcomicchat", ["BettyBot", "CamBot"]);
+    expect(await configured.message("#webcomicchat", "BettyBot", "CamBot: say one thing", T0)).toEqual([]);
+  });
 });
 
 describe("CamBot notices when it's being talked to", () => {

@@ -11,8 +11,13 @@
 //   BOT_IGNORE        other bots' nicks, comma-separated
 //   BOT_NO_GREET      human nicks not to greet automatically (they can still use commands)
 //   BOT_AI_FRIEND     TongueTiedBot             the room's AI bot, explained by "about" while present
+//   BOT_DAILY_SPARK   1                          one quiet-room line per day (0 disables)
+//   BOT_DAILY_FRIENDS TongueTiedBot,n00bBot      bots the daily line may address
+//   BOT_STATE_FILE    .bettybot-state.json       remembers the last daily line across restarts
 
-import { BotBrain, type BotEvent } from "./brain";
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { BotBrain, type BotBrainState, type BotEvent } from "./brain";
 import { IrcBot } from "./irc";
 
 const env = process.env;
@@ -30,6 +35,22 @@ const avatarUrl = env.BOT_AVATAR_URL || undefined;
 if (avatarUrl && (!avatarUrl.startsWith("https://") || avatarUrl.length > 2048)) {
   throw new Error("BOT_AVATAR_URL must be an HTTPS URL");
 }
+const dailySparkHourUtc = Number(env.BOT_DAILY_SPARK_HOUR_UTC ?? 18);
+if (!Number.isInteger(dailySparkHourUtc) || dailySparkHourUtc < 0 || dailySparkHourUtc > 23) {
+  throw new Error("BOT_DAILY_SPARK_HOUR_UTC must be an integer from 0 through 23");
+}
+const stateFile = resolve(env.BOT_STATE_FILE ?? ".bettybot-state.json");
+
+function loadState(): BotBrainState {
+  try {
+    return JSON.parse(readFileSync(stateFile, "utf8")) as BotBrainState;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+      console.warn(`${new Date().toISOString()} Could not read bot state: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    return {};
+  }
+}
 
 const brain = new BotBrain({
   nick,
@@ -38,9 +59,27 @@ const brain = new BotBrain({
   ignore: list(env.BOT_IGNORE),
   noGreet: list(env.BOT_NO_GREET),
   aiFriend: env.BOT_AI_FRIEND ?? "TongueTiedBot",
-});
+  dailySpark: env.BOT_DAILY_SPARK !== "0",
+  dailySparkHourUtc,
+  dailyFriends: list(env.BOT_DAILY_FRIENDS ?? "TongueTiedBot,n00bBot"),
+}, Math.random, loadState());
 
 const log = (s: string) => console.log(`${new Date().toISOString()} ${s}`);
+let savedState = JSON.stringify(brain.snapshot());
+
+function persistState(): void {
+  const state = JSON.stringify(brain.snapshot());
+  if (state === savedState) return;
+  try {
+    mkdirSync(dirname(stateFile), { recursive: true });
+    const temporary = `${stateFile}.${process.pid}.tmp`;
+    writeFileSync(temporary, `${state}\n`, { encoding: "utf8", mode: 0o600 });
+    renameSync(temporary, stateFile);
+    savedState = state;
+  } catch (error) {
+    log(`Could not save bot state: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
 
 const bot = new IrcBot(
   {
@@ -72,6 +111,7 @@ function dispatch(event: BotEvent): void {
       bot.say(say.target, say.text);
     }, say.delay);
   }
+  if (event.type === "tick") persistState();
 }
 
 setInterval(() => dispatch({ type: "tick", at: Date.now() }), 30_000).unref();

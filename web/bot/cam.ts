@@ -12,6 +12,7 @@
 //                                               each start (gremlin: Tux,Tiki,Xeno,Hugh,Lance,Kirby,Armando)
 //   SITE_URL           https://webcomicchat.com
 //   BOT_IGNORE         other bots' nicks, comma-separated
+//   BOT_DAILY_STARTER  BettyBot                 trusted bot allowed one addressed daily prompt
 //   IRC_HOST / IRC_PORT / IRC_TLS               default irc.libera.chat / 6697 / 1
 
 import { CamBrain } from "./cam-brain";
@@ -49,7 +50,16 @@ const log = (s: string) => console.log(`${new Date().toISOString()} ${s}`);
 let messageQueue = Promise.resolve();
 
 const brain = new CamBrain(
-  { nick, siteUrl, character, dailyBudgetUsd, admin, persona, ignore: list(env.BOT_IGNORE) },
+  {
+    nick,
+    siteUrl,
+    character,
+    dailyBudgetUsd,
+    admin,
+    persona,
+    ignore: list(env.BOT_IGNORE),
+    dailyStarter: env.BOT_DAILY_STARTER ?? "BettyBot",
+  },
   claudeResponder(model),
   log,
 );

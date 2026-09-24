@@ -18,6 +18,8 @@ export interface CamConfig {
   admin: string;
   /** Nicks never to answer (other bots). */
   ignore?: string[];
+  /** A trusted resident bot allowed to address this bot for the daily room spark. */
+  dailyStarter?: string;
   /**
    * "friendly" (TongueTiedBot) answers when spoken to. "gremlin" is a
    * nostalgically annoying 1998 kid who also blurts out one-liners on his own.
@@ -227,11 +229,12 @@ export class CamBrain {
    * answered with a pointer to the room, never with model output.
    */
   async message(channel: string | null, nick: string, rawText: string, at = Date.now()): Promise<string[]> {
-    if (fold(nick) === fold(this.config.nick) || looksLikeBot(nick, this.ignore)) return [];
+    const dailyStarter = !!this.config.dailyStarter && fold(nick) === fold(this.config.dailyStarter);
+    if (fold(nick) === fold(this.config.nick) || (looksLikeBot(nick, this.ignore) && !dailyStarter)) return [];
     const text = stripIrcFormatting(rawText).slice(0, MAX_INPUT_CHARS);
     if (!channel) return this.mark([`Hi ${nick}! I only chat in #webcomicchat, come say hi there :)`]);
     this.memberSet(channel).add(nick);
-    this.lastHumanLine.set(fold(channel), at);
+    if (!dailyStarter) this.lastHumanLine.set(fold(channel), at);
 
     // Lines not addressed to CamBot are never kept or sent anywhere.
     const request = this.addressed(text);
@@ -271,6 +274,7 @@ export class CamBrain {
 
     // Libera.Chat: LLM bots must be accompanied by their administrator.
     if (![...this.memberSet(channel)].some((member) => fold(member) === fold(this.config.admin))) {
+      if (dailyStarter) return [];
       return this.mark([`Sorry ${nick}, I only chat while ${this.config.admin} (who runs me) is here.`]);
     }
 
@@ -281,7 +285,9 @@ export class CamBrain {
       this.spentToday = 0;
       this.disclosed.clear();
     }
-    if (this.spentToday >= this.config.dailyBudgetUsd) return this.mark([`I've done all my talking for today, ${nick}. Back tomorrow :)`]);
+    if (this.spentToday >= this.config.dailyBudgetUsd) {
+      return dailyStarter ? [] : this.mark([`I've done all my talking for today, ${nick}. Back tomorrow :)`]);
+    }
     const mine = (this.perPerson.get(fold(nick)) ?? []).filter((t) => at - t < MINUTE);
     this.hourly = this.hourly.filter((t) => at - t < HOUR);
     if (mine.length >= PER_PERSON_PER_MINUTE || this.hourly.length >= PER_HOUR) return [];
@@ -315,7 +321,9 @@ export class CamBrain {
     if (!lines) return this.disclose(nick, []);
     const variedLines = this.applyGremlinVariety(channel, lines);
     transcript.push({ nick: this.config.nick, text: variedLines.join(" ") });
-    return this.disclose(nick, variedLines);
+    // BettyBot's daily prompt is already an automated bot-to-bot exchange;
+    // mark the model output for Libera, but do not send a human disclosure to it.
+    return dailyStarter ? this.mark(variedLines) : this.disclose(nick, variedLines);
   }
 
   /**

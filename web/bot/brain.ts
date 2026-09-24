@@ -17,6 +17,16 @@ export interface BotConfig {
   ignore?: string[];
   /** Human nicks that may use the bot normally but should not receive automatic greetings. */
   noGreet?: string[];
+  /** Post one quiet-room conversation starter per UTC day. */
+  dailySpark?: boolean;
+  /** Earliest UTC hour for the daily line (default 18, late morning Pacific time). */
+  dailySparkHourUtc?: number;
+  /** Bots Betty may address for a single reply when they are present. */
+  dailyFriends?: string[];
+}
+
+export interface BotBrainState {
+  dailySparkDays?: Record<string, string>;
 }
 
 export type BotEvent =
@@ -48,6 +58,7 @@ const GREET_SPACING = 20_000;
 const LONELY_AFTER = 3 * MINUTE;
 /** Answers per person per minute; enough to explore every command, too few to spam. */
 const ANSWERS_PER_MINUTE = 6;
+const DAILY_SPARK_HOUR_UTC = 18;
 
 const fold = (s: string) => s.toLowerCase();
 
@@ -65,6 +76,21 @@ const TIPS = [
   "Use /me for a narration box, like /me waves at everyone.",
   "Drag the emotion wheel (bottom right) to choose a mood by hand; it's used for your next line.",
   "Long messages continue across panels with ... like the original.",
+];
+
+const DAILY_ONE_LINERS = [
+  "The room is quiet, but the comic still gets a panel today :)",
+  "TODAY'S PLOT TWIST: the empty room was listening the whole time!!!",
+  "A blank speech balloon is just a dramatic pause waiting for dialogue.",
+  "Today's tiny creative assignment: give a character one sentence they would regret saying out loud ;)",
+  "No chat required for roll call: the comic is here whenever somebody needs a panel.",
+];
+
+const DAILY_BOT_PROMPTS = [
+  (friend: string) => `${friend}: quick question for today's comic—speech balloons or thought balloons?`,
+  (friend: string) => `${friend}: the room needs a plot twist. Give our imaginary readers one sentence.`,
+  (friend: string) => `${friend}: rate today's dramatic silence from one to ten.`,
+  (friend: string) => `${friend}: what should the title of today's extremely quiet comic be?`,
 ];
 
 /**
@@ -141,6 +167,7 @@ export class BotBrain {
   private tipIndex = 0;
   private readonly ignore: Set<string>;
   private readonly noGreet: Set<string>;
+  private readonly dailySparkDays = new Map<string, string>();
 
   private factIndex = 0;
 
@@ -148,9 +175,19 @@ export class BotBrain {
     private readonly config: BotConfig,
     /** Injected for tests; returns [0, 1). */
     private readonly random: () => number = Math.random,
+    state: BotBrainState = {},
   ) {
     this.ignore = new Set((config.ignore ?? []).map(fold));
     this.noGreet = new Set((config.noGreet ?? []).map(fold));
+    for (const [channel, day] of Object.entries(state.dailySparkDays ?? {})) {
+      if (/^#[A-Za-z0-9_+\-]{1,50}$/.test(channel) && /^\d{4}-\d{2}-\d{2}$/.test(day)) {
+        this.dailySparkDays.set(fold(channel), day);
+      }
+    }
+  }
+
+  snapshot(): BotBrainState {
+    return { dailySparkDays: Object.fromEntries(this.dailySparkDays) };
   }
 
   private channel(name: string): ChannelState {
@@ -353,6 +390,24 @@ export class BotBrain {
         text: `Nobody else is around just now, ${lone}, but I'm here! ${this.nextTip()}`,
         delay: 0,
       });
+    }
+    if (!this.config.dailySpark) return out;
+    const now = new Date(at);
+    const hour = this.config.dailySparkHourUtc ?? DAILY_SPARK_HOUR_UTC;
+    if (now.getUTCHours() < hour) return out;
+    const day = now.toISOString().slice(0, 10);
+    for (const [key, state] of this.channels) {
+      if (this.dailySparkDays.get(key) === day || state.members.size === 0) continue;
+      this.dailySparkDays.set(key, day);
+      const allowedFriends = new Set((this.config.dailyFriends ?? []).map(fold));
+      const friends = [...state.members].filter((member) => allowedFriends.has(fold(member)));
+      const talkToFriend = friends.length > 0 && this.random() < 0.5;
+      const text = talkToFriend
+        ? DAILY_BOT_PROMPTS[Math.floor(this.random() * DAILY_BOT_PROMPTS.length)](
+          friends[Math.floor(this.random() * friends.length)],
+        )
+        : DAILY_ONE_LINERS[Math.floor(this.random() * DAILY_ONE_LINERS.length)];
+      out.push({ target: state.name, text, delay: 0 });
     }
     return out;
   }

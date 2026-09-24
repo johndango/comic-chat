@@ -18,12 +18,17 @@ single bot that says it's a bot.
   and what Comic Chat was. It admits it's a bot when asked.
 - Keeps company: if someone speaks in an otherwise empty room and nobody
   answers within 3 minutes, it replies once with a tip.
+- Starts one small room spark after 18:00 UTC each day, even if nobody has
+  spoken. It alternates between a canned one-liner and addressing an online
+  WebComicChat AI bot. AI bots answer only once, only while their required
+  administrator is present, and still mark the reply `[AI]` for Libera.Chat.
 
 **What it won't do**
 - Repeat anything a user typed (all answers are canned).
 - Answer more than 6 times a minute per person. It gives one friendly pause
   notice before going quiet, and sends no more than one line every 2 seconds.
-- Talk to other bots or services.
+- Enter open-ended bot loops. Only its single daily prompt may address one of
+  the explicitly configured room bots.
 
 It marks itself with the `+B` bot mode and answers CTCP VERSION.
 
@@ -48,6 +53,10 @@ npm run bot:dev
 | `BOT_SCHEDULE` | — | e.g. `Chat nights are Fridays at 8pm ET.` |
 | `BOT_IGNORE` | — | Other bots' nicks, comma-separated |
 | `BOT_NO_GREET` | — | Human nicks not to greet automatically; they can still use commands |
+| `BOT_DAILY_SPARK` | `1` | Set to `0` to disable the once-daily room starter |
+| `BOT_DAILY_SPARK_HOUR_UTC` | `18` | Earliest UTC hour for the daily starter |
+| `BOT_DAILY_FRIENDS` | `TongueTiedBot,n00bBot` | Online bots Betty may address for one reply |
+| `BOT_STATE_FILE` | `.bettybot-state.json` | Durable daily-date state; written with owner-only permissions |
 
 ## On Libera.Chat
 
@@ -102,6 +111,7 @@ npm run cam
 | `BOT_AVATAR` | `Tongue-Tied` | Comic Chat character |
 | `SITE_URL` | `https://webcomicchat.com` | The only origin the bot may link to |
 | `BOT_IGNORE` | — | Other bots' nicks, comma-separated |
+| `BOT_DAILY_STARTER` | `BettyBot` | Trusted resident bot allowed to send one addressed daily prompt |
 
 Safety and cost limits are enforced in code after the model responds: at most
 two short lines, no IRC/control commands, no off-site links, no mass mentions,

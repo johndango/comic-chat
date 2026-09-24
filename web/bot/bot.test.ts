@@ -128,6 +128,45 @@ describe("BotBrain company for a lone visitor", () => {
   });
 });
 
+describe("BotBrain daily room spark", () => {
+  const dailyConfig = {
+    ...config,
+    dailySpark: true,
+    dailySparkHourUtc: 18,
+    dailyFriends: ["TongueTiedBot", "n00bBot"],
+  };
+  const before = Date.UTC(2026, 8, 24, 17, 59);
+  const due = Date.UTC(2026, 8, 24, 18, 0);
+
+  it("starts exactly one conversation per day even when no human has spoken", () => {
+    const brain = new BotBrain(dailyConfig, () => 0);
+    brain.handle({ type: "names", channel: "#webcomicchat", nicks: ["BettyBot", "TongueTiedBot", "n00bBot"], at: before });
+    expect(brain.handle({ type: "tick", at: before })).toEqual([]);
+    const [spark] = brain.handle({ type: "tick", at: due });
+    expect(spark).toMatchObject({ target: "#webcomicchat", delay: 0 });
+    expect(spark.text).toMatch(/^TongueTiedBot:/);
+    expect(brain.handle({ type: "tick", at: due + 5 * 60_000 })).toEqual([]);
+    expect(brain.handle({ type: "tick", at: due + 24 * 3_600_000 })).toHaveLength(1);
+  });
+
+  it("uses a standalone one-liner when it does not choose a bot exchange", () => {
+    const brain = new BotBrain(dailyConfig, () => 0.9);
+    brain.handle({ type: "names", channel: "#c", nicks: ["BettyBot", "TongueTiedBot"], at: due });
+    const [spark] = brain.handle({ type: "tick", at: due });
+    expect(spark.text).not.toMatch(/^TongueTiedBot:/);
+    expect(spark.text.length).toBeGreaterThan(20);
+  });
+
+  it("restores the last daily date so a bot restart cannot post twice", () => {
+    const first = new BotBrain(dailyConfig, () => 0.9);
+    first.handle({ type: "names", channel: "#c", nicks: ["BettyBot"], at: due });
+    expect(first.handle({ type: "tick", at: due })).toHaveLength(1);
+    const restarted = new BotBrain(dailyConfig, () => 0.9, first.snapshot());
+    restarted.handle({ type: "names", channel: "#c", nicks: ["BettyBot"], at: due + 60_000 });
+    expect(restarted.handle({ type: "tick", at: due + 60_000 })).toEqual([]);
+  });
+});
+
 describe("splitForIrc", () => {
   it("keeps lines under the IRC limit and strips line breaks", () => {
     const pieces = splitForIrc(`${"word ".repeat(200)}\r\nQUIT`);
