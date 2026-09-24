@@ -202,8 +202,47 @@ app.innerHTML = `
       <strong>Microsoft Comic Chat - [<span id="window-room">Not connected</span>]</strong>
       <span class="window-buttons" aria-hidden="true"><i>_</i><i>□</i><i>×</i></span>
     </header>
-    <nav class="classic-menu" aria-label="Application menu">
-      <span><u>F</u>ile</span><span><u>E</u>dit</span><span><u>V</u>iew</span><span>F<u>o</u>rmat</span><span><u>R</u>oom</span><span><u>M</u>ember</span><span>F<u>a</u>vorites</span><span><u>H</u>elp</span>
+    <nav id="classic-menu" class="classic-menu" aria-label="Application menu">
+      <details><summary><u>F</u>ile</summary><div class="classic-menu-popup">
+        <button type="button" data-command="new-comic">New comic</button>
+        <button type="button" data-command="import-avatar">Import character…</button>
+        <button type="button" data-command="create-avatar">Create character…</button>
+        <hr />
+        <button type="button" data-command="save-comic">Save comic…</button>
+      </div></details>
+      <details><summary><u>E</u>dit</summary><div class="classic-menu-popup">
+        <button type="button" data-command="undo">Undo last line</button>
+        <button type="button" data-command="clear">Clear comic</button>
+        <hr />
+        <button type="button" data-command="write-message">Write a message</button>
+      </div></details>
+      <details><summary><u>V</u>iew</summary><div class="classic-menu-popup">
+        <button type="button" data-command="browse-channels">Browse channels…</button>
+        <hr />
+        <button type="button" data-command="auto-panels">Automatic panel wrapping</button>
+        <button type="button" data-command="reset-zoom">Reset zoom to 100%</button>
+      </div></details>
+      <details><summary>F<u>o</u>rmat</summary><div class="classic-menu-popup">
+        <button type="button" role="menuitemradio" data-command="mode-say">Say balloon</button>
+        <button type="button" role="menuitemradio" data-command="mode-think">Thought balloon</button>
+        <button type="button" role="menuitemradio" data-command="mode-whisper">Whisper balloon</button>
+        <button type="button" role="menuitemradio" data-command="mode-action">Action box</button>
+      </div></details>
+      <details><summary><u>R</u>oom</summary><div class="classic-menu-popup">
+        <button type="button" data-command="join-channel">Join/Switch typed channel</button>
+        <button type="button" data-command="browse-channels">Browse channels…</button>
+        <button type="button" data-command="copy-channel">Copy channel link</button>
+        <hr />
+        <button type="button" data-command="disconnect">Disconnect</button>
+      </div></details>
+      <details><summary><u>C</u>haracter</summary><div class="classic-menu-popup">
+        <button type="button" data-command="choose-character">Choose your character</button>
+        <button type="button" data-command="avatar-rules">Avatar display rules…</button>
+      </div></details>
+      <details><summary><u>H</u>elp</summary><div class="classic-menu-popup classic-menu-popup-right">
+        <button type="button" data-command="about">About WebComicChat…</button>
+        <a href="https://github.com/johndango/comic-chat" target="_blank" rel="noreferrer">Project source ↗</a>
+      </div></details>
     </nav>
 
     <main class="classic-main">
@@ -310,6 +349,16 @@ app.innerHTML = `
         <span>Original Comic Chat art and expression rules · <a href="${COLOR_REPLACEMENT_CREDIT_URL}" target="_blank" rel="noreferrer">color editions credit</a> · <a href="${comicNeueLicenseUrl}" target="_blank" rel="noreferrer">font notice</a></span>
       </footer>
     </main>
+    <dialog id="about-dialog" class="classic-dialog about-dialog" aria-labelledby="about-title">
+      <form method="dialog">
+        <header><strong id="about-title">About WebComicChat</strong><button value="cancel" aria-label="Close">×</button></header>
+        <div class="dialog-body about-body">
+          <span class="about-icon" aria-hidden="true"></span>
+          <div><strong>WebComicChat</strong><p>An independent, community-built revival of the classic Comic Chat experience for modern browsers.</p><p>Not affiliated with or endorsed by Microsoft.</p></div>
+        </div>
+        <footer><a href="https://github.com/johndango/comic-chat" target="_blank" rel="noreferrer">View project source</a><button value="cancel">OK</button></footer>
+      </form>
+    </dialog>
     <dialog id="avatar-rules-dialog" class="classic-dialog" aria-labelledby="avatar-rules-title">
       <form method="dialog">
         <header><strong id="avatar-rules-title">Avatar display rules</strong><button value="cancel" aria-label="Close">×</button></header>
@@ -378,6 +427,10 @@ const addButton = element<HTMLButtonElement>("#add-panel");
 const undoButton = element<HTMLButtonElement>("#undo-panel");
 const clearButton = element<HTMLButtonElement>("#clear-strip");
 const downloadButton = element<HTMLButtonElement>("#download");
+const classicMenu = element<HTMLElement>("#classic-menu");
+const classicMenuSections = [...classicMenu.querySelectorAll<HTMLDetailsElement>("details")];
+const menuCommandButtons = [...classicMenu.querySelectorAll<HTMLButtonElement>("button[data-command]")];
+const aboutDialog = element<HTMLDialogElement>("#about-dialog");
 const liveConsole = element<HTMLElement>("#live-console");
 const liveStatus = element<HTMLElement>("#live-status");
 const networkSelect = element<HTMLSelectElement>("#network");
@@ -1204,6 +1257,19 @@ function updateControls(): void {
     liberaWebChatLink.href = createLiberaWebChatUrl(channel);
     liberaWebChatLink.textContent = `Open ${channel} in Libera web chat ↗`;
   }
+  for (const button of menuCommandButtons) {
+    const command = button.dataset.command ?? "";
+    if (command === "new-comic" || command === "clear") button.disabled = clearButton.disabled;
+    else if (command === "undo") button.disabled = undoButton.disabled;
+    else if (command === "save-comic") button.disabled = downloadButton.disabled;
+    else if (command === "join-channel") button.disabled = connectButton.disabled;
+    else if (command === "browse-channels") button.disabled = browseRoomsButton.disabled;
+    else if (command === "copy-channel") button.disabled = shareRoomButton.disabled;
+    else if (command === "disconnect") button.disabled = disconnectButton.disabled;
+    if (command.startsWith("mode-")) {
+      button.setAttribute("aria-checked", String(command.slice(5) === messageMode.value));
+    }
+  }
 }
 
 async function copyText(value: string): Promise<boolean> {
@@ -1589,6 +1655,95 @@ clearButton.addEventListener("click", () => {
   setStatus("Strip cleared. Write a line to begin again.");
 });
 downloadButton.addEventListener("click", downloadStrip);
+
+function closeClassicMenus(except?: HTMLDetailsElement): void {
+  for (const section of classicMenuSections) {
+    if (section !== except) section.open = false;
+  }
+}
+
+function runMenuCommand(command: string): void {
+  switch (command) {
+    case "new-comic":
+    case "clear":
+      clearButton.click();
+      break;
+    case "import-avatar":
+      importAvatarButton.click();
+      break;
+    case "create-avatar":
+      createAvatarButton.click();
+      break;
+    case "save-comic":
+      downloadButton.click();
+      break;
+    case "undo":
+      undoButton.click();
+      break;
+    case "write-message":
+      messageInput.focus();
+      break;
+    case "browse-channels":
+      browseRoomsButton.click();
+      break;
+    case "auto-panels":
+      panelsAcrossSelect.value = "auto";
+      updatePanelView();
+      break;
+    case "reset-zoom":
+      panelSizeInput.value = "100";
+      updatePanelView();
+      break;
+    case "mode-say":
+    case "mode-think":
+    case "mode-whisper":
+    case "mode-action":
+      document.querySelector<HTMLButtonElement>(`.mode-button[data-mode="${command.slice(5)}"]`)?.click();
+      break;
+    case "join-channel":
+      connectButton.click();
+      break;
+    case "copy-channel":
+      shareRoomButton.click();
+      break;
+    case "disconnect":
+      disconnectButton.click();
+      break;
+    case "choose-character":
+      characterSelect.scrollIntoView({ block: "nearest" });
+      characterSelect.focus();
+      break;
+    case "avatar-rules":
+      avatarRulesButton.click();
+      break;
+    case "about":
+      aboutDialog.showModal();
+      break;
+  }
+}
+
+classicMenu.addEventListener("click", (event) => {
+  const target = event.target instanceof Element ? event.target : undefined;
+  if (!target) return;
+  const summary = target.closest("summary");
+  if (summary) {
+    closeClassicMenus(summary.parentElement as HTMLDetailsElement);
+    return;
+  }
+  const commandButton = target.closest<HTMLButtonElement>("button[data-command]");
+  if (commandButton && !commandButton.disabled) runMenuCommand(commandButton.dataset.command ?? "");
+  if (commandButton || target.closest("a")) closeClassicMenus();
+});
+document.addEventListener("click", (event) => {
+  if (event.target instanceof Node && !classicMenu.contains(event.target)) closeClassicMenus();
+});
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && classicMenuSections.some((section) => section.open)) {
+    closeClassicMenus();
+    event.preventDefault();
+  }
+});
+
 function validatedNickname(): string | undefined {
   const nickname = nicknameInput.value.trim();
   const nicknameIsValid = /^[A-Za-z][A-Za-z0-9_\-[\]\\`^{}]{0,15}$/.test(nickname);

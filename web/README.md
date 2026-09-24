@@ -63,6 +63,12 @@ channel. Visitors can also type any supported `#channel` and choose
 **Join channel** or **Switch channel**, copy a direct WebComicChat link, or open
 that channel in [Libera's web client](https://web.libera.chat/#webcomicchat).
 
+The classic menu bar is functional rather than decorative. File, Edit, View,
+Format, Room, Character and Help expose the corresponding actions already
+available in the interface; actions that are not currently possible are
+disabled. Unsupported original-client menus were removed instead of being
+shown as inert labels.
+
 Browsers cannot open raw IRC sockets, so `server/` provides a same-origin
 WebSocket-to-IRC bridge. It connects with verified TLS to one of two preset
 public networks, handles IRC registration, retrieves a searchable public-room
