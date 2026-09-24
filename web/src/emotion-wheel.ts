@@ -188,11 +188,12 @@ export interface EmotionWheel {
   element: HTMLCanvasElement;
   get value(): WheelEmotion;
   set(emotion: WheelEmotion): void;
+  resize(size: number): void;
 }
 
 export function createEmotionWheel(options: EmotionWheelOptions = {}): EmotionWheel {
-  const size = options.size ?? WHEEL.maxSide;
-  const scale = size / WHEEL.maxSide;
+  let size = options.size ?? WHEEL.maxSide;
+  let scale = size / WHEEL.maxSide;
   const canvas = document.createElement("canvas");
   const ratio = Math.min(window.devicePixelRatio || 1, 2);
   canvas.width = Math.round(size * ratio);
@@ -204,7 +205,7 @@ export function createEmotionWheel(options: EmotionWheelOptions = {}): EmotionWh
   canvas.setAttribute("role", "slider");
   canvas.setAttribute("aria-label", "Emotion");
   const context = canvas.getContext("2d")!;
-  const geometry = wheelGeometry(size, scale)!;
+  let geometry = wheelGeometry(size, scale)!;
   const icons = ICON_KEYS.map((key) => {
     const image = new Image();
     image.src = WHEEL_ICONS[key];
@@ -251,6 +252,18 @@ export function createEmotionWheel(options: EmotionWheelOptions = {}): EmotionWh
     if (changed) options.onChange?.(value, emotionName(value));
   }
 
+  function resize(nextSize: number): void {
+    if (!Number.isFinite(nextSize) || nextSize < WHEEL.minSide) return;
+    size = Math.round(nextSize);
+    scale = size / WHEEL.maxSide;
+    geometry = wheelGeometry(size, scale)!;
+    canvas.width = Math.round(size * ratio);
+    canvas.height = Math.round(size * ratio);
+    canvas.style.width = `${size}px`;
+    canvas.style.height = `${size}px`;
+    draw();
+  }
+
   function fromEvent(event: PointerEvent): void {
     const rect = canvas.getBoundingClientRect();
     set(emotionFromPoint(geometry, event.clientX - rect.left, event.clientY - rect.top));
@@ -277,5 +290,6 @@ export function createEmotionWheel(options: EmotionWheelOptions = {}): EmotionWh
       return value;
     },
     set,
+    resize,
   };
 }

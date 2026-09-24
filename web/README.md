@@ -19,6 +19,11 @@ and around all four outer edges. In
 offline mode the selected character remains selected until the
 user chooses another one.
 
+The member list and character controls have independent, clipped scroll areas,
+so a long room roster cannot overlap the character preview. **Enlarge** widens
+the optional character sidebar and increases both the character preview and
+expression wheel; the preference is remembered in the browser.
+
 The browser ports the original 2.5 text-expression, composite-avatar, panel,
 and Woodring balloon algorithms. Faces and torsos are chosen independently;
 characters face people being addressed; up to five speakers can share a panel;

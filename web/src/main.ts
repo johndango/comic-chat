@@ -326,7 +326,7 @@ app.innerHTML = `
       </section>
 
       <div class="room-tab"><span aria-hidden="true">▰</span><strong id="room-tab-label">Offline comic</strong></div>
-      <section class="workspace" aria-label="Comic conversation editor">
+      <section id="workspace" class="workspace" aria-label="Comic conversation editor">
         <div class="stage-wrap conversation-stage">
           <div class="strip-heading">
             <span>Comic view</span>
@@ -360,7 +360,7 @@ app.innerHTML = `
             <div id="member-list" class="member-list"><p>Connect to see room members.</p></div>
           </section>
           <section class="character-pane">
-            <header>Your character</header>
+            <header><span>Your character</span><button id="character-pane-size" type="button" aria-pressed="false">Enlarge</button></header>
             <canvas id="character-preview" class="character-figure" width="200" height="108" aria-label="Selected Comic Chat character"></canvas>
             <label for="character">Character</label>
             <select id="character">${characterOptionMarkup}</select>
@@ -488,6 +488,7 @@ const modeButtons = [...document.querySelectorAll<HTMLButtonElement>(".mode-butt
 const countLabel = element<HTMLElement>("#count");
 const toneValue = element<HTMLElement>("#tone-value");
 const toneReason = element<HTMLElement>("#tone-reason");
+const workspace = element<HTMLElement>("#workspace");
 const strip = element<HTMLElement>("#strip");
 const stripCount = element<HTMLElement>("#strip-count");
 const panelsAcrossSelect = element<HTMLSelectElement>("#panels-across");
@@ -542,6 +543,7 @@ const resetAvatarRulesButton = element<HTMLButtonElement>("#reset-avatar-rules")
 const roomTabLabel = element<HTMLElement>("#room-tab-label");
 const windowRoom = element<HTMLElement>("#window-room");
 const characterPreview = element<HTMLCanvasElement>("#character-preview");
+const characterPaneSizeButton = element<HTMLButtonElement>("#character-pane-size");
 const emotionWheelHost = element<HTMLElement>("#emotion-wheel");
 const importAvatarButton = element<HTMLButtonElement>("#import-avatar");
 const avatarFileInput = element<HTMLInputElement>("#avatar-file");
@@ -615,6 +617,26 @@ const emotionWheel = createEmotionWheel({
   },
 });
 emotionWheelHost.append(emotionWheel.element);
+
+function setCharacterPaneLarge(large: boolean, persist = true, redraw = true): void {
+  workspace.classList.toggle("character-pane-large", large);
+  characterPaneSizeButton.setAttribute("aria-pressed", String(large));
+  characterPaneSizeButton.textContent = large ? "Normal size" : "Enlarge";
+  characterPreview.width = large ? 300 : 200;
+  characterPreview.height = large ? 164 : 108;
+  emotionWheel.resize(large ? 180 : 132);
+  if (persist) {
+    try {
+      localStorage.setItem("comic-chat-character-pane-large", large ? "1" : "0");
+    } catch {}
+  }
+  updatePanelView();
+  if (redraw) void updateCharacterPreview().catch(showError);
+}
+
+characterPaneSizeButton.addEventListener("click", () => {
+  setCharacterPaneLarge(!workspace.classList.contains("character-pane-large"));
+});
 
 function resetEmotionWheel(): void {
   currentWheelEmotion = { emotion: 0, intensity: 0 };
@@ -2350,6 +2372,9 @@ try {
   panelsAcrossSelect.value = String(parsePanelsAcross(localStorage.getItem("comic-chat-panels-across")));
   panelSizeInput.value = String(parsePanelZoom(localStorage.getItem("comic-chat-panel-size")));
   comicFontId = parseComicFontId(localStorage.getItem("comic-chat-balloon-font"));
+} catch {}
+try {
+  setCharacterPaneLarge(localStorage.getItem("comic-chat-character-pane-large") === "1", false, false);
 } catch {}
 balloonFontSelect.value = comicFontId;
 balloonFontSelect.style.fontFamily = comicFontOption(comicFontId).family;
