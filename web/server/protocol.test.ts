@@ -49,8 +49,10 @@ describe("IRC protocol boundary", () => {
   });
 
   it("validates whispers: an IRC-safe nickname and the usual message rules", () => {
-    expect(validateWhisperMessage({ type: "whisper", to: "Dan", message: " psst " })).toEqual({ to: "Dan", message: "psst", action: false });
+    expect(validateWhisperMessage({ type: "whisper", to: "Dan", message: " psst " })).toEqual({ to: ["Dan"], message: "psst", action: false });
+    expect(validateWhisperMessage({ type: "whisper", to: ["Dan", "dan", "Eve"], message: "group" })).toEqual({ to: ["Dan", "Eve"], message: "group", action: false });
     expect(() => validateWhisperMessage({ type: "whisper", to: "#comics", message: "hi" })).toThrow("room member");
+    expect(() => validateWhisperMessage({ type: "whisper", to: ["A", "B", "C", "D", "E", "F"], message: "hi" })).toThrow("one to five");
     expect(() => validateWhisperMessage({ type: "whisper", to: "Dan", message: "hi\r\nQUIT" })).toThrow("control");
     expect(() => validateWhisperMessage({ type: "whisper", message: "hi" })).toThrow("room member");
   });

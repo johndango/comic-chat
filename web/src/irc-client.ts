@@ -16,7 +16,7 @@ export interface LiveMessageEvent {
   /** A private message between two members of the room (Comic Chat whisper). */
   whisper?: boolean;
   /** For whispers: who it was sent to. */
-  to?: string;
+  to?: string | string[];
   timestamp: number;
 }
 
@@ -105,7 +105,7 @@ export class IrcWebClient {
   }
 
   /** Whisper privately to one member of the room. */
-  whisper(to: string, message: string, action = false): void {
+  whisper(to: readonly string[], message: string, action = false): void {
     if (!this.joined || !this.socket || this.socket.readyState !== WebSocket.OPEN) {
       throw new Error("Join a channel before whispering");
     }

@@ -67,14 +67,27 @@ export function validateChatMessage(value: unknown): { message: string; action: 
  * sent them: `PRIVMSG <nick> :text`. The recipient draws it in the comic of
  * the room they share with the sender.
  */
-export function validateWhisperMessage(value: unknown): { to: string; message: string; action: boolean } {
+export function validateWhisperMessage(value: unknown): { to: string[]; message: string; action: boolean } {
   if (!value || typeof value !== "object") throw new Error("Invalid whisper");
   const candidate = value as Record<string, unknown>;
   if (candidate.type !== "whisper" || typeof candidate.message !== "string") throw new Error("Invalid whisper");
-  if (typeof candidate.to !== "string" || !nicknamePattern.test(candidate.to)) {
-    throw new Error("Choose a room member to whisper to");
+  const requested = typeof candidate.to === "string" ? [candidate.to] : candidate.to;
+  if (!Array.isArray(requested) || requested.length < 1 || requested.length > 5) {
+    throw new Error("Choose one to five room members to whisper to");
   }
-  return { to: candidate.to, ...messageBody(candidate) };
+  const recipients: string[] = [];
+  const seen = new Set<string>();
+  for (const recipient of requested) {
+    if (typeof recipient !== "string" || !nicknamePattern.test(recipient)) {
+      throw new Error("Choose one to five room members to whisper to");
+    }
+    const folded = ircCaseFold(recipient);
+    if (!seen.has(folded)) {
+      seen.add(folded);
+      recipients.push(recipient);
+    }
+  }
+  return { to: recipients, ...messageBody(candidate) };
 }
 
 function messageBody(candidate: Record<string, unknown>): { message: string; action: boolean } {

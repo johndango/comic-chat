@@ -984,7 +984,7 @@ function appendConversationLine(line: ConversationLine, rolling = false): void {
 async function addRemoteMessage(event: LiveMessageEvent): Promise<void> {
   if (event.self) return;
   knownMembers.add(event.nickname);
-  const announcement = parseAvatarAnnouncement(event.message);
+  const announcement = event.whisper ? undefined : parseAvatarAnnouncement(event.message);
   if (announcement) {
     announcedAvatars.set(memberAvatarRuleKey(event.nickname), announcement);
     let hostedFile: string | undefined;
@@ -1019,7 +1019,8 @@ async function addRemoteMessage(event: LiveMessageEvent): Promise<void> {
   // with the sender facing them, as Comic Chat drew it.
   const mode: BalloonMode = event.whisper && normalized.mode !== "action" ? "whisper" : normalized.mode;
   const characterFile = characterForNickname(event.nickname);
-  const line = await createConversationLine(characterFile, text, event.nickname, mode, event.whisper && event.to ? [event.to] : []);
+  const whisperTarget = typeof event.to === "string" ? [event.to] : [];
+  const line = await createConversationLine(characterFile, text, event.nickname, mode, whisperTarget);
   appendConversationLine(line, true);
   setStatus(`${event.nickname}${event.whisper ? " whispered to you" : ""}: ${line.expression} · live IRC`);
 }
@@ -1034,6 +1035,7 @@ function renderMembers(): void {
     const empty = document.createElement("p");
     empty.textContent = liveState === "joined" ? "Waiting for room activity…" : "Connect to see room members.";
     memberList.append(empty);
+    updateControls();
     return;
   }
   for (const nickname of selectedAddressees) {
@@ -1048,6 +1050,7 @@ function renderMembers(): void {
       : `Talking to: ${names.join(", ")}`;
   };
   updateTargetSummary();
+  updateControls();
   for (const nickname of [...knownMembers].sort((left, right) => left.localeCompare(right))) {
     const row = document.createElement("button");
     row.type = "button";
@@ -1261,8 +1264,20 @@ function updateControls(): void {
       ? "No expression cues"
       : options.map((option) => option.source).join(" · ");
   }
+  const whisperRecipients = selectedAddressees.size;
+  const liveWhisper = liveState === "joined" && messageMode.value === "whisper";
   addButton.disabled = isAdding
-    || messageInput.value.trim().length === 0;
+    || messageInput.value.trim().length === 0
+    || (liveWhisper && (whisperRecipients < 1 || whisperRecipients > 5));
+  addLabel.textContent = liveWhisper
+    ? whisperRecipients < 1
+      ? "Select a whisper recipient"
+      : whisperRecipients > 5
+        ? "Too many recipients"
+        : `Whisper to ${whisperRecipients}`
+    : liveState === "joined"
+      ? "Send to room"
+      : "Add to comic";
   undoButton.disabled = conversation.length === 0 || isAdding;
   clearButton.disabled = conversation.length === 0 || isAdding;
   downloadButton.disabled = conversation.length === 0 || isAdding;
@@ -1521,10 +1536,13 @@ async function addPanel(): Promise<void> {
     if (liveState === "joined" && mode === "whisper" && whisperTo.length === 0) {
       throw new Error("Select who to whisper to in the member list first");
     }
+    if (liveState === "joined" && mode === "whisper" && whisperTo.length > 5) {
+      throw new Error("Choose no more than five people for one whisper");
+    }
     const line = await createConversationLine(characterSelect.value, message, undefined, mode, whisperTo);
     if (liveState === "joined") {
       // Whispers go privately to each selected member; nobody else receives them.
-      if (mode === "whisper") for (const nickname of whisperTo) liveClient.whisper(nickname, message);
+      if (mode === "whisper") liveClient.whisper(whisperTo, message);
       else liveClient.say(message, mode === "action");
     }
     appendConversationLine(line, liveState === "joined");

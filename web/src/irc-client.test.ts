@@ -99,10 +99,9 @@ describe("browser IRC client", () => {
     client.connect({ network: "libera", nickname: "Whisperer", channel: "#comics" });
     const socket = FakeWebSocket.instances.at(-1)!;
     socket.open();
-    expect(() => client.whisper("Dan", "too early")).toThrow("Join a channel");
+    expect(() => client.whisper(["Dan"], "too early")).toThrow("Join a channel");
     socket.receive({ type: "status", state: "joined", message: "Live in #comics", channel: "#comics" });
-    client.whisper("Dan", "psst");
-    expect(JSON.parse(socket.sent.at(-1)!)).toEqual({ type: "whisper", to: "Dan", message: "psst" });
+    client.whisper(["Dan"], "psst");
+    expect(JSON.parse(socket.sent.at(-1)!)).toEqual({ type: "whisper", to: ["Dan"], message: "psst" });
   });
 });
-

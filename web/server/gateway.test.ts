@@ -274,7 +274,20 @@ describe("whispers", () => {
     const { send, writes, events } = inRoom();
     send({ type: "whisper", to: "Dan", message: "just between us" });
     expect(writes).toEqual(["PRIVMSG Dan :just between us\r\n"]);
-    expect(events.at(-1)).toMatchObject({ type: "message", nickname: "ComicFan", self: true, whisper: true, to: "Dan", message: "just between us" });
+    expect(events.at(-1)).toMatchObject({ type: "message", nickname: "ComicFan", self: true, whisper: true, to: ["Dan"], message: "just between us" });
+  });
+
+  it("sends a group whisper only to its selected room members", () => {
+    const { bridge, send, writes, events } = inRoom();
+    bridge.handleIrcLine(":Eve!e@example JOIN #comics");
+    writes.length = 0;
+    events.length = 0;
+    send({ type: "whisper", to: ["Dan", "Eve"], message: "for us only" });
+    expect(writes).toEqual([
+      "PRIVMSG Dan :for us only\r\n",
+      "PRIVMSG Eve :for us only\r\n",
+    ]);
+    expect(events.at(-1)).toMatchObject({ whisper: true, to: ["Dan", "Eve"] });
   });
 
   it("won't whisper to someone outside the room, or to yourself", () => {

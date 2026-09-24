@@ -407,12 +407,12 @@ export class IrcBridge {
     sendJson(this.webSocket, { type: "status", state: "joining", message: `Joining ${channel}…`, channel });
   }
 
-  private checkOutgoingRate(): number {
+  private checkOutgoingRate(count = 1): number {
     const now = Date.now();
     this.recentMessages = this.recentMessages.filter((timestamp) => now - timestamp < 10_000);
-    if (this.recentMessages.length >= 5) throw new Error("Slow down: IRC messages are limited to five per ten seconds");
-    this.recentMessages.push(now);
-    this.onOutboundMessage();
+    if (this.recentMessages.length + count > 5) throw new Error("Slow down: IRC messages are limited to five per ten seconds");
+    for (let index = 0; index < count; index += 1) this.onOutboundMessage();
+    this.recentMessages.push(...Array.from({ length: count }, () => now));
     return now;
   }
 
@@ -423,20 +423,22 @@ export class IrcBridge {
   }
 
   /** Send a whisper: a private message to someone in the current room. */
-  private whisper(to: string, message: string, action = false): void {
+  private whisper(to: readonly string[], message: string, action = false): void {
     if (!this.socket || !this.request || !this.activeChannel || !this.joined) throw new Error("Join a channel before whispering");
-    if (ircCaseFold(to) === ircCaseFold(this.request.nickname)) throw new Error("You can't whisper to yourself");
-    if (!this.isMember(to)) throw new Error(`${to} isn't in this room`);
-    const now = this.checkOutgoingRate();
+    for (const recipient of to) {
+      if (ircCaseFold(recipient) === ircCaseFold(this.request.nickname)) throw new Error("You can't whisper to yourself");
+      if (!this.isMember(recipient)) throw new Error(`${recipient} isn't in this room`);
+    }
+    const now = this.checkOutgoingRate(to.length);
     const ircMessage = action ? `\u0001ACTION ${message}\u0001` : message;
-    this.write(`PRIVMSG ${to} :${ircMessage}`);
+    for (const recipient of to) this.write(`PRIVMSG ${recipient} :${ircMessage}`);
     sendJson(this.webSocket, {
       type: "message",
       nickname: this.request.nickname,
       message: ircMessage,
       self: true,
       whisper: true,
-      to,
+      to: [...to],
       timestamp: now,
     });
   }

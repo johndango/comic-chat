@@ -14,7 +14,8 @@ on settings captured from the original client. The independent zoom slider
 scales the reading view from 60% to 160%; both preferences are remembered.
 Panels never shrink below the original client's 2,300-twip minimum and use a
 scrollable comic surface on narrow screens. Saved PNGs retain the original
-resolution. In offline mode the selected character remains selected until the
+resolution and add a narrow white gutter between adjacent panel borders. In
+offline mode the selected character remains selected until the
 user chooses another one.
 
 The browser ports the original 2.5 text-expression, composite-avatar, panel,
@@ -30,6 +31,13 @@ Cmd-click on macOS or Ctrl-click elsewhere selects several people. The original
 layout logic then brings those listeners into the panel and turns the speaker
 toward them. Messages from other IRC clients also recognize a leading `Name:`
 as an addressee hint.
+
+Whisper balloons are private in live rooms. A whisper is sent by IRC private
+message only to the selected room member or members (up to five), never to the
+channel. Each recipient who is using WebComicChat renders it as a whisper in
+their comic, and the sender sees the local copy; uninvolved channel members
+receive nothing. The gateway rejects recipients who are not currently in the
+room and ignores incoming private messages from outsiders.
 
 **Avatars…** opens local display controls for room members. Official-only mode
 is enabled by default, original `# Appears as …` character announcements are
