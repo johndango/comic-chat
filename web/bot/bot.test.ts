@@ -262,6 +262,21 @@ describe("about mentions the AI bot while it's present", () => {
     expect(Buffer.byteLength(text)).toBeLessThanOrEqual(400);
   });
 
+  it("stops advertising the AI bot after quit, nick change, disconnect, or a refreshed member list", () => {
+    const removals = [
+      (brain: BotBrain) => brain.handle({ type: "quit", nick: "tonguetiedbot", at: T0 }),
+      (brain: BotBrain) => brain.handle({ type: "nick", oldNick: "TongueTiedBot", newNick: "Away", at: T0 }),
+      (brain: BotBrain) => brain.handle({ type: "disconnect", at: T0 }),
+      (brain: BotBrain) => brain.handle({ type: "names", channel: "#c", nicks: ["BettyBot", "Anna"], at: T0 }),
+    ];
+    for (const remove of removals) {
+      const brain = new BotBrain(withFriend);
+      brain.handle({ type: "names", channel: "#c", nicks: ["BettyBot", "TongueTiedBot", "Anna"], at: T0 });
+      remove(brain);
+      expect(ask(brain)).not.toContain("TongueTiedBot is here too");
+    }
+  });
+
   it("leaves it out when the AI bot isn't there", () => {
     const brain = new BotBrain(withFriend);
     brain.handle({ type: "names", channel: "#c", nicks: ["BettyBot", "Anna"], at: T0 });
@@ -275,4 +290,3 @@ describe("about mentions the AI bot while it's present", () => {
     expect(ask(brain)).not.toMatch(/TongueTiedBot/);
   });
 });
-

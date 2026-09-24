@@ -56,13 +56,28 @@ describe("CamBot follows Libera.Chat's LLM policy", () => {
     expect(lines[0]).toMatch(/only chat while johndango/);
   });
 
-  it("forgets someone's lines on request", async () => {
+  it("clears the short conversation memory on request", async () => {
     const { say, sent } = setup();
     await say("Anna", "CamBot: my cat is called Pickles");
     const done = await say("Anna", "CamBot: forget me");
-    expect(done[0]).toMatch(/forgotten everything/);
+    expect(done[0]).toMatch(/cleared my short conversation memory/);
     await say("Dan", "CamBot: hi");
     expect(sent.at(-1)).not.toContain("Pickles");
+  });
+
+  it("stops answering when an admin quits, changes nick, disconnects, or disappears from NAMES", async () => {
+    for (const removeAdmin of [
+      (brain: CamBrain) => brain.quit("JOHNDANGO"),
+      (brain: CamBrain) => brain.rename("johndango", "away"),
+      (brain: CamBrain) => brain.disconnected(),
+      (brain: CamBrain) => brain.names("#webcomicchat", ["Anna", "CamBot"]),
+    ]) {
+      const { brain, say, sent } = setup();
+      removeAdmin(brain);
+      const lines = await say("Anna", "CamBot: hello?");
+      expect(sent).toHaveLength(0);
+      expect(lines[0]).toMatch(/only chat while johndango/);
+    }
   });
 
   it("doesn't use the model for private messages", async () => {
@@ -127,6 +142,8 @@ describe("CamBot resists prompt injection", () => {
     expect(clean("/join #elsewhere")).toEqual(["join #elsewhere"]);
     expect(clean("line one\r\nPRIVMSG #x :pwned")).toEqual(["line one PRIVMSG #x :pwned"]);
     expect(clean("see http://phish.example and https://webcomicchat.com")).toEqual(["see [link removed] and https://webcomicchat.com"]);
+    expect(clean("safe https://webcomicchat.com/help")).toEqual(["safe https://webcomicchat.com/help"]);
+    expect(clean("fake https://webcomicchat.com.evil.example/login")).toEqual(["fake [link removed]"]);
     expect(clean("Anna Dan Eve Finn Gus wake up!")).toEqual(["Anna Dan someone someone someone wake up!"]);
     expect(clean("\u0001ACTION does something\u0001")).toEqual(["ACTION does something"]);
     expect(clean("**bold** and `code`")).toEqual(["bold and code"]);
@@ -216,5 +233,38 @@ describe("IrcBot operator tracking", () => {
     bot.start();
     await new Promise((resolve) => setTimeout(resolve, 300));
     expect(events).toEqual(["#c johndango +o", "#c Dan +o", "#c Dan -o"]);
+  });
+
+  it("reports nick changes, quits and disconnects", async () => {
+    let client: Socket | undefined;
+    const server = createServer((socket) => {
+      client = socket;
+      socket.on("data", (chunk) => {
+        if (String(chunk).includes("USER ")) {
+          socket.write(":irc.test 001 CamBot :Welcome\r\n");
+          socket.write(":johndango!u@h NICK :away\r\n");
+          socket.write(":away!u@h QUIT :Gone\r\n");
+          setTimeout(() => socket.end(), 10);
+        }
+      });
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const events: string[] = [];
+    const bot = new IrcBot(
+      { host: "127.0.0.1", port: (server.address() as { port: number }).port, tls: false, nick: "CamBot", realname: "t", channels: [] },
+      {
+        onNick: (oldNick, newNick) => events.push(`nick ${oldNick} ${newNick}`),
+        onQuit: (nick) => events.push(`quit ${nick}`),
+        onDisconnect: () => events.push("disconnect"),
+      },
+    );
+    close = () => {
+      bot.stop();
+      client?.destroy();
+      server.close();
+    };
+    bot.start();
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(events).toEqual(["nick johndango away", "quit away", "disconnect"]);
   });
 });

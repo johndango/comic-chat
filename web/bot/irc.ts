@@ -17,7 +17,7 @@ export interface IrcOptions {
   /** Character announced using Comic Chat's original # Appears as convention. */
   avatar?: { name: string; url?: string };
   sasl?: { account: string; password: string };
-  /** Minimum milliseconds between lines sent (default 1500). */
+  /** Minimum milliseconds between lines sent (default 2000). */
   pace?: number;
   /** For tests: accept self-signed certificates. */
   insecure?: boolean;
@@ -28,6 +28,9 @@ export interface IrcHandlers {
   onPart?(channel: string, nick: string): void;
   onNames?(channel: string, nicks: string[]): void;
   onMessage?(target: string | null, nick: string, text: string): void;
+  onQuit?(nick: string): void;
+  onNick?(oldNick: string, newNick: string): void;
+  onDisconnect?(): void;
   /** Channel operator status granted (+o) or removed (-o). */
   onOperator?(channel: string, nick: string, isOperator: boolean): void;
   onStatus?(status: string): void;
@@ -138,6 +141,9 @@ export class IrcBot {
     if (this.pump) clearTimeout(this.pump);
     this.pump = undefined;
     this.names.clear();
+    if (this.reclaim) clearInterval(this.reclaim);
+    this.reclaim = undefined;
+    this.handlers.onDisconnect?.();
     if (this.stopped) return;
     // 5 s, 10 s, 20 s ... capped at 5 minutes, so a ban or outage isn't hammered.
     const delay = Math.min(300_000, 5_000 * 2 ** this.attempt);
@@ -184,7 +190,7 @@ export class IrcBot {
 
   private flush(): void {
     if (this.pump || !this.queue.length) return;
-    const pace = this.options.pace ?? 1500;
+    const pace = this.options.pace ?? 2000;
     const wait = Math.max(0, this.lastSent + pace - Date.now());
     this.pump = setTimeout(() => {
       this.pump = undefined;
@@ -257,8 +263,16 @@ export class IrcBot {
         this.currentNick = `${this.options.nick}_${Math.floor(Math.random() * 90 + 10)}`;
         this.raw(`NICK ${this.currentNick}`);
         return;
-      case "NICK":
-        if (this.isMe(nicknameFromPrefix(m.prefix))) this.currentNick = arg(0) ?? this.currentNick;
+      case "NICK": {
+        const oldNick = nicknameFromPrefix(m.prefix);
+        const newNick = arg(0);
+        if (!newNick) return;
+        if (this.isMe(oldNick)) this.currentNick = newNick;
+        this.handlers.onNick?.(oldNick, newNick);
+        return;
+      }
+      case "QUIT":
+        this.handlers.onQuit?.(nicknameFromPrefix(m.prefix));
         return;
       case "JOIN": {
         const channel = m.params[0] ?? m.trailing;
@@ -309,7 +323,7 @@ export class IrcBot {
         }
         return;
       }
-            case "PRIVMSG": {
+      case "PRIVMSG": {
         const target = m.params[0];
         const text = m.trailing ?? "";
         const nick = nicknameFromPrefix(m.prefix);

@@ -37,6 +37,17 @@ export interface CleanOptions {
   roomNicks: string[];
 }
 
+function allowedSiteLink(raw: string, allowedSite: string): boolean {
+  if (/^www\./i.test(raw)) return false;
+  try {
+    const candidate = new URL(raw);
+    const allowed = new URL(allowedSite);
+    return candidate.protocol === "https:" && candidate.origin === allowed.origin;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Turn raw model output into at most two safe IRC lines, or null if nothing
  * safe is left. Enforced in code, so a successful prompt injection can at
@@ -47,7 +58,7 @@ export function cleanReply(raw: string, options: CleanOptions): string[] | null 
   // Markdown doesn't render on IRC.
   text = text.replace(/```[\s\S]*?```/g, " ").replace(/[*_`]{1,3}([^*_`]+)[*_`]{1,3}/g, "$1");
   // Links: only the site's own.
-  text = text.replace(/\b(?:https?:\/\/|www\.)\S+/gi, (url) => (url.startsWith(options.allowedLinkPrefix) ? url : "[link removed]"));
+  text = text.replace(/\b(?:https?:\/\/|www\.)\S+/gi, (url) => (allowedSiteLink(url, options.allowedLinkPrefix) ? url : "[link removed]"));
   // Mentions: no mass-pinging the room.
   let mentions = 0;
   const lower = new Map(options.roomNicks.map((n) => [n.toLowerCase(), n]));

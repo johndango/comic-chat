@@ -20,6 +20,9 @@ export interface BotConfig {
 export type BotEvent =
   | { type: "join"; channel: string; nick: string; at: number }
   | { type: "part"; channel: string; nick: string; at: number }
+  | { type: "quit"; nick: string; at: number }
+  | { type: "nick"; oldNick: string; newNick: string; at: number }
+  | { type: "disconnect"; at: number }
   | { type: "names"; channel: string; nicks: string[]; at: number }
   | { type: "message"; channel: string | null; nick: string; text: string; at: number }
   | { type: "tick"; at: number };
@@ -169,21 +172,41 @@ export class BotBrain {
     switch (event.type) {
       case "names": {
         const state = this.channel(event.channel);
-        for (const n of event.nicks) state.members.add(n.replace(/^[~&@%+]+/, ""));
+        state.members = new Set(event.nicks.map((n) => n.replace(/^[~&@%+]+/, "")));
         return [];
       }
       case "join":
         return this.onJoin(event);
       case "part": {
         const state = this.channel(event.channel);
-        state.members.delete(event.nick);
+        this.deleteMember(state.members, event.nick);
         return [];
       }
+      case "quit":
+        for (const state of this.channels.values()) this.deleteMember(state.members, event.nick);
+        return [];
+      case "nick":
+        for (const state of this.channels.values()) {
+          const oldNick = [...state.members].find((nick) => fold(nick) === fold(event.oldNick));
+          if (oldNick) {
+            state.members.delete(oldNick);
+            state.members.add(event.newNick);
+          }
+        }
+        return [];
+      case "disconnect":
+        for (const state of this.channels.values()) state.members.clear();
+        return [];
       case "message":
         return this.onMessage(event);
       case "tick":
         return this.onTick(event.at);
     }
+  }
+
+  private deleteMember(members: Set<string>, nick: string): void {
+    const existing = [...members].find((member) => fold(member) === fold(nick));
+    if (existing) members.delete(existing);
   }
 
   private onJoin(event: Extract<BotEvent, { type: "join" }>): Say[] {

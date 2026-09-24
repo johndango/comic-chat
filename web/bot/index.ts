@@ -56,6 +56,9 @@ const bot = new IrcBot(
     onNames: (channel, nicks) => dispatch({ type: "names", channel, nicks, at: Date.now() }),
     onJoin: (channel, who) => dispatch({ type: "join", channel, nick: who, at: Date.now() }),
     onPart: (channel, who) => dispatch({ type: "part", channel, nick: who, at: Date.now() }),
+    onQuit: (who) => dispatch({ type: "quit", nick: who, at: Date.now() }),
+    onNick: (oldNick, newNick) => dispatch({ type: "nick", oldNick, newNick, at: Date.now() }),
+    onDisconnect: () => dispatch({ type: "disconnect", at: Date.now() }),
     onMessage: (channel, who, text) => dispatch({ type: "message", channel, nick: who, text, at: Date.now() }),
   },
 );

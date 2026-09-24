@@ -82,13 +82,15 @@ export class CamBrain {
   }
 
   names(channel: string, nicks: string[]): void {
-    const members = this.memberSet(channel);
-    const ops = this.opSet(channel);
+    const members = new Set<string>();
+    const ops = new Set<string>();
     for (const raw of nicks) {
       const nick = raw.replace(/^[~&@%+]+/, "");
       members.add(nick);
       if (/^[~&@]/.test(raw)) ops.add(fold(nick));
     }
+    this.members.set(fold(channel), members);
+    this.operators.set(fold(channel), ops);
   }
 
   join(channel: string, nick: string): void {
@@ -96,8 +98,31 @@ export class CamBrain {
   }
 
   part(channel: string, nick: string): void {
-    this.memberSet(channel).delete(nick);
+    this.deleteMember(this.memberSet(channel), nick);
     this.opSet(channel).delete(fold(nick));
+  }
+
+  quit(nick: string): void {
+    for (const members of this.members.values()) this.deleteMember(members, nick);
+    for (const operators of this.operators.values()) operators.delete(fold(nick));
+  }
+
+  rename(oldNick: string, newNick: string): void {
+    for (const members of this.members.values()) {
+      const old = [...members].find((member) => fold(member) === fold(oldNick));
+      if (old) {
+        members.delete(old);
+        members.add(newNick);
+      }
+    }
+    for (const operators of this.operators.values()) {
+      if (operators.delete(fold(oldNick))) operators.add(fold(newNick));
+    }
+  }
+
+  disconnected(): void {
+    this.members.clear();
+    this.operators.clear();
   }
 
   operator(channel: string, nick: string, isOperator: boolean): void {
@@ -115,6 +140,11 @@ export class CamBrain {
     const key = fold(channel);
     if (!this.operators.has(key)) this.operators.set(key, new Set());
     return this.operators.get(key)!;
+  }
+
+  private deleteMember(members: Set<string>, nick: string): void {
+    const member = [...members].find((candidate) => fold(candidate) === fold(nick));
+    if (member) members.delete(member);
   }
 
   /** The bot's name plus friendly variants: TongueTiedBot → tonguetied, tongue-tied, tongue tied. */
@@ -178,8 +208,11 @@ export class CamBrain {
 
     const transcript = this.transcripts.get(fold(channel)) ?? [];
     if (/^forget( me)?$/i.test(request)) {
-      this.transcripts.set(fold(channel), transcript.filter((line) => fold(line.nick) !== fold(nick)));
-      return this.mark([`Done, ${nick}: I've forgotten everything you said to me.`]);
+      // Bot replies may paraphrase a person's earlier line, so removing only
+      // that person's entries would not fully forget it. Clear the short room
+      // transcript instead; it contains at most 12 addressed lines.
+      this.transcripts.delete(fold(channel));
+      return this.mark([`Done, ${nick}: I've cleared my short conversation memory.`]);
     }
 
     // Libera.Chat: LLM bots must be accompanied by their administrator.

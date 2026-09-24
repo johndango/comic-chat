@@ -22,7 +22,7 @@ single bot that says it's a bot.
 **What it won't do**
 - Repeat anything a user typed (all answers are canned).
 - Answer more than 6 times a minute per person. It gives one friendly pause
-  notice before going quiet, and sends no more than one line every 1.5 seconds.
+  notice before going quiet, and sends no more than one line every 2 seconds.
 - Talk to other bots or services.
 
 It marks itself with the `+B` bot mode and answers CTCP VERSION.
@@ -52,9 +52,59 @@ npm run bot:dev
 
 Register the bot's nick with NickServ, then run it with `BOT_ACCOUNT` and
 `BOT_PASSWORD` so it signs in before joining. That stops anyone else taking
-the name. Make sure the channel's founder (you) is happy to have it there;
-it's your own channel, so you are. The bot tells anyone who asks what it is,
-and its WHOIS name points to the site.
+the name. Get the channel operator's approval before adding it, and keep its
+administrator reachable. The bot tells anyone who asks what it is, and its
+WHOIS name points to the site.
+
+## AI room bot
+
+`TongueTiedBot` is an optional, separately run AI participant. It stays out of
+ordinary conversation: only a line that addresses it by name is sent to
+Anthropic's Claude. It retains at most 12 addressed lines and its own replies
+as short conversation context. `TongueTiedBot: forget me` clears that entire
+short context, including replies that might paraphrase an earlier line.
+
+Every IRC line it produces begins with `[AI]`. Libera therefore sees the AI
+label in the room; WebComicChat removes only that marker while drawing the
+line as a comic balloon. The one-time notice to each person also says that the
+bot is AI and that addressed messages go to Anthropic.
+
+Before running it on Libera.Chat, follow the network's current
+[bot policy](https://libera.chat/policies/):
+
+- Get explicit permission from a channel operator.
+- Put an explicit invitation/disclosure for the named LLM bot in the channel
+  topic or ChanServ entry message.
+- Keep the named administrator (or another delegated human administrator)
+  present and reachable while it operates.
+- Keep `ANTHROPIC_API_KEY` and NickServ credentials private.
+
+Run it from a private environment file:
+
+```sh
+cd web
+set -a
+source /path/to/cambot.env
+set +a
+npm run cam
+```
+
+| Variable | Default | |
+|---|---|---|
+| `ANTHROPIC_API_KEY` | — | Required; never commit it |
+| `CAM_ADMIN` | — | Required administrator nick; the bot answers only while this nick is present |
+| `CAM_MODEL` | `claude-haiku-4-5` | Anthropic model |
+| `CAM_DAILY_BUDGET_USD` | `1.00` | Hard daily reply budget |
+| `BOT_NICK` | `TongueTiedBot` | |
+| `BOT_CHANNELS` | `#webcomicchat` | Comma-separated |
+| `BOT_ACCOUNT` / `BOT_PASSWORD` | — | NickServ SASL credentials; set both or neither |
+| `BOT_AVATAR` | `Tongue-Tied` | Comic Chat character |
+| `SITE_URL` | `https://webcomicchat.com` | The only origin the bot may link to |
+| `BOT_IGNORE` | — | Other bots' nicks, comma-separated |
+
+Safety and cost limits are enforced in code after the model responds: at most
+two short lines, no IRC/control commands, no off-site links, no mass mentions,
+per-person/hourly rate limits, and the configured daily spend ceiling.
 
 ## Keeping it running
 
