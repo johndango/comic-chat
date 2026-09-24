@@ -691,7 +691,6 @@ function setSidebarPaneCollapsed(
   toggle.setAttribute("aria-label", `${collapsed ? "Expand" : "Collapse"} ${label}`);
   const disclosure = toggle.querySelector<HTMLElement>("span");
   if (disclosure) disclosure.textContent = collapsed ? "▶" : "▼";
-  if (pane === characterPane) workspace.classList.toggle("character-pane-collapsed", collapsed);
   if (persist) {
     try {
       localStorage.setItem(storageKey, collapsed ? "1" : "0");
@@ -1253,9 +1252,16 @@ async function addRemoteMessage(event: LiveMessageEvent): Promise<void> {
   const unsafeLink = blockedMessageLink(event.message);
   if (unsafeLink) throw new Error(blockedLinkMessage(unsafeLink));
   knownMembers.add(event.nickname);
-  const announcement = event.whisper ? undefined : parseAvatarAnnouncement(event.message);
+  // Comic Chat answers a room-wide appearance announcement privately. Those
+  // replies are metadata, not whispers for the comic, and are how a late
+  // joiner learns the characters already present in the room.
+  const announcement = parseAvatarAnnouncement(event.message);
   if (announcement) {
     announcedAvatars.set(memberAvatarRuleKey(event.nickname), announcement);
+    if (!event.whisper) {
+      const ownAvatar = selectedOfficialAvatarName();
+      if (ownAvatar) liveClient.whisper([event.nickname], `# Appears as ${ownAvatar}`);
+    }
     let hostedFile: string | undefined;
     let hostedError: unknown;
     if (!announcedOfficialFile(event.nickname) && !avatarDisplayPolicy.officialOnly) {
@@ -1953,7 +1959,7 @@ async function addPanel(): Promise<void> {
     isAdding = true;
     updateControls();
     try {
-      const line = await createConversationLine(characterSelect.value, "", undefined, "say", [], false);
+      const line = await createConversationLine(characterSelect.value, "", nicknameInput.value.trim() || undefined, "say", [], false);
       line.reaction = true;
       line.breakBefore = forceNextPanel;
       forceNextPanel = false;
@@ -1980,7 +1986,7 @@ async function addPanel(): Promise<void> {
     if (liveState === "joined" && mode === "whisper" && whisperTo.length > 5) {
       throw new Error("Choose no more than five people for one whisper");
     }
-    const line = await createConversationLine(characterSelect.value, message, undefined, mode, whisperTo);
+    const line = await createConversationLine(characterSelect.value, message, nicknameInput.value.trim() || undefined, mode, whisperTo);
     line.breakBefore = forceNextPanel;
     forceNextPanel = false;
     if (liveState === "joined") {

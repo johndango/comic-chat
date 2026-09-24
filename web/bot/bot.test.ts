@@ -165,6 +165,7 @@ describe("IrcBot against a fake server", () => {
           }
           if (line.startsWith("JOIN #c")) {
             socket.write(":BettyBot!b@h JOIN #c\r\n:irc.test 353 BettyBot = #c :BettyBot Anna\r\n:irc.test 366 BettyBot #c :End\r\n");
+            socket.write(":Anna!a@h PRIVMSG #c :# Appears as Connor\r\n");
             socket.write(":Anna!a@h PRIVMSG #c :BettyBot: help\r\n");
           }
           i = buffer.indexOf("\r\n");
@@ -198,7 +199,12 @@ describe("IrcBot against a fake server", () => {
     expect(received).toContain("PONG :abc123");
     expect(events).toEqual(["names #c BettyBot,Anna", "msg #c Anna BettyBot: help"]);
     const sent = received.filter((l) => l.startsWith("PRIVMSG"));
-    expect(sent).toEqual(["PRIVMSG #c :# Appears as Anna", "PRIVMSG #c :one", "PRIVMSG #c :two"]);
+    expect(sent).toEqual([
+      "PRIVMSG #c :# Appears as Anna",
+      "PRIVMSG Anna :# Appears as Anna",
+      "PRIVMSG #c :one",
+      "PRIVMSG #c :two",
+    ]);
   });
 });
 

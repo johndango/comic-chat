@@ -5,6 +5,7 @@
 import { connect as connectTls, type TLSSocket } from "node:tls";
 import { connect as connectTcp, type Socket } from "node:net";
 import { ircCaseFold, nicknameFromPrefix, parseIrcLine, type IrcMessage } from "../server/protocol";
+import { parseAvatarAnnouncement } from "../src/avatar-policy";
 
 export interface IrcOptions {
   host: string;
@@ -336,6 +337,16 @@ export class IrcBot {
           return;
         }
         const channel = /^[#&]/.test(target) ? target : null;
+        // Original Comic Chat clients announced to the room, then answered
+        // that announcement privately with their own character. Suppress the
+        // protocol line from the conversational brain and complete the same
+        // handshake so clients joining after this bot still learn its avatar.
+        if (parseAvatarAnnouncement(text)) {
+          if (channel && this.options.avatar) {
+            this.say(nick, appearanceLine(this.options.avatar.name, this.options.avatar.url));
+          }
+          return;
+        }
         this.handlers.onMessage?.(channel, nick, text);
         return;
       }
