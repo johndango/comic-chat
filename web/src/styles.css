@@ -143,8 +143,9 @@ button:disabled { color: #808080; text-shadow: 1px 1px #fff; cursor: not-allowed
 .controls { min-width: 0; min-height: 0; overflow: hidden; display: grid; grid-template-rows: 190px minmax(0, 1fr); background: var(--face); }
 .member-pane, .character-pane { min-height: 0; border-bottom: 2px solid #808080; }
 .member-pane > header, .character-pane > header { padding: 5px 7px; font-weight: 700; border-bottom: 1px solid #808080; }
-.member-pane > header { display: flex; align-items: baseline; justify-content: space-between; gap: 5px; }
-.member-pane > header small { max-width: 125px; overflow: hidden; color: #444; font-weight: 400; text-overflow: ellipsis; white-space: nowrap; }
+.member-pane > header { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 2px 5px; }
+.member-pane > header button { min-height: 20px; padding: 0 5px; font-size: 10px; }
+.member-pane > header small { grid-column: 1 / -1; overflow: hidden; color: #444; font-weight: 400; text-overflow: ellipsis; white-space: nowrap; }
 .member-list { height: 160px; padding: 5px; overflow: auto; background: #fff; border-top: 2px solid #404040; border-left: 2px solid #404040; }
 .member-list > p { color: #666; }
 .member-row { width: 100%; min-height: 31px; padding: 3px; display: flex; gap: 6px; align-items: center; border: 0; box-shadow: none; background: transparent; color: #000; text-align: left; }
@@ -180,6 +181,23 @@ button:disabled { color: #808080; text-shadow: 1px 1px #fff; cursor: not-allowed
 .classic-statusbar { min-height: 28px; padding: 3px; display: grid; grid-template-columns: 1fr auto; gap: 4px; border-top: 1px solid #fff; }
 .classic-statusbar > * { margin: 0; padding: 4px 6px; border-top: 1px solid #808080; border-left: 1px solid #808080; border-right: 1px solid #fff; border-bottom: 1px solid #fff; }
 .status.error { color: #a00000; font-weight: 700; }
+
+.classic-dialog { width: min(570px, calc(100vw - 24px)); max-height: min(620px, calc(100vh - 24px)); padding: 3px; color: #000; background: var(--face); border-top: 2px solid #fff; border-left: 2px solid #fff; border-right: 2px solid #101010; border-bottom: 2px solid #101010; box-shadow: 2px 2px 0 #000; font: 12px "MS Sans Serif", Tahoma, Geneva, sans-serif; }
+.classic-dialog::backdrop { background: rgb(0 0 0 / 35%); }
+.classic-dialog form { min-height: 0; display: flex; flex-direction: column; }
+.classic-dialog form > header { min-height: 25px; padding: 3px 4px; display: flex; align-items: center; color: #fff; background: linear-gradient(90deg, #000080, #1084d0); }
+.classic-dialog form > header button { width: 20px; min-height: 18px; margin-left: auto; padding: 0; }
+.dialog-body { min-height: 0; padding: 10px; overflow: auto; }
+.dialog-body > p { margin: 5px 0 12px; color: #333; }
+.official-only { display: flex; align-items: center; gap: 7px; font-weight: 700; }
+.official-only input { width: 15px; height: 15px; padding: 0; outline: 0; }
+.avatar-rule-columns, .avatar-rule-list { display: grid; grid-template-columns: minmax(110px, 1fr) minmax(190px, 1.5fr); gap: 5px 9px; align-items: center; }
+.avatar-rule-columns { padding: 4px 5px; border: 1px solid #808080; background: #ddd; }
+.avatar-rule-list { max-height: 330px; padding: 5px; overflow: auto; border-top: 2px solid #404040; border-left: 2px solid #404040; border-right: 2px solid #fff; border-bottom: 2px solid #fff; background: #fff; }
+.avatar-rule-list select { min-width: 0; }
+.avatar-rule-empty { grid-column: 1 / -1; margin: 15px; color: #555; text-align: center; }
+.classic-dialog form > footer { padding: 7px; display: flex; justify-content: flex-end; gap: 7px; border-top: 1px solid #808080; }
+.classic-dialog form > footer button:first-child { margin-right: auto; }
 
 @media (max-width: 900px) {
   .classic-window { width: 100%; min-height: 100vh; margin: 0; }

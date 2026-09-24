@@ -3,6 +3,14 @@ import "@fontsource/comic-neue/400-italic.css";
 import comicNeueLicenseUrl from "@fontsource/comic-neue/LICENSE?url";
 import "./styles.css";
 import { AvatarType, decodeImage, parseAvatar, type AvatarFile, type DecodedBitmap } from "./avb";
+import {
+  avatarRuleKey,
+  parseAvatarAnnouncement,
+  parseAvatarDisplayPolicy,
+  resolveAvatarFile,
+  type AvatarAnnouncement,
+  type AvatarDisplayPolicy,
+} from "./avatar-policy";
 import { bodyForText, composeChoice, type ComposedBody } from "./composite";
 import { createEmotionWheel, posesForWheel, type WheelEmotion } from "./emotion-wheel";
 import { describeOptions, emotionOptions, newPoseMemory, type PoseChoice, type PoseMemory } from "./expression";
@@ -64,6 +72,10 @@ const characters: ArtChoice[] = [
   { file: artPack("denise.avb"), label: "Denise — Art Pack edition" },
   { file: artPack("lynnea.avb"), label: "Lynnea — Art Pack edition" },
 ];
+const officialCharacterFiles = new Set(characters.map(({ file }) => file));
+const officialCharacterByName = new Map(
+  characters.map(({ file, label }) => [label.split(" —")[0].toLocaleLowerCase(), file]),
+);
 
 const backdrops: ArtChoice[] = [
   { file: "room.bgb", label: "The room" },
@@ -165,7 +177,11 @@ app.innerHTML = `
 
         <aside class="controls">
           <section class="member-pane">
-            <header><span>Members</span><small id="member-target-summary">Select who you are talking to</small></header>
+            <header>
+              <span>Members</span>
+              <button id="avatar-rules-button" type="button">Avatars…</button>
+              <small id="member-target-summary">Select who you are talking to</small>
+            </header>
             <div id="member-list" class="member-list"><p>Connect to see room members.</p></div>
           </section>
           <section class="character-pane">
@@ -206,6 +222,18 @@ app.innerHTML = `
         <span>Original Comic Chat 2.5 art and expression rules · <a href="${comicNeueLicenseUrl}" target="_blank" rel="noreferrer">font notice</a></span>
       </footer>
     </main>
+    <dialog id="avatar-rules-dialog" class="classic-dialog" aria-labelledby="avatar-rules-title">
+      <form method="dialog">
+        <header><strong id="avatar-rules-title">Avatar display rules</strong><button value="cancel" aria-label="Close">×</button></header>
+        <div class="dialog-body">
+          <label class="official-only"><input id="official-avatars-only" type="checkbox" /> Show only official Comic Chat avatars</label>
+          <p>Room-provided custom art is ignored when this is checked. A forced character always wins.</p>
+          <div class="avatar-rule-columns"><strong>Room member</strong><strong>Display as</strong></div>
+          <div id="avatar-rule-list" class="avatar-rule-list"></div>
+        </div>
+        <footer><button id="reset-avatar-rules" type="button">Reset mappings</button><button value="cancel">Close</button></footer>
+      </form>
+    </dialog>
   </div>
 `;
 
@@ -248,6 +276,11 @@ const roomSummary = element<HTMLElement>("#room-summary");
 const refreshRoomsButton = element<HTMLButtonElement>("#refresh-rooms");
 const memberList = element<HTMLElement>("#member-list");
 const memberTargetSummary = element<HTMLElement>("#member-target-summary");
+const avatarRulesButton = element<HTMLButtonElement>("#avatar-rules-button");
+const avatarRulesDialog = element<HTMLDialogElement>("#avatar-rules-dialog");
+const officialAvatarsOnly = element<HTMLInputElement>("#official-avatars-only");
+const avatarRuleList = element<HTMLElement>("#avatar-rule-list");
+const resetAvatarRulesButton = element<HTMLButtonElement>("#reset-avatar-rules");
 const roomTabLabel = element<HTMLElement>("#room-tab-label");
 const windowRoom = element<HTMLElement>("#window-room");
 const characterPreview = element<HTMLCanvasElement>("#character-preview");
@@ -262,6 +295,7 @@ let backdropCanvas: HTMLCanvasElement;
 let backdropGeneration = 0;
 let renderGeneration = 0;
 let memberGeneration = 0;
+let avatarRemapGeneration = 0;
 let previewGeneration = 0;
 let isAdding = false;
 let liveState: LiveState = "offline";
@@ -270,6 +304,8 @@ let remoteQueue = Promise.resolve();
 const publicRooms = new Map<string, LiveRoomEvent>();
 const knownMembers = new Set<string>();
 const selectedAddressees = new Set<string>();
+const announcedAvatars = new Map<string, AvatarAnnouncement>();
+let avatarDisplayPolicy: AvatarDisplayPolicy = { officialOnly: true, forced: {} };
 let totalPublicRooms = 0;
 let currentWheelEmotion: WheelEmotion = { emotion: 0, intensity: 0 };
 let suppressWheelChange = false;
@@ -400,7 +436,7 @@ function showError(error: unknown): void {
   status.classList.add("error");
 }
 
-function characterForNickname(nickname: string): string {
+function automaticCharacterForNickname(nickname: string): string {
   if (nicknameInput.value && nickname.toLocaleLowerCase() === nicknameInput.value.toLocaleLowerCase()) {
     return characterSelect.value;
   }
@@ -410,6 +446,85 @@ function characterForNickname(nickname: string): string {
     hash = Math.imul(hash, 16777619);
   }
   return characters[Math.abs(hash) % characters.length].file;
+}
+
+function memberAvatarRuleKey(nickname: string): string {
+  return avatarRuleKey(networkSelect.value, nickname);
+}
+
+function announcedOfficialFile(nickname: string): string | undefined {
+  const announcement = announcedAvatars.get(memberAvatarRuleKey(nickname));
+  return announcement ? officialCharacterByName.get(announcement.name.toLocaleLowerCase()) : undefined;
+}
+
+function characterForNickname(nickname: string): string {
+  if (nicknameInput.value && nickname.toLocaleLowerCase() === nicknameInput.value.toLocaleLowerCase()) {
+    return characterSelect.value;
+  }
+  return resolveAvatarFile({
+    network: networkSelect.value,
+    nickname,
+    forced: avatarDisplayPolicy.forced,
+    announcedOfficialFile: announcedOfficialFile(nickname),
+    fallbackFile: automaticCharacterForNickname(nickname),
+  });
+}
+
+function saveAvatarDisplayPolicy(): void {
+  try {
+    localStorage.setItem("comic-chat-avatar-display-policy", JSON.stringify(avatarDisplayPolicy));
+  } catch {}
+}
+
+async function refreshMemberAvatars(nicknames?: ReadonlySet<string>): Promise<void> {
+  const generation = ++avatarRemapGeneration;
+  const replacements = await Promise.all(conversation.map(async (line) => {
+    const member = [...knownMembers].find((nickname) => nickname.toLocaleLowerCase() === line.characterName.toLocaleLowerCase());
+    if (!member || (nicknames && !nicknames.has(member))) return line;
+    const nextFile = characterForNickname(member);
+    if (line.characterFile === nextFile) return line;
+    return createConversationLine(nextFile, line.message, line.characterName, line.mode, line.talkTo);
+  }));
+  if (generation !== avatarRemapGeneration) return;
+  conversation.splice(0, conversation.length, ...replacements);
+  await renderStrip();
+}
+
+function renderAvatarRules(): void {
+  officialAvatarsOnly.checked = avatarDisplayPolicy.officialOnly;
+  avatarRuleList.replaceChildren();
+  const self = nicknameInput.value.trim().toLocaleLowerCase();
+  const members = [...knownMembers]
+    .filter((nickname) => nickname.toLocaleLowerCase() !== self)
+    .sort((left, right) => left.localeCompare(right));
+  if (members.length === 0) {
+    const empty = document.createElement("p");
+    empty.className = "avatar-rule-empty";
+    empty.textContent = "Join a room to assign characters to its members.";
+    avatarRuleList.append(empty);
+    return;
+  }
+
+  for (const nickname of members) {
+    const label = document.createElement("strong");
+    label.textContent = nickname;
+    const select = document.createElement("select");
+    select.setAttribute("aria-label", `Display ${nickname} as`);
+    select.append(new Option("Automatic", ""));
+    for (const character of characters) select.append(new Option(character.label, character.file));
+    select.value = avatarDisplayPolicy.forced[memberAvatarRuleKey(nickname)] ?? "";
+    select.addEventListener("change", () => {
+      const key = memberAvatarRuleKey(nickname);
+      if (select.value && officialCharacterFiles.has(select.value)) avatarDisplayPolicy.forced[key] = select.value;
+      else delete avatarDisplayPolicy.forced[key];
+      saveAvatarDisplayPolicy();
+      renderMembers();
+      const selected = characters.find(({ file }) => file === select.value)?.label ?? "Automatic";
+      setStatus(select.value ? `${nickname} will always appear as ${selected}.` : `${nickname} will use their announced or automatic avatar.`);
+      void refreshMemberAvatars(new Set([nickname])).catch(showError);
+    });
+    avatarRuleList.append(label, select);
+  }
 }
 
 function normalizeIrcText(message: string): { text: string; mode: BalloonMode } {
@@ -433,6 +548,20 @@ function appendConversationLine(line: ConversationLine, rolling = false): void {
 async function addRemoteMessage(event: LiveMessageEvent): Promise<void> {
   if (event.self) return;
   knownMembers.add(event.nickname);
+  const announcement = parseAvatarAnnouncement(event.message);
+  if (announcement) {
+    announcedAvatars.set(memberAvatarRuleKey(event.nickname), announcement);
+    renderMembers();
+    renderAvatarRules();
+    await refreshMemberAvatars(new Set([event.nickname]));
+    const isOfficial = announcedOfficialFile(event.nickname) !== undefined;
+    setStatus(isOfficial
+      ? `${event.nickname} is now appearing as ${announcement.name}.`
+      : avatarDisplayPolicy.officialOnly
+        ? `${event.nickname} announced the custom avatar ${announcement.name}; official-only mode kept their local character.`
+        : `${event.nickname} announced the custom avatar ${announcement.name}; hosted custom-art loading is not enabled yet.`);
+    return;
+  }
   renderMembers();
   const { text, mode } = normalizeIrcText(event.message);
   if (!text) return;
@@ -1035,9 +1164,30 @@ refreshRoomsButton.addEventListener("click", () => {
     showError(error);
   }
 });
+avatarRulesButton.addEventListener("click", () => {
+  renderAvatarRules();
+  avatarRulesDialog.showModal();
+});
+officialAvatarsOnly.addEventListener("change", () => {
+  avatarDisplayPolicy.officialOnly = officialAvatarsOnly.checked;
+  saveAvatarDisplayPolicy();
+  setStatus(officialAvatarsOnly.checked
+    ? "Official-only mode is on. Room-provided custom art will be ignored."
+    : "Official-only mode is off. Valid hosted custom avatars may be displayed when sharing is enabled.");
+  void refreshMemberAvatars().catch(showError);
+});
+resetAvatarRulesButton.addEventListener("click", () => {
+  avatarDisplayPolicy.forced = {};
+  saveAvatarDisplayPolicy();
+  renderAvatarRules();
+  renderMembers();
+  setStatus("All forced member-avatar mappings were reset.");
+  void refreshMemberAvatars().catch(showError);
+});
 
 nicknameInput.value = `Comic${Math.floor(1000 + Math.random() * 9000)}`;
 try {
+  avatarDisplayPolicy = parseAvatarDisplayPolicy(localStorage.getItem("comic-chat-avatar-display-policy"), officialCharacterFiles);
   panelsAcrossSelect.value = String(parsePanelsAcross(localStorage.getItem("comic-chat-panels-across")));
   panelSizeInput.value = String(parsePanelZoom(localStorage.getItem("comic-chat-panel-size")));
 } catch {}

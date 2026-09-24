@@ -30,6 +30,15 @@ layout logic then brings those listeners into the panel and turns the speaker
 toward them. Messages from other IRC clients also recognize a leading `Name:`
 as an addressee hint.
 
+**Avatars…** opens local display controls for room members. Official-only mode
+is enabled by default, original `# Appears as …` character announcements are
+recognized, and any member can be forced to a particular bundled or Art Pack
+character. Forced mappings are saved per IRC network and nickname and take
+precedence over announcements and automatic assignment. Custom `.avb` parsing,
+writing and character-building primitives are implemented and tested; hosted
+uploads, moderation, gallery browsing and the visual builder remain separate
+follow-up work.
+
 Room links use the page URL to prefill a supported IRC network and channel, so a
 room can be shared without including anyone's nickname. Opening a link never
 joins automatically: the visitor still chooses their nickname and confirms the

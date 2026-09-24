@@ -84,7 +84,7 @@ function packRows(width: number, height: number, bitCount: 2 | 4 | 8, index: (x:
   return bits;
 }
 
-/** Masked monochrome: 00 blank, 01 aura, 10 black, 11 white. */
+/** Masked monochrome: 00 blank, 01 aura, 10 white figure, 11 black figure. */
 export function encodeMono(img: Rgba, options: EncodeOptions = {}): AvbImage {
   const ink = options.inkThreshold ?? 128;
   const { figure, aura } = masks(img, options);
@@ -95,7 +95,7 @@ export function encodeMono(img: Rgba, options: EncodeOptions = {}): AvbImage {
     paletteType: AvbPalette.MaskedMono,
     bits: packRows(img.width, img.height, 2, (x, y) => {
       const i = y * img.width + x;
-      if (figure[i]) return lumaAt(img, x, y) < ink ? 2 : 3;
+      if (figure[i]) return lumaAt(img, x, y) < ink ? 3 : 2;
       return aura[i] ? 1 : 0;
     }),
     xPelsPerMeter: PELS_PER_METER,

@@ -76,8 +76,10 @@ stable URL on webcomicchat.com keeps that path open.
 
 - The builder page itself (upload images, click to set face and neck
   points, preview on the emotion wheel and in panels, download the `.avb`).
-- Upload, moderation and a shared gallery (see the plan in the conversation
-  notes).
-- `avb.ts` still shows the aura as translucent black (`alpha 70`). In the
-  original it painted white under the figure. That's worth fixing in the
-  display decoder; it's Codex's file.
+- Hosted upload, moderation and a shared gallery.
+- Loading approved hosted art after a remote `# Appears as …` announcement.
+
+The web client's **Avatars…** dialog already recognizes those announcements,
+defaults to official-only display, and supports persistent per-member mappings
+to official characters. The monochrome decoder and writer both use the
+original white-aura and black/white figure semantics.
