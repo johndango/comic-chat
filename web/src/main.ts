@@ -38,6 +38,7 @@ import {
   normalizeRoomSelection,
   roomSelectionFromUrl,
 } from "./room-link";
+import { stripExportGrid } from "./strip-export";
 
 interface ArtChoice { file: string; label: string; announcementName?: string }
 
@@ -1525,18 +1526,16 @@ async function addPanel(): Promise<void> {
 
 function downloadStrip(): void {
   if (panelCanvases.length === 0) return;
-  const columns = panelCanvases.length === 1 ? 1 : 2;
-  const rows = Math.ceil(panelCanvases.length / columns);
+  const grid = stripExportGrid(panelCanvases.length, PANEL_PIXELS);
   const output = document.createElement("canvas");
-  output.width = PANEL_PIXELS * columns;
-  output.height = PANEL_PIXELS * rows;
+  output.width = grid.width;
+  output.height = grid.height;
   const context = output.getContext("2d");
   if (!context) throw new Error("Canvas is unavailable");
   context.fillStyle = "#fff";
   context.fillRect(0, 0, output.width, output.height);
   panelCanvases.forEach((canvas, index) => {
-    const x = (index % columns) * PANEL_PIXELS;
-    const y = Math.floor(index / columns) * PANEL_PIXELS;
+    const { x, y } = grid.position(index);
     context.drawImage(canvas, x, y, PANEL_PIXELS, PANEL_PIXELS);
   });
 
