@@ -21,6 +21,10 @@ export interface ComicLine {
   speakerId: string;
   text: string;
   mode?: BalloonMode;
+  /** Force this line to begin a fresh panel (the original hidden <Brk> command). */
+  breakBefore?: boolean;
+  /** Add the character without a balloon (the original hidden <Chr> command). */
+  reaction?: boolean;
   /** The pose the speaker strikes for this line (see emotion.ts selectPose). */
   pose: PoseSize;
   /** Opaque value handed back on the laid-out body, e.g. a pose index. */
@@ -165,7 +169,54 @@ export class ComicPage {
 
   /** CUnitPanelPage::AddLine */
   addLine(line: ComicLine): void {
+    if (line.breakBefore) this.startNewPanel();
+    if (line.reaction) {
+      this.addReaction(line, 0);
+      return;
+    }
     this.addLineAux(line, line.text, line.links ?? [], 0);
+  }
+
+  /** CUnitPanelPage::AddReaction — place a character without a balloon. */
+  private addReaction(line: ComicLine, depth: number): void {
+    const old = this.panels[this.panels.length - 1];
+    let panel: Panel;
+    let replaceLast: boolean;
+    if (this.newPanel || !old || old.bodies.length >= MAXBODIES || this.panels.length < 2) {
+      panel = new Panel(this.rng.rand());
+      this.newPanel = false;
+      replaceLast = false;
+    } else {
+      panel = old.clone();
+      replaceLast = true;
+    }
+    const establishing = this.panels.length === 0 || (replaceLast && this.panels.length === 1);
+    const speaker: Body = {
+      id: line.speakerId,
+      pose: line.pose,
+      poseRef: line.poseRef,
+      flip: false,
+      requested: true,
+      bbox: { left: 0, top: 0, right: 0, bottom: 0 },
+      arrowX: 0,
+    };
+    const existing = panel.bodies.findIndex((body) => body.id === line.speakerId);
+    if (existing >= 0) panel.bodies[existing] = speaker;
+    else panel.bodies.push(speaker);
+    for (const balloon of panel.balloons) {
+      if (balloon.speaker.id === speaker.id) balloon.speaker = speaker;
+    }
+
+    const listeners = this.layoutAvatars(panel, establishing);
+    const result = this.layoutBalloons(panel);
+    if (!result.ok && depth < 8) {
+      this.startNewPanel();
+      this.addReaction(line, depth + 1);
+      return;
+    }
+    panel.layout = this.snapshot(panel, establishing, listeners);
+    if (replaceLast) this.panels[this.panels.length - 1] = panel;
+    else this.panels.push(panel);
   }
 
   private addLineAux(line: ComicLine, text: string, links: readonly BalloonLink[], depth: number): void {

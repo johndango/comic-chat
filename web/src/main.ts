@@ -1,6 +1,7 @@
 import "@fontsource/comic-neue/400.css";
 import "@fontsource/comic-neue/400-italic.css";
 import comicNeueLicenseUrl from "@fontsource/comic-neue/LICENSE?url";
+import classicAppIconUrl from "../../v2.5-beta-1-modern/res/chat.ico?url";
 import "./styles.css";
 import { AvatarType, decodeImage, parseAvatar, type AvatarFile, type DecodedBitmap } from "./avb";
 import {
@@ -202,6 +203,8 @@ interface ConversationLine {
   expression: string;
   talkTo: string[];
   linkable: boolean;
+  breakBefore?: boolean;
+  reaction?: boolean;
 }
 
 interface PendingLiveLine {
@@ -216,11 +219,26 @@ const comicFontOptionsMarkup = COMIC_FONT_OPTIONS
   .join("");
 
 app.innerHTML = `
-  <div class="classic-window">
-    <header class="classic-titlebar">
-      <span class="classic-app-icon" aria-hidden="true"></span>
+  <div id="classic-window" class="classic-window">
+    <header id="classic-titlebar" class="classic-titlebar">
+      <button id="system-menu-button" class="classic-app-menu-button" type="button" aria-label="Open window menu" aria-haspopup="menu" aria-expanded="false"><img class="classic-app-icon" src="${classicAppIconUrl}" alt="" /></button>
+      <div id="system-menu" class="system-menu classic-menu-popup" role="menu" hidden>
+        <button type="button" role="menuitem" data-window-action="restore">Restore</button>
+        <button type="button" role="menuitem" disabled>Move</button>
+        <button type="button" role="menuitem" disabled>Size</button>
+        <button type="button" role="menuitem" data-window-action="minimize">Minimize</button>
+        <button type="button" role="menuitem" data-window-action="maximize">Maximize</button>
+        <hr />
+        <button type="button" role="menuitem" data-window-action="close">Close</button>
+        <hr />
+        <button type="button" role="menuitem" data-command="about">About WebComicChat…</button>
+      </div>
       <strong>Microsoft Comic Chat - [<span id="window-room">Not connected</span>]</strong>
-      <span class="window-buttons" aria-hidden="true"><i>_</i><i>□</i><i>×</i></span>
+      <span class="window-buttons">
+        <button id="window-minimize" type="button" aria-label="Minimize">_</button>
+        <button id="window-maximize" type="button" aria-label="Maximize">□</button>
+        <button id="window-close" type="button" aria-label="Close">×</button>
+      </span>
     </header>
     <nav id="classic-menu" class="classic-menu" aria-label="Application menu">
       <details><summary><u>F</u>ile</summary><div class="classic-menu-popup">
@@ -261,7 +279,16 @@ app.innerHTML = `
         <button type="button" data-command="choose-character">Choose your character</button>
         <button type="button" data-command="avatar-rules">Avatar display rules…</button>
       </div></details>
+      <details id="favorites-menu"><summary>F<u>a</u>vorites</summary><div class="classic-menu-popup classic-menu-popup-right">
+        <a href="https://www.phoenix-online-nexus.com/Nexus_21/index.htm#addon" target="_blank" rel="noopener noreferrer">Comic Chat 2.5 add-ons ↗</a>
+        <a href="https://www.phoenix-online-nexus.com/index.htm#CChat25" target="_blank" rel="noopener noreferrer">Phoenix Online Nexus ↗</a>
+        <a href="https://mermeliz.com" target="_blank" rel="noopener noreferrer">Mermeliz ↗</a>
+        <hr />
+        <a href="https://web.libera.chat" target="_blank" rel="noopener noreferrer">Libera.Chat web client ↗</a>
+      </div></details>
       <details><summary><u>H</u>elp</summary><div class="classic-menu-popup classic-menu-popup-right">
+        <button type="button" data-command="comic-tips">Comic tips (F1)</button>
+        <hr />
         <button type="button" data-command="about">About WebComicChat…</button>
         <a href="https://github.com/johndango/comic-chat" target="_blank" rel="noreferrer">Project source ↗</a>
       </div></details>
@@ -379,10 +406,17 @@ app.innerHTML = `
       <form method="dialog">
         <header><strong id="about-title">About WebComicChat</strong><button value="cancel" aria-label="Close">×</button></header>
         <div class="dialog-body about-body">
-          <span class="about-icon" aria-hidden="true"></span>
+          <img class="about-icon" src="${classicAppIconUrl}" alt="" />
           <div><strong>WebComicChat</strong><p>An independent, community-built revival of the classic Comic Chat experience for modern browsers.</p><p>Not affiliated with or endorsed by Microsoft.</p></div>
         </div>
         <footer><a href="https://github.com/johndango/comic-chat" target="_blank" rel="noreferrer">View project source</a><button value="cancel">OK</button></footer>
+      </form>
+    </dialog>
+    <dialog id="close-dialog" class="classic-dialog close-dialog" aria-labelledby="close-title">
+      <form method="dialog">
+        <header><strong id="close-title">Microsoft Comic Chat</strong><button value="cancel" aria-label="Close">×</button></header>
+        <div class="dialog-body close-dialog-body"><span aria-hidden="true">?</span><p>Are you sure you want to leave the comic?</p></div>
+        <footer><button id="close-yes" value="yes">Yes</button><button id="close-no" value="cancel" autofocus>No</button></footer>
       </form>
     </dialog>
     <dialog id="avatar-rules-dialog" class="classic-dialog" aria-labelledby="avatar-rules-title">
@@ -427,6 +461,10 @@ app.innerHTML = `
       </form>
     </dialog>
   </div>
+  <button id="comic-taskbar-button" class="comic-taskbar-button" type="button" hidden><img class="classic-app-icon" src="${classicAppIconUrl}" alt="" />Microsoft Comic Chat</button>
+  <div id="shutdown-screen" class="shutdown-screen" role="button" tabindex="0" aria-label="Restore Comic Chat" hidden>
+    <p>It's now safe to turn off your comic.</p><small>Click anywhere to come back.</small>
+  </div>
 `;
 
 function element<T extends HTMLElement>(selector: string): T {
@@ -454,10 +492,20 @@ const addButton = element<HTMLButtonElement>("#add-panel");
 const undoButton = element<HTMLButtonElement>("#undo-panel");
 const clearButton = element<HTMLButtonElement>("#clear-strip");
 const downloadButton = element<HTMLButtonElement>("#download");
+const classicWindow = element<HTMLElement>("#classic-window");
+const classicTitlebar = element<HTMLElement>("#classic-titlebar");
+const systemMenuButton = element<HTMLButtonElement>("#system-menu-button");
+const systemMenu = element<HTMLElement>("#system-menu");
+const windowMinimizeButton = element<HTMLButtonElement>("#window-minimize");
+const windowMaximizeButton = element<HTMLButtonElement>("#window-maximize");
+const windowCloseButton = element<HTMLButtonElement>("#window-close");
+const comicTaskbarButton = element<HTMLButtonElement>("#comic-taskbar-button");
+const shutdownScreen = element<HTMLElement>("#shutdown-screen");
 const classicMenu = element<HTMLElement>("#classic-menu");
 const classicMenuSections = [...classicMenu.querySelectorAll<HTMLDetailsElement>("details")];
 const menuCommandButtons = [...classicMenu.querySelectorAll<HTMLButtonElement>("button[data-command]")];
 const aboutDialog = element<HTMLDialogElement>("#about-dialog");
+const closeDialog = element<HTMLDialogElement>("#close-dialog");
 const liveConsole = element<HTMLElement>("#live-console");
 const liveStatus = element<HTMLElement>("#live-status");
 const connectionGuidance = element<HTMLElement>("#connection-guidance");
@@ -536,6 +584,13 @@ let suppressWheelChange = false;
 let importedAvatarSequence = 0;
 const builderPoses: Array<CreatorPose & { filename: string }> = [];
 let builderBusy = false;
+let forceNextPanel = false;
+let minimizeSurpriseShown = false;
+let closeReliefShown = false;
+let helpEggShown = false;
+let lastPokeRageAt = 0;
+let titlebarClickTimes: number[] = [];
+let localComicQueue = Promise.resolve();
 const comicFontsReady = loadComicFonts(document.fonts);
 
 const emotionWheel = createEmotionWheel({
@@ -934,7 +989,8 @@ async function refreshMemberAvatars(nicknames?: ReadonlySet<string>): Promise<vo
     if (!member || (nicknames && !nicknames.has(member))) return line;
     const nextFile = characterForNickname(member);
     if (line.characterFile === nextFile) return line;
-    return createConversationLine(nextFile, line.message, line.characterName, line.mode, line.talkTo, line.linkable);
+    const replacement = await createConversationLine(nextFile, line.message, line.characterName, line.mode, line.talkTo, line.linkable);
+    return { ...replacement, breakBefore: line.breakBefore, reaction: line.reaction };
   }));
   if (generation !== avatarRemapGeneration) return;
   conversation.splice(0, conversation.length, ...replacements);
@@ -947,7 +1003,8 @@ async function refreshAvatarArtPreference(): Promise<void> {
     const member = [...knownMembers].find((nickname) => nickname.toLocaleLowerCase() === line.characterName.toLocaleLowerCase());
     const nextFile = member ? characterForNickname(member) : preferredAvatarFile(line.characterFile);
     if (line.characterFile === nextFile) return line;
-    return createConversationLine(nextFile, line.message, line.characterName, line.mode, line.talkTo, line.linkable);
+    const replacement = await createConversationLine(nextFile, line.message, line.characterName, line.mode, line.talkTo, line.linkable);
+    return { ...replacement, breakBefore: line.breakBefore, reaction: line.reaction };
   }));
   if (generation !== avatarRemapGeneration) return;
   conversation.splice(0, conversation.length, ...replacements);
@@ -1014,6 +1071,67 @@ function appendConversationLine(line: ConversationLine, rolling = false): void {
   }
   conversation.push(line);
   void renderStrip().catch(showError);
+}
+
+function queueLocalComic(task: () => Promise<void>): void {
+  localComicQueue = localComicQueue.then(task, task).catch(showError);
+}
+
+async function appendLocalScript(entries: ReadonlyArray<{
+  file: string;
+  message: string;
+  name?: string;
+  mode?: BalloonMode;
+  reaction?: boolean;
+  breakBefore?: boolean;
+}>): Promise<void> {
+  const lines: ConversationLine[] = [];
+  for (const entry of entries) {
+    const line = await createConversationLine(entry.file, entry.message, entry.name, entry.mode ?? "say", [], false);
+    line.reaction = entry.reaction;
+    line.breakBefore = entry.breakBefore;
+    lines.push(line);
+  }
+  while (conversation.length + lines.length > MAX_LIVE_LINES) conversation.shift();
+  conversation.push(...lines);
+  await renderStrip();
+}
+
+function addLocalSelfMessage(message: string, mode: BalloonMode = "say"): void {
+  queueLocalComic(async () => {
+    await appendLocalScript([{ file: characterSelect.value, message, mode, breakBefore: true }]);
+    setStatus("A local-only surprise was added to your comic.");
+  });
+}
+
+function playHelpEgg(): void {
+  if (helpEggShown) {
+    setStatus("Tip: :) smiles, ALL CAPS shouts, and starting with “Hi” waves.");
+    messageInput.focus();
+    return;
+  }
+  helpEggShown = true;
+  queueLocalComic(async () => {
+    await appendLocalScript([
+      { file: characterSelect.value, message: "IT LOOKS LIKE YOU'RE MAKING A COMIC! WANT SOME TIPS?", breakBefore: true },
+      { file: characterSelect.value, message: "TRY :) TO SMILE, ALL CAPS TO SHOUT, OR START WITH HI TO WAVE.", breakBefore: true },
+    ]);
+    setStatus("F1 tips are local only—they were not sent to the room.");
+  });
+}
+
+function playOriginalCredits(): void {
+  queueLocalComic(async () => {
+    await appendLocalScript([
+      { file: "tiki.avb", name: "David Kurlander", message: "HI THERE! WELCOME TO OUR EASTER EGG. I CREATED MICROSOFT CHAT.", breakBefore: true },
+      { file: "armando.avb", name: "Regis Brid", message: "REGIS BRID HERE, DEVELOPER DOUBLE-O-SEVEN.", breakBefore: true },
+      { file: "tongtyed.avb", name: "Teoman Smith", message: "I'M TEOMAN SMITH, PROGRAM MANAGEMENT.", breakBefore: true },
+      { file: "hugh.avb", name: "Janise Kieffer", message: "TEST LEAD. 100% BUG FREE. LOL!", breakBefore: true },
+      { file: "xeno.avb", name: "Jim Campbell", message: "I CREATED THE CHARACTER EDITOR!", breakBefore: true },
+      { file: "jordan.avb", name: "Jim Woodring", message: "COMIC ARTIST. AND OF COURSE, THANKS TO ALL OUR USERS.", breakBefore: true },
+    ]);
+    setStatus("You found the original Comic Chat creators Easter egg.");
+  });
 }
 
 async function addRemoteMessage(event: LiveMessageEvent): Promise<void> {
@@ -1489,6 +1607,8 @@ async function renderStrip(): Promise<void> {
       speakerId: line.characterName,
       text: line.displayMessage,
       mode: line.mode,
+      breakBefore: line.breakBefore,
+      reaction: line.reaction,
       pose: { width: image.width, height: image.height, faceX: line.body.faceX },
       poseRef: line.poseRef,
       links: line.links.map(({ href, hostname, start, end }) => ({ href, hostname, start, end })),
@@ -1499,7 +1619,7 @@ async function renderStrip(): Promise<void> {
   const uniqueCast = [...castFiles].map(([id, file], index) => ({
     id,
     nickname: id,
-    sends: conversation.filter((line) => line.characterName === id).length,
+    sends: conversation.filter((line) => line.characterName === id && !line.reaction).length,
     self: index === 0,
     file,
   }));
@@ -1610,6 +1730,30 @@ async function updateCharacterPreview(): Promise<void> {
 async function addPanel(): Promise<void> {
   const message = messageInput.value.trim();
   if (!message || isAdding) return;
+  if (message === "<Brk>") {
+    forceNextPanel = true;
+    messageInput.value = "";
+    updateControls();
+    setStatus("<Brk> armed: your next local comic entry will start a new panel. Nothing was sent to IRC.");
+    return;
+  }
+  if (message === "<Chr>") {
+    isAdding = true;
+    updateControls();
+    try {
+      const line = await createConversationLine(characterSelect.value, "", undefined, "say", [], false);
+      line.reaction = true;
+      line.breakBefore = forceNextPanel;
+      forceNextPanel = false;
+      appendConversationLine(line, false);
+      messageInput.value = "";
+      setStatus("<Chr> added a local reaction shot. Nothing was sent to IRC.");
+    } finally {
+      isAdding = false;
+      updateControls();
+    }
+    return;
+  }
   const unsafeLink = blockedMessageLink(message);
   if (unsafeLink) throw new Error(blockedLinkMessage(unsafeLink));
   isAdding = true;
@@ -1625,6 +1769,8 @@ async function addPanel(): Promise<void> {
       throw new Error("Choose no more than five people for one whisper");
     }
     const line = await createConversationLine(characterSelect.value, message, undefined, mode, whisperTo);
+    line.breakBefore = forceNextPanel;
+    forceNextPanel = false;
     if (liveState === "joined") {
       // Whispers go privately to each selected member; nobody else receives them.
       if (mode === "whisper") liveClient.whisper(whisperTo, message);
@@ -1811,10 +1957,116 @@ undoButton.addEventListener("click", () => {
 });
 clearButton.addEventListener("click", () => {
   conversation.length = 0;
+  forceNextPanel = false;
   void renderStrip().catch(showError);
   setStatus("Strip cleared. Write a line to begin again.");
 });
 downloadButton.addEventListener("click", downloadStrip);
+
+function setSystemMenuOpen(open: boolean): void {
+  systemMenu.hidden = !open;
+  systemMenuButton.setAttribute("aria-expanded", String(open));
+}
+
+function setReaderMode(enabled: boolean): void {
+  classicWindow.classList.toggle("reader-mode", enabled);
+  windowMaximizeButton.textContent = enabled ? "❐" : "□";
+  windowMaximizeButton.setAttribute("aria-label", enabled ? "Restore" : "Maximize");
+  updatePanelView();
+}
+
+function noteTitlebarPoke(): void {
+  const now = Date.now();
+  titlebarClickTimes = titlebarClickTimes.filter((time) => now - time <= 3_000);
+  titlebarClickTimes.push(now);
+  if (titlebarClickTimes.length < 10 || now - lastPokeRageAt < 60_000) return;
+  titlebarClickTimes = [];
+  lastPokeRageAt = now;
+  addLocalSelfMessage("STOP POKING ME!!!");
+}
+
+function restoreComicWindow(withSurprise = false): void {
+  shutdownScreen.hidden = true;
+  comicTaskbarButton.hidden = true;
+  classicWindow.hidden = false;
+  if (withSurprise && !minimizeSurpriseShown) {
+    minimizeSurpriseShown = true;
+    addLocalSelfMessage("WHERE'D EVERYONE GO?");
+  }
+  windowMaximizeButton.focus();
+}
+
+function runWindowAction(action: string): void {
+  setSystemMenuOpen(false);
+  noteTitlebarPoke();
+  switch (action) {
+    case "restore":
+      restoreComicWindow();
+      setReaderMode(false);
+      break;
+    case "minimize":
+      setReaderMode(false);
+      classicWindow.hidden = true;
+      comicTaskbarButton.hidden = false;
+      comicTaskbarButton.focus();
+      break;
+    case "maximize":
+      setReaderMode(!classicWindow.classList.contains("reader-mode"));
+      break;
+    case "close":
+      setReaderMode(false);
+      closeDialog.returnValue = "";
+      closeDialog.showModal();
+      break;
+  }
+}
+
+windowMinimizeButton.addEventListener("click", () => runWindowAction("minimize"));
+windowMaximizeButton.addEventListener("click", () => runWindowAction("maximize"));
+windowCloseButton.addEventListener("click", () => runWindowAction("close"));
+comicTaskbarButton.addEventListener("click", () => restoreComicWindow(true));
+systemMenuButton.addEventListener("click", (event) => {
+  event.stopPropagation();
+  setSystemMenuOpen(systemMenu.hidden);
+});
+systemMenu.addEventListener("click", (event) => {
+  const target = event.target instanceof Element ? event.target : undefined;
+  if (!target) return;
+  const action = target.closest<HTMLButtonElement>("button[data-window-action]")?.dataset.windowAction;
+  if (action) runWindowAction(action);
+  if (target.closest<HTMLButtonElement>('button[data-command="about"]')) {
+    setSystemMenuOpen(false);
+    aboutDialog.showModal();
+  }
+});
+classicTitlebar.addEventListener("dblclick", (event) => {
+  if (event.target instanceof Element && event.target.closest("button, .system-menu")) return;
+  runWindowAction("maximize");
+});
+closeDialog.addEventListener("close", () => {
+  if (closeDialog.returnValue === "yes") {
+    classicWindow.hidden = true;
+    comicTaskbarButton.hidden = true;
+    shutdownScreen.hidden = false;
+    shutdownScreen.focus();
+    return;
+  }
+  if (!closeReliefShown) {
+    closeReliefShown = true;
+    addLocalSelfMessage("PHEW :)");
+  }
+});
+function leaveShutdownScreen(): void {
+  restoreComicWindow();
+  setStatus("Welcome back. The comic never disconnected.");
+}
+shutdownScreen.addEventListener("click", leaveShutdownScreen);
+shutdownScreen.addEventListener("keydown", (event) => {
+  if (event.key === "Enter" || event.key === " " || event.key === "Escape") {
+    event.preventDefault();
+    leaveShutdownScreen();
+  }
+});
 
 function closeClassicMenus(except?: HTMLDetailsElement): void {
   for (const section of classicMenuSections) {
@@ -1880,6 +2132,9 @@ function runMenuCommand(command: string): void {
     case "avatar-rules":
       avatarRulesButton.click();
       break;
+    case "comic-tips":
+      playHelpEgg();
+      break;
     case "about":
       aboutDialog.showModal();
       break;
@@ -1891,6 +2146,18 @@ classicMenu.addEventListener("click", (event) => {
   if (!target) return;
   const summary = target.closest("summary");
   if (summary) {
+    if (summary.parentElement?.id === "favorites-menu"
+      && event instanceof MouseEvent
+      && event.ctrlKey
+      && event.shiftKey
+      && messageInput.value.trim() === "CanThereBMore?") {
+      event.preventDefault();
+      messageInput.value = "";
+      updateControls();
+      closeClassicMenus();
+      playOriginalCredits();
+      return;
+    }
     closeClassicMenus(summary.parentElement as HTMLDetailsElement);
     return;
   }
@@ -1900,8 +2167,25 @@ classicMenu.addEventListener("click", (event) => {
 });
 document.addEventListener("click", (event) => {
   if (event.target instanceof Node && !classicMenu.contains(event.target)) closeClassicMenus();
+  if (event.target instanceof Node && !systemMenu.contains(event.target) && event.target !== systemMenuButton) setSystemMenuOpen(false);
 });
 document.addEventListener("keydown", (event) => {
+  if (event.key === "F1" && !event.altKey && !event.metaKey && !event.ctrlKey) {
+    event.preventDefault();
+    playHelpEgg();
+    return;
+  }
+  if (event.key === "Escape" && classicWindow.classList.contains("reader-mode")) {
+    setReaderMode(false);
+    event.preventDefault();
+    return;
+  }
+  if (event.key === "Escape" && !systemMenu.hidden) {
+    setSystemMenuOpen(false);
+    systemMenuButton.focus();
+    event.preventDefault();
+    return;
+  }
   if (event.key === "Escape" && classicMenuSections.some((section) => section.open)) {
     closeClassicMenus();
     event.preventDefault();

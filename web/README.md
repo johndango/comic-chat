@@ -71,11 +71,21 @@ channel. Visitors can also type any supported `#channel` and choose
 **Join channel** or **Switch channel**, copy a direct WebComicChat link, or open
 that channel in [Libera's web client](https://web.libera.chat/#webcomicchat).
 
-The classic menu bar is functional rather than decorative. File, Edit, View,
-Format, Room, Character and Help expose the corresponding actions already
-available in the interface; actions that are not currently possible are
-disabled. Unsupported original-client menus were removed instead of being
-shown as inert labels.
+The classic menu bar and title bar are functional rather than decorative.
+File, Edit, View, Format, Room, Character and Help expose the corresponding
+actions already available in the interface. Favorites links to Comic Chat
+community resources, add-ons and Libera.Chat. The title-bar buttons provide a
+full-screen comic reader, a reversible Windows-style minimize and a harmless
+fake shutdown dialog; double-clicking the title bar maximizes and Escape
+restores it. The icon opens the classic system menu. All surprise panels are
+local only, the recurring jokes are restrained, and motion honors the browser's
+reduced-motion preference.
+
+The source-authentic hidden message commands are also supported: `<Brk>` makes
+the next entry begin a new panel and `<Chr>` adds the selected character as a
+balloon-free reaction shot. F1 adds local expression tips. The original
+creators' credits sequence remains hidden behind the same input phrase and
+Ctrl+Shift Favorites gesture used by the 1998 source.
 
 Browsers cannot open raw IRC sockets, so `server/` provides a same-origin
 WebSocket-to-IRC bridge. It connects with verified TLS to one of two preset

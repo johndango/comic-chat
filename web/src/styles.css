@@ -32,6 +32,7 @@ button, select, textarea, input { border-radius: 0; }
 }
 
 .classic-titlebar {
+  position: relative;
   height: 27px;
   padding: 3px 4px;
   display: flex;
@@ -41,10 +42,14 @@ button, select, textarea, input { border-radius: 0; }
   background: linear-gradient(90deg, #000080, #1084d0);
   font-weight: 700;
 }
-.classic-app-icon { width: 18px; height: 18px; flex: 0 0 auto; background: url("../../v2.5-beta-1-modern/res/chat.ico") center/contain no-repeat; image-rendering: pixelated; }
-.classic-titlebar > strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.window-buttons { display: flex; gap: 2px; margin-left: auto; }
-.window-buttons i { width: 19px; height: 18px; display: grid; place-items: center; color: #000; background: var(--face); border-top: 2px solid #fff; border-left: 2px solid #fff; border-right: 2px solid #333; border-bottom: 2px solid #333; font: normal 700 11px Arial, sans-serif; }
+.classic-app-menu-button { width: 18px; height: 18px; min-height: 18px; padding: 0; flex: 0 0 auto; border: 0; box-shadow: none; background: transparent; }
+.classic-app-menu-button:active:not(:disabled) { border: 0; box-shadow: none; }
+.classic-app-icon { width: 18px; height: 18px; min-height: 18px; padding: 0; display: block; flex: 0 0 auto; border: 0; box-shadow: none; object-fit: contain; image-rendering: pixelated; }
+.classic-titlebar > strong { min-width: 0; padding-right: 62px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.window-buttons { position: absolute; top: 4px; right: 4px; display: flex; gap: 2px; }
+.window-buttons button { width: 19px; height: 18px; min-height: 18px; padding: 0; display: grid; place-items: center; font: normal 700 11px/11px Arial, sans-serif; }
+.system-menu { top: 24px; left: 3px; z-index: 90; min-width: 220px; color: #000; font-weight: 400; }
+.system-menu[hidden] { display: none; }
 
 .classic-menu { position: relative; z-index: 20; min-height: 25px; padding: 2px 5px; display: flex; flex-wrap: wrap; gap: 2px; align-items: center; background: var(--face); }
 .classic-menu details { position: relative; }
@@ -57,6 +62,7 @@ button, select, textarea, input { border-radius: 0; }
 .classic-menu-popup button:hover:not(:disabled), .classic-menu-popup button:focus-visible, .classic-menu-popup a:hover, .classic-menu-popup a:focus-visible { color: #fff; background: var(--navy); outline: 0; }
 .classic-menu-popup button[aria-checked="true"]::before { content: "✓"; width: 17px; margin-left: -17px; display: inline-block; }
 .classic-menu-popup hr { height: 2px; margin: 3px 2px; border: 0; border-top: 1px solid #808080; border-bottom: 1px solid #fff; }
+.classic-menu-popup button:disabled { color: #808080; text-shadow: 1px 1px #fff; }
 .classic-main { border: 1px solid #808080; background: var(--face); }
 .live-console {
   padding: 7px;
@@ -236,8 +242,38 @@ button:disabled { color: #808080; text-shadow: 1px 1px #fff; cursor: not-allowed
 .about-dialog { width: min(430px, calc(100vw - 24px)); }
 .about-body { display: grid; grid-template-columns: 42px 1fr; gap: 12px; align-items: start; }
 .about-body p { margin: 6px 0; }
-.about-icon { width: 40px; height: 40px; display: block; background: url("../../v2.5-beta-1-modern/res/chat.ico") center/contain no-repeat; image-rendering: pixelated; }
+.about-icon { width: 40px; height: 40px; display: block; object-fit: contain; image-rendering: pixelated; }
 .about-dialog footer a { align-self: center; margin-right: auto; }
+.close-dialog { width: min(390px, calc(100vw - 24px)); }
+.close-dialog-body { min-height: 92px; display: flex; align-items: center; gap: 16px; font-size: 14px; }
+.close-dialog-body > span { width: 42px; height: 42px; flex: 0 0 auto; display: grid; place-items: center; color: #fff; background: #000080; border-radius: 50%; font: 700 30px Georgia, serif; }
+.close-dialog-body p { margin: 0; }
+.close-dialog form > footer button:first-child { margin-left: auto; margin-right: 0; }
+.comic-taskbar-button { position: fixed; z-index: 100; left: 8px; bottom: 5px; min-width: 215px; min-height: 31px; display: flex; align-items: center; gap: 7px; font-weight: 700; }
+.comic-taskbar-button[hidden] { display: none; }
+.shutdown-screen { position: fixed; z-index: 200; inset: 0; display: grid; place-content: center; justify-items: center; padding: 24px; color: #ff9a00; background: #000; text-align: center; cursor: pointer; }
+.shutdown-screen[hidden] { display: none; }
+.shutdown-screen p { margin: 0 0 16px; font: 700 clamp(20px, 4vw, 42px) "MS Sans Serif", Tahoma, sans-serif; }
+.shutdown-screen small { color: #c87800; }
+
+.classic-window.reader-mode { position: fixed; z-index: 80; inset: 0; width: 100%; min-height: 100vh; margin: 0; display: flex; flex-direction: column; }
+.classic-window.reader-mode .classic-menu,
+.classic-window.reader-mode .live-console,
+.classic-window.reader-mode .room-browser,
+.classic-window.reader-mode .room-tab,
+.classic-window.reader-mode .controls,
+.classic-window.reader-mode .composer,
+.classic-window.reader-mode .classic-statusbar { display: none; }
+.classic-window.reader-mode .classic-main,
+.classic-window.reader-mode .workspace,
+.classic-window.reader-mode .stage-wrap { min-height: 0; height: auto; flex: 1; }
+.classic-window.reader-mode .workspace { display: flex; }
+.classic-window.reader-mode .stage-wrap { width: 100%; max-height: none; border: 0; }
+
+@media (prefers-reduced-motion: no-preference) {
+  .shutdown-screen { animation: shutdown-fade .18s ease-out; }
+  @keyframes shutdown-fade { from { opacity: 0; } }
+}
 .avatar-builder-dialog { width: min(680px, calc(100vw - 24px)); }
 .builder-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 12px; }
 .builder-fields > label { display: grid; gap: 3px; font-weight: 700; }
@@ -269,6 +305,8 @@ button:disabled { color: #808080; text-shadow: 1px 1px #fff; cursor: not-allowed
 
 @media (max-width: 640px) {
   .classic-menu { gap: 1px; }
+  .classic-menu summary { padding-right: 5px; padding-left: 5px; font-size: 11px; }
+  .classic-menu details[open] > summary { padding-right: 4px; padding-left: 4px; }
   .live-console { grid-template-columns: 1fr; }
   .live-heading, .live-actions { grid-column: 1; }
   .workspace { height: auto; grid-template-columns: 1fr; }

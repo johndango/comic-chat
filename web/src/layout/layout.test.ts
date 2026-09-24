@@ -159,6 +159,23 @@ describe("ComicPage", () => {
     expect(page.layouts).toHaveLength(2);
   });
 
+  it("honors the original hidden break command on the next line", () => {
+    const page = new ComicPage({ fonts, seed: 5 });
+    page.addLine({ speakerId: "anna", text: "One", pose });
+    page.addLine({ speakerId: "dan", text: "Two", pose, breakBefore: true });
+    expect(page.layouts).toHaveLength(2);
+    expect(page.layouts.map((panel) => panel.balloons.length)).toEqual([1, 1]);
+  });
+
+  it("adds a reaction character without a speech balloon", () => {
+    const page = new ComicPage({ fonts, seed: 5 });
+    page.addLine({ speakerId: "anna", text: "One", pose });
+    page.addLine({ speakerId: "dan", text: "", pose, reaction: true });
+    const reactionPanel = page.layouts.at(-1)!;
+    expect(reactionPanel.bodies.some((body) => body.id === "dan")).toBe(true);
+    expect(reactionPanel.balloons).toHaveLength(0);
+  });
+
   it("never zooms the establishing panel but may zoom later ones", () => {
     const page = new ComicPage({ fonts, seed: 5 });
     page.addLine({ speakerId: "anna", text: "One", pose });
