@@ -295,8 +295,8 @@ describe("whispers", () => {
     send({ type: "whisper", to: "Stranger", message: "hi" });
     send({ type: "whisper", to: "ComicFan", message: "hi" });
     expect(writes).toEqual([]);
-    expect(events).toContainEqual({ type: "error", message: "Stranger isn't in this room" });
-    expect(events).toContainEqual({ type: "error", message: "You can't whisper to yourself" });
+    expect(events).toContainEqual({ type: "error", operation: "message", message: "Stranger isn't in this room" });
+    expect(events).toContainEqual({ type: "error", operation: "message", message: "You can't whisper to yourself" });
   });
 
   it("shows whispers from room members, and only from them", () => {
@@ -316,6 +316,28 @@ describe("whispers", () => {
     bridge.handleIrcLine(":Dan!d@example PRIVMSG #comics :hello all");
     expect(events.at(-1)).toMatchObject({ type: "message", nickname: "Dan", message: "hello all" });
     expect(events.at(-1)).not.toHaveProperty("whisper");
+  });
+
+  it("blocks unsafe links before room messages or whispers reach IRC", () => {
+    const { send, writes, events } = inRoom();
+    send({ type: "say", message: "click https://grabify.link/example" });
+    send({ type: "whisper", to: "Dan", message: "click http://127.0.0.1/private" });
+    expect(writes).toEqual([]);
+    expect(events.filter((event) => event.type === "error")).toEqual([
+      { type: "error", operation: "message", message: "That message was blocked because it contains an unsafe link to grabify.link." },
+      { type: "error", operation: "message", message: "That message was blocked because it contains an unsafe link to 127.0.0.1." },
+    ]);
+  });
+
+  it("suppresses unsafe incoming room messages and whispers with a notice", () => {
+    const { bridge, events } = inRoom();
+    bridge.handleIrcLine(":Dan!d@example PRIVMSG #comics :click https://iplogger.org/example");
+    bridge.handleIrcLine(":Dan!d@example PRIVMSG ComicFan :click https://iplogger.org/private");
+    expect(events.filter((event) => event.type === "message")).toEqual([]);
+    expect(events.filter((event) => event.type === "blocked")).toEqual([
+      { type: "blocked", message: "Blocked a message from Dan because it contained an unsafe link to iplogger.org." },
+      { type: "blocked", message: "Blocked a message from Dan because it contained an unsafe link to iplogger.org." },
+    ]);
   });
 
   it("shares the five-per-ten-seconds limit with room messages", () => {

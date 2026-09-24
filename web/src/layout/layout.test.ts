@@ -116,6 +116,19 @@ describe("ComicPage", () => {
     expect(balloon.lines[0].y).toBeLessThanOrEqual(-60);
   });
 
+  it("lays out public link hitboxes but never makes whisper text clickable", () => {
+    const text = "go https://Example.com/A now";
+    const link = { href: "https://example.com/A", hostname: "example.com", start: 3, end: 24 };
+    const publicPage = new ComicPage({ fonts, seed: 3 });
+    publicPage.addLine({ speakerId: "anna", text, pose, links: [link] });
+    expect(publicPage.layouts[0].balloons[0].links[0]).toMatchObject({ href: link.href, hostname: link.hostname });
+    expect(publicPage.layouts[0].balloons[0].links[0].boxes.length).toBeGreaterThan(0);
+
+    const whisperPage = new ComicPage({ fonts, seed: 3 });
+    whisperPage.addLine({ speakerId: "anna", text, mode: "whisper", pose, links: [link] });
+    expect(whisperPage.layouts[0].balloons[0].links).toEqual([]);
+  });
+
   it("aims the tail at the speaker's face", () => {
     const page = new ComicPage({ fonts, seed: 11 });
     page.addLine({ speakerId: "anna", text: "Look at me", pose });
@@ -185,6 +198,21 @@ describe("ComicPage", () => {
     expect(texts.length).toBeGreaterThan(1);
     expect(texts[0].endsWith("...")).toBe(true);
     expect(texts[1].startsWith("...")).toBe(true);
+  });
+
+  it("preserves a long link destination when its text spills across panels", () => {
+    const page = new ComicPage({ fonts, seed: 5, unitWidth: 2300 });
+    const href = `https://example.com/${"long-path/".repeat(18)}`;
+    page.addLine({
+      speakerId: "anna",
+      text: href,
+      pose,
+      links: [{ href, hostname: "example.com", start: 0, end: href.length }],
+    });
+    const links = page.layouts.flatMap((panel) => panel.balloons.flatMap((balloon) => balloon.links));
+    expect(page.layouts.length).toBeGreaterThan(1);
+    expect(links.length).toBeGreaterThan(1);
+    expect(links.every((link) => link.href === href && link.boxes.length > 0)).toBe(true);
   });
 
   it("caps a panel at five balloons", () => {

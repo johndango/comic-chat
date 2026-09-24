@@ -178,6 +178,21 @@ application after each upload or environment change.
 - Connects only to the TLS endpoints compiled into `server/protocol.ts`.
 - Rejects arbitrary hosts, unsafe nicknames/channels, control characters, and
   oversized payloads.
+- Rejects direct-IP/local-network links and a conservative built-in list of IP
+  logging services. Public-room HTTP(S) links are underlined and open in a new
+  tab/window; whisper links remain plain text.
+- Refreshes the [OpenPhish community feed](https://openphish.com/phishing_feeds.html)
+  every 12 hours and blocks exact matching phishing URLs. Feed errors fail open
+  while retaining the last good list, so a third-party outage cannot stop chat.
+
+Add site-specific domain blocks with a comma-separated environment variable,
+for example `BLOCKED_LINK_HOSTS=spam.example,other.example`. Subdomains are
+included. Set `OPENPHISH_FEED_ENABLED=0` to disable feed refreshes; an alternate
+compatible text feed can be selected with `OPENPHISH_FEED_URL`. Ordinary URL
+shorteners are intentionally not blocked wholesale because they also carry
+legitimate links. A future reputation-provider integration should use a
+properly licensed domain list such as [Spamhaus DBL](https://www.spamhaus.org/blocklists/domain-blocklist/)
+rather than copying a stale blacklist into the repository.
 - Limits each browser session to five outgoing messages per ten seconds.
 - Requires the exact production origin and rejects originless WebSocket clients.
 - Allows at most three simultaneous sessions and ten upgrade attempts per minute

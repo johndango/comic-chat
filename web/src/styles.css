@@ -156,6 +156,10 @@ button:disabled { color: #808080; text-shadow: 1px 1px #fff; cursor: not-allowed
 .comic-strip[data-panels-across] { width: max-content; min-width: 100%; display: grid; grid-template-columns: repeat(var(--panels-across), var(--panel-display-size)); justify-content: center; }
 .panel-card { position: relative; width: var(--panel-display-size); max-width: 100%; flex: 0 1 var(--panel-display-size); padding-bottom: 24px; border: 1px solid #000; background: #fff; }
 .panel-card canvas { display: block; width: 100%; height: auto; background: #fff; }
+.panel-link-layer { position: absolute; z-index: 2; inset: 0 0 auto; width: 100%; aspect-ratio: 1; pointer-events: none; }
+.panel-link-hitbox { position: absolute; display: block; min-width: 2px; cursor: pointer; pointer-events: auto; }
+.panel-link-hitbox:hover { background: rgb(0 0 128 / 12%); outline: 1px dotted #000080; }
+.panel-link-hitbox:focus-visible { background: rgb(0 0 128 / 16%); outline: 2px solid #000080; outline-offset: 1px; }
 .panel-meta { position: absolute; left: 5px; bottom: 5px; margin: 0; font-size: 10px; }
 .remove-panel { position: absolute; right: 3px; bottom: 2px; min-height: 19px; padding: 0 5px; font-size: 10px; }
 .empty-strip { min-height: 330px; grid-column: 1 / -1; flex: 1 0 100%; display: grid; place-content: center; justify-items: center; color: #555; text-align: center; }

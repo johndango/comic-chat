@@ -37,6 +37,19 @@ export interface BalloonFonts {
   whisper: FontMetrics;
 }
 
+export interface BalloonLink {
+  href: string;
+  hostname: string;
+  start: number;
+  end: number;
+}
+
+export interface BalloonLinkGeometry {
+  href: string;
+  hostname: string;
+  boxes: Array<{ left: number; top: number; width: number; height: number }>;
+}
+
 /**
  * Build CFontInfo-equivalent metrics for the balloon font. `measure` must
  * report widths in the same units as `pointSize * 20` (twips).
@@ -312,6 +325,8 @@ export interface BalloonGeometry {
   lines: { text: string; x: number; y: number }[];
   lineHeight: number;
   cloudBox: Rect;
+  /** Click targets for public-message links. Whispers intentionally have none. */
+  links: BalloonLinkGeometry[];
 }
 
 /** A speaker as the balloon needs to see it. */
@@ -339,13 +354,19 @@ export class Balloon {
   routeRgn: Rect = { left: 0, top: 0, right: 0, bottom: 0 };
   private format: FormatInfo | null = null;
   private spline: BetaSpline | null = null;
+  private links: BalloonLink[];
 
-  constructor(text: string, mode: BalloonMode, fonts: BalloonFonts, speaker: BalloonSpeaker) {
+  constructor(text: string, mode: BalloonMode, fonts: BalloonFonts, speaker: BalloonSpeaker, links: readonly BalloonLink[] = []) {
     this.mode = mode;
     this.font = mode === "whisper" ? fonts.whisper : fonts.normal;
     this.leftJustify = mode === "action";
     // CBWoodringNormal's constructor capitalises every balloon.
     this.text = text.toLocaleUpperCase();
+    this.links = (mode === "whisper" ? [] : links).map((link) => ({
+      ...link,
+      start: text.slice(0, link.start).toLocaleUpperCase().length,
+      end: text.slice(0, link.end).toLocaleUpperCase().length,
+    }));
     this.speaker = speaker;
   }
 
@@ -359,6 +380,7 @@ export class Balloon {
       box: { ...this.box },
       trueBox: { ...this.trueBox },
       routeRgn: { ...this.routeRgn },
+      links: this.links.map((link) => ({ ...link })),
     });
     return copy;
   }
@@ -509,7 +531,7 @@ export class Balloon {
    * CBWoodringNormal::SplitHeight — keep as many lines as fit in `height`,
    * end with "...", and return the rest (prefixed with "...") or null.
    */
-  splitHeight(height: number, rng: MsvcRand): string | null {
+  splitHeight(height: number, rng: MsvcRand): { text: string; links: BalloonLink[] } | null {
     const f = this.format;
     if (!f) return null;
     const maxLines = Math.max(1, Math.trunc((height - BORDERFUDGE) / this.font.lineHeight));
@@ -525,12 +547,26 @@ export class Balloon {
     if (end <= CONTINUATION.length && this.text.startsWith(CONTINUATION) && this.text.length > CONTINUATION.length) {
       end = CONTINUATION.length + 1;
     }
-    const rest = CONTINUATION + this.text.slice(nextStart(this.text, end));
+    const restStart = nextStart(this.text, end);
+    const rest = CONTINUATION + this.text.slice(restStart);
+    const keptLinks: BalloonLink[] = [];
+    const restLinks: BalloonLink[] = [];
+    for (const link of this.links) {
+      if (link.start < end && link.end > 0) keptLinks.push({ ...link, end: Math.min(link.end, end) });
+      if (link.end > restStart) {
+        restLinks.push({
+          ...link,
+          start: CONTINUATION.length + Math.max(0, link.start - restStart),
+          end: CONTINUATION.length + link.end - restStart,
+        });
+      }
+    }
     this.text = this.text.slice(0, end) + CONTINUATION;
+    this.links = keptLinks;
     // Recompute at the same width and top (the "major hack" in the original).
     const cloud = this.cloudBox();
     this.setBBox(cloud.left, cloud.top, this.box.right + this.trueBox.left, rng);
-    return rest;
+    return { text: rest, links: restLinks };
   }
 
   // -------------------------------------------------------------------------
@@ -546,6 +582,21 @@ export class Balloon {
       x: origin.x + f.leftX[i],
       y: origin.y - i * this.font.lineHeight,
     }));
+    const links = this.links.map((link) => ({
+      href: link.href,
+      hostname: link.hostname,
+      boxes: f.lines.flatMap((line, i) => {
+        const start = Math.max(link.start, line.start);
+        const end = Math.min(link.end, line.start + line.length);
+        if (start >= end) return [];
+        return [{
+          left: origin.x + f.leftX[i] + this.font.measure(this.text.slice(line.start, start)),
+          top: origin.y - i * this.font.lineHeight,
+          width: this.font.measure(this.text.slice(start, end)),
+          height: this.font.textHeight,
+        }];
+      }),
+    })).filter((link) => link.boxes.length > 0);
     let path: PathCommand[];
     let thinkBubbles: ThinkBubble[] = [];
 
@@ -580,6 +631,7 @@ export class Balloon {
       lines,
       lineHeight: this.font.lineHeight,
       cloudBox: this.cloudBox(),
+      links,
     };
   }
 

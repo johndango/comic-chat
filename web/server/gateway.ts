@@ -5,6 +5,7 @@ import { extname, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { connect as connectTls, type TLSSocket } from "node:tls";
 import { WebSocket, WebSocketServer } from "ws";
+import { MessageLinkFilter, type UnsafeMessageLink } from "./link-filter";
 import {
   IRC_NETWORKS,
   ircCaseFold,
@@ -19,6 +20,7 @@ import {
 
 type JsonObject = Record<string, unknown>;
 interface ListedRoom { channel: string; users: number; topic: string }
+const defaultStaticLinkFilter = new MessageLinkFilter();
 
 const mimeTypes: Record<string, string> = {
   ".css": "text/css; charset=utf-8",
@@ -74,6 +76,7 @@ export class IrcBridge {
       registrationTimeoutMs?: number;
       idleTimeoutMs?: number;
       maxLifetimeMs?: number;
+      linkFilter?: Pick<MessageLinkFilter, "check">;
     } = {},
   ) {
     this.touch();
@@ -94,6 +97,7 @@ export class IrcBridge {
   }
 
   handleBrowserMessage(raw: Buffer | ArrayBuffer | Buffer[]): void {
+    let messageOperation = false;
     try {
       this.touch();
       const bytes = Array.isArray(raw)
@@ -107,17 +111,25 @@ export class IrcBridge {
       else if (type === "join") this.joinChannel(validateJoinRequest(value));
       else if (type === "list") this.requestRooms();
       else if (type === "say") {
+        messageOperation = true;
         const chat = validateChatMessage(value);
+        this.assertSafeLinks(chat.message);
         this.say(chat.message, chat.action);
       }
       else if (type === "whisper") {
+        messageOperation = true;
         const whisper = validateWhisperMessage(value);
+        this.assertSafeLinks(whisper.message);
         this.whisper(whisper.to, whisper.message, whisper.action);
       }
       else if (type === "disconnect") this.disconnect("Disconnected");
       else throw new Error("Unknown browser message type");
     } catch (error) {
-      sendJson(this.webSocket, { type: "error", message: error instanceof Error ? error.message : "Invalid request" });
+      sendJson(this.webSocket, {
+        type: "error",
+        message: error instanceof Error ? error.message : "Invalid request",
+        ...(messageOperation ? { operation: "message" } : {}),
+      });
     }
   }
 
@@ -322,6 +334,7 @@ export class IrcBridge {
       const nickname = nicknameFromPrefix(message.prefix);
       if (ircCaseFold(nickname) === ircCaseFold(this.request.nickname)) return;
       if (sameChannel(target, this.activeChannel)) {
+        if (this.suppressUnsafeIncoming(message.trailing, nickname)) return;
         sendJson(this.webSocket, { type: "message", nickname, message: message.trailing, self: false, timestamp: Date.now() });
         return;
       }
@@ -330,6 +343,7 @@ export class IrcBridge {
       // only ACTION (a whispered /me) is passed on.
       if (ircCaseFold(target) !== ircCaseFold(this.request.nickname) || !this.joined || !this.isMember(nickname)) return;
       if (message.trailing.startsWith("\u0001") && !/^\u0001ACTION /.test(message.trailing)) return;
+      if (this.suppressUnsafeIncoming(message.trailing, nickname)) return;
       sendJson(this.webSocket, {
         type: "message",
         nickname,
@@ -420,6 +434,25 @@ export class IrcBridge {
     const folded = ircCaseFold(nickname);
     for (const member of this.members) if (ircCaseFold(member) === folded) return true;
     return false;
+  }
+
+  private unsafeLink(message: string): UnsafeMessageLink | undefined {
+    return (this.limits.linkFilter ?? defaultStaticLinkFilter).check(message);
+  }
+
+  private assertSafeLinks(message: string): void {
+    const unsafe = this.unsafeLink(message);
+    if (unsafe) throw new Error(`That message was blocked because it contains an unsafe link to ${unsafe.hostname}.`);
+  }
+
+  private suppressUnsafeIncoming(message: string, nickname: string): boolean {
+    const unsafe = this.unsafeLink(message);
+    if (!unsafe) return false;
+    sendJson(this.webSocket, {
+      type: "blocked",
+      message: `Blocked a message from ${nickname} because it contained an unsafe link to ${unsafe.hostname}.`,
+    });
+    return true;
   }
 
   /** Send a whisper: a private message to someone in the current room. */
@@ -586,6 +619,7 @@ export interface GatewaySecurityOptions {
   idleTimeoutMs?: number;
   maxLifetimeMs?: number;
   keepaliveMs?: number;
+  linkFilter?: Pick<MessageLinkFilter, "check">;
 }
 
 export function createGatewayServer(
@@ -604,6 +638,8 @@ export function createGatewayServer(
   const maxIrcConnectsPerWindow = security.maxIrcConnectsPerWindow ?? 30;
   const maxOutboundMessagesPerWindow = security.maxOutboundMessagesPerWindow ?? 120;
   const keepaliveMs = security.keepaliveMs ?? 30_000;
+  const linkFilter = security.linkFilter ?? new MessageLinkFilter();
+  if (linkFilter instanceof MessageLinkFilter) linkFilter.start();
   const webSockets = new WebSocketServer({ noServer: true, maxPayload: 4096 });
   const bridges = new Set<IrcBridge>();
   const clientsByAddress = new Map<string, number>();
@@ -659,6 +695,7 @@ export function createGatewayServer(
         registrationTimeoutMs: security.registrationTimeoutMs,
         idleTimeoutMs: security.idleTimeoutMs,
         maxLifetimeMs: security.maxLifetimeMs,
+        linkFilter,
       },
     );
     bridges.add(bridge);
@@ -716,6 +753,7 @@ export function createGatewayServer(
     close() {
       clearInterval(rateLimitSweep);
       clearInterval(keepalive);
+      if (linkFilter instanceof MessageLinkFilter) linkFilter.close();
       for (const bridge of bridges) bridge.close();
       for (const client of webSockets.clients) client.terminate();
       return new Promise((resolveClose, reject) => {

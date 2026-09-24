@@ -23,6 +23,13 @@ export interface LiveMessageEvent {
 export interface LiveErrorEvent {
   type: "error";
   message: string;
+  operation?: "message";
+}
+
+/** A chat line intentionally suppressed by the gateway's link-safety policy. */
+export interface LiveBlockedEvent {
+  type: "blocked";
+  message: string;
 }
 
 export interface LiveRoomEvent {
@@ -44,7 +51,7 @@ export interface LiveMembersEvent {
   members: string[];
 }
 
-export type LiveEvent = LiveStatusEvent | LiveMessageEvent | LiveErrorEvent | LiveRoomEvent | LiveRoomsEvent | LiveMembersEvent;
+export type LiveEvent = LiveStatusEvent | LiveMessageEvent | LiveErrorEvent | LiveBlockedEvent | LiveRoomEvent | LiveRoomsEvent | LiveMembersEvent;
 
 export interface LiveConnection {
   network: "libera" | "oftc";

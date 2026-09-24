@@ -4,7 +4,7 @@
 // Coordinates are twips, y up: a panel spans x in [0, unitWidth] and
 // y in [-unitHeight, 0].
 
-import { Balloon, TOPBORDER, type BalloonFonts, type BalloonGeometry, type BalloonMode } from "./balloon";
+import { Balloon, TOPBORDER, type BalloonFonts, type BalloonGeometry, type BalloonLink, type BalloonMode } from "./balloon";
 import type { Rect } from "./geometry";
 import { MsvcRand } from "./rand";
 import { randomTitle } from "./title";
@@ -25,6 +25,8 @@ export interface ComicLine {
   pose: PoseSize;
   /** Opaque value handed back on the laid-out body, e.g. a pose index. */
   poseRef?: unknown;
+  /** HTTP(S) links that should be clickable. Private whispers omit these. */
+  links?: BalloonLink[];
 }
 
 export interface CastHooks {
@@ -163,10 +165,10 @@ export class ComicPage {
 
   /** CUnitPanelPage::AddLine */
   addLine(line: ComicLine): void {
-    this.addLineAux(line, line.text, 0);
+    this.addLineAux(line, line.text, line.links ?? [], 0);
   }
 
-  private addLineAux(line: ComicLine, text: string, depth: number): void {
+  private addLineAux(line: ComicLine, text: string, links: readonly BalloonLink[], depth: number): void {
     const mode = line.mode ?? "say";
     if (mode === "action") this.startNewPanel();
 
@@ -197,21 +199,21 @@ export class ComicPage {
     if (existing >= 0) panel.bodies[existing] = speaker;
     else panel.bodies.push(speaker);
     for (const b of panel.balloons) if (b.speaker.id === speaker.id) b.speaker = speaker;
-    panel.balloons.push(new Balloon(text, mode, this.fonts, speaker));
+    panel.balloons.push(new Balloon(text, mode, this.fonts, speaker, links));
 
     const listeners = this.layoutAvatars(panel, establishing);
     const result = this.layoutBalloons(panel);
 
     if (!result.ok && depth < 8) {
       this.startNewPanel();
-      this.addLineAux(line, text, depth + 1);
+      this.addLineAux(line, text, links, depth + 1);
       return;
     }
     panel.layout = this.snapshot(panel, establishing, listeners);
     if (replaceLast) this.panels[this.panels.length - 1] = panel;
     else this.panels.push(panel);
     // Spilled text always shrinks, so this chain terminates without the retry cap.
-    if (result.rest) this.addLineAux(line, result.rest, 0);
+    if (result.rest) this.addLineAux(line, result.rest.text, result.rest.links, 0);
   }
 
   // -------------------------------------------------------------------------
@@ -423,7 +425,7 @@ export class ComicPage {
   }
 
   /** CUnitPanel::LayoutBalloons */
-  private layoutBalloons(panel: Panel): { ok: boolean; rest: string | null } {
+  private layoutBalloons(panel: Panel): { ok: boolean; rest: { text: string; links: BalloonLink[] } | null } {
     const free = this.balloonRect();
     this.rng.srand(panel.seed); // always lay a panel out the same random way
     const balloons = panel.balloons;
@@ -438,7 +440,7 @@ export class ComicPage {
   }
 
   /** ForceFitBalloon: fill the whole balloon area and spill the rest onward. */
-  private forceFit(balloon: Balloon, free: Rect): string | null {
+  private forceFit(balloon: Balloon, free: Rect): { text: string; links: BalloonLink[] } | null {
     balloon.setBBox(free.left, free.top, free.right, this.rng);
     const rest = balloon.splitHeight(free.top - free.bottom, this.rng);
     if (balloon.box.top > -250) balloon.dockAtTop(free.top);

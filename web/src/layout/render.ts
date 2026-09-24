@@ -147,6 +147,19 @@ function drawBalloon(
   context.textBaseline = "alphabetic";
   const ascent = (options.ascentEm ?? 1.102) * em;
   for (const line of balloon.lines) context.fillText(line.text, X(line.x), Y(line.y) + ascent);
+  if (balloon.links.length > 0) {
+    context.beginPath();
+    context.lineWidth = Math.max(1, s * 12);
+    for (const link of balloon.links) {
+      for (const box of link.boxes) {
+        const underlineY = Y(box.top) + box.height * s * 0.92;
+        context.moveTo(X(box.left), underlineY);
+        context.lineTo(X(box.left + box.width), underlineY);
+      }
+    }
+    context.strokeStyle = "#000";
+    context.stroke();
+  }
   context.restore();
 }
 

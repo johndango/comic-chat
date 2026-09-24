@@ -39,6 +39,7 @@ import {
   roomSelectionFromUrl,
 } from "./room-link";
 import { stripExportGrid } from "./strip-export";
+import { blockedLinkMessage, blockedMessageLink, displayMessageLinks } from "./message-links";
 
 interface ArtChoice { file: string; label: string; announcementName?: string }
 
@@ -186,11 +187,19 @@ interface ConversationLine {
   characterFile: string;
   characterName: string;
   message: string;
+  displayMessage: string;
+  links: ReturnType<typeof displayMessageLinks>["links"];
   mode: BalloonMode;
   body: ComposedBody;
   poseRef: string;
   expression: string;
   talkTo: string[];
+  linkable: boolean;
+}
+
+interface PendingLiveLine {
+  line: ConversationLine;
+  sentNote: string;
 }
 
 const app = document.querySelector<HTMLDivElement>("#app");
@@ -498,6 +507,7 @@ let joinedChannel = "";
 let roomDirectoryLoaded = false;
 let panelsAcross: PanelsAcross = "auto";
 let remoteQueue = Promise.resolve();
+const pendingLiveLines: PendingLiveLine[] = [];
 const publicRooms = new Map<string, LiveRoomEvent>();
 const knownMembers = new Set<string>();
 const selectedAddressees = new Set<string>();
@@ -787,6 +797,7 @@ async function createConversationLine(
   displayName?: string,
   mode: BalloonMode = "say",
   selected: readonly string[] = [],
+  linkable = mode !== "whisper",
 ): Promise<ConversationLine> {
   const avatar = await loadAvatar(characterFile);
   const frozen = frozenPoses.get(characterFile);
@@ -797,15 +808,21 @@ async function createConversationLine(
   cacheBody(avatar, body);
   const options = emotionOptions(message);
   const characterName = displayName || displayCharacterName(avatar.metadata, characterFile);
+  const display = linkable
+    ? displayMessageLinks(message)
+    : { text: message.length <= 180 ? message : `${message.slice(0, 179)}…`, links: [] };
   return {
     characterFile,
     characterName,
     message,
+    displayMessage: display.text,
+    links: display.links,
     mode,
     body,
     poseRef: `${characterFile}|${body.key}`,
     expression: frozen ? "wheel selection" : describeOptions(options),
     talkTo: addressedPeople(message, characterName, selected),
+    linkable,
   };
 }
 
@@ -899,7 +916,7 @@ async function refreshMemberAvatars(nicknames?: ReadonlySet<string>): Promise<vo
     if (!member || (nicknames && !nicknames.has(member))) return line;
     const nextFile = characterForNickname(member);
     if (line.characterFile === nextFile) return line;
-    return createConversationLine(nextFile, line.message, line.characterName, line.mode, line.talkTo);
+    return createConversationLine(nextFile, line.message, line.characterName, line.mode, line.talkTo, line.linkable);
   }));
   if (generation !== avatarRemapGeneration) return;
   conversation.splice(0, conversation.length, ...replacements);
@@ -912,7 +929,7 @@ async function refreshAvatarArtPreference(): Promise<void> {
     const member = [...knownMembers].find((nickname) => nickname.toLocaleLowerCase() === line.characterName.toLocaleLowerCase());
     const nextFile = member ? characterForNickname(member) : preferredAvatarFile(line.characterFile);
     if (line.characterFile === nextFile) return line;
-    return createConversationLine(nextFile, line.message, line.characterName, line.mode, line.talkTo);
+    return createConversationLine(nextFile, line.message, line.characterName, line.mode, line.talkTo, line.linkable);
   }));
   if (generation !== avatarRemapGeneration) return;
   conversation.splice(0, conversation.length, ...replacements);
@@ -968,7 +985,7 @@ function normalizeIrcText(message: string): { text: string; mode: BalloonMode } 
   const visible = action ? action[1] : message;
   const clean = visible.replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, "").trim();
   return {
-    text: clean.length <= 180 ? clean : `${clean.slice(0, 177)}…`,
+    text: clean,
     mode: action ? "action" : "say",
   };
 }
@@ -983,6 +1000,8 @@ function appendConversationLine(line: ConversationLine, rolling = false): void {
 
 async function addRemoteMessage(event: LiveMessageEvent): Promise<void> {
   if (event.self) return;
+  const unsafeLink = blockedMessageLink(event.message);
+  if (unsafeLink) throw new Error(blockedLinkMessage(unsafeLink));
   knownMembers.add(event.nickname);
   const announcement = event.whisper ? undefined : parseAvatarAnnouncement(event.message);
   if (announcement) {
@@ -1020,7 +1039,7 @@ async function addRemoteMessage(event: LiveMessageEvent): Promise<void> {
   const mode: BalloonMode = event.whisper && normalized.mode !== "action" ? "whisper" : normalized.mode;
   const characterFile = characterForNickname(event.nickname);
   const whisperTarget = typeof event.to === "string" ? [event.to] : [];
-  const line = await createConversationLine(characterFile, text, event.nickname, mode, whisperTarget);
+  const line = await createConversationLine(characterFile, text, event.nickname, mode, whisperTarget, !event.whisper);
   appendConversationLine(line, true);
   setStatus(`${event.nickname}${event.whisper ? " whispered to you" : ""}: ${line.expression} · live IRC`);
 }
@@ -1203,7 +1222,10 @@ function updateLiveUi(state: LiveState, message: string): void {
 function handleLiveEvent(event: LiveEvent): void {
   if (event.type === "status") {
     if (event.state === "joined") joinedChannel = event.channel ?? channelInput.value;
-    else if (event.state === "offline" || event.state === "disconnected") joinedChannel = "";
+    else if (event.state === "offline" || event.state === "disconnected") {
+      joinedChannel = "";
+      pendingLiveLines.length = 0;
+    }
     updateLiveUi(event.state, event.message);
     if (event.state === "browsing") renderRoomList();
     if (event.state === "joined") {
@@ -1244,9 +1266,21 @@ function handleLiveEvent(event: LiveEvent): void {
     return;
   }
   if (event.type === "error") {
+    if (event.operation === "message") pendingLiveLines.shift();
     liveConsole.dataset.state = "error";
     liveStatus.textContent = event.message;
     showError(new Error(event.message));
+    return;
+  }
+  if (event.type === "blocked") {
+    showError(new Error(event.message));
+    return;
+  }
+  if (event.self) {
+    const pending = pendingLiveLines.shift();
+    if (!pending) return;
+    appendConversationLine(pending.line, true);
+    setStatus(`${pending.line.characterName}: ${pending.line.expression} · ${pending.line.mode} balloon${pending.sentNote}`);
     return;
   }
   remoteQueue = remoteQueue.then(() => addRemoteMessage(event)).catch(showError);
@@ -1434,10 +1468,11 @@ async function renderStrip(): Promise<void> {
     const image = images.get(line.poseRef)!;
     const comicLine: ComicLine = {
       speakerId: line.characterName,
-      text: line.message,
+      text: line.displayMessage,
       mode: line.mode,
       pose: { width: image.width, height: image.height, faceX: line.body.faceX },
       poseRef: line.poseRef,
+      links: line.links.map(({ href, hostname, start, end }) => ({ href, hostname, start, end })),
     };
     page.addLine(comicLine);
   }
@@ -1468,6 +1503,7 @@ async function renderStrip(): Promise<void> {
       backdrop: backdropCanvas,
       body: (body) => images.get(String(body.poseRef)),
     }, { scale: PANEL_SCALE });
+    addPanelLinkOverlays(panel.card, layout);
     panel.card.querySelector<HTMLElement>(".panel-meta")!.textContent =
       `Panel ${index + 1} · ${layout.balloons.length} ${layout.balloons.length === 1 ? "balloon" : "balloons"}`;
     fragment.append(panel.card);
@@ -1480,6 +1516,34 @@ async function renderStrip(): Promise<void> {
   const count = page.layouts.length + 1;
   stripCount.textContent = `${count} ${count === 1 ? "panel" : "panels"} · ${conversation.length} ${conversation.length === 1 ? "line" : "lines"}`;
   updateControls();
+}
+
+function addPanelLinkOverlays(card: HTMLElement, layout: import("./layout/page").PanelLayout): void {
+  const layer = document.createElement("div");
+  layer.className = "panel-link-layer";
+  for (const balloon of layout.balloons) {
+    for (const link of balloon.links) {
+      link.boxes.forEach((box, index) => {
+        const anchor = document.createElement("a");
+        anchor.className = "panel-link-hitbox";
+        anchor.href = link.href;
+        anchor.target = "_blank";
+        anchor.rel = "noopener noreferrer";
+        anchor.title = link.href;
+        anchor.setAttribute("aria-label", `Open ${link.hostname} in a new window`);
+        if (index > 0) {
+          anchor.tabIndex = -1;
+          anchor.setAttribute("aria-hidden", "true");
+        }
+        anchor.style.left = `${box.left / layout.width * 100}%`;
+        anchor.style.top = `${-box.top / layout.height * 100}%`;
+        anchor.style.width = `${box.width / layout.width * 100}%`;
+        anchor.style.height = `${box.height / layout.height * 100}%`;
+        layer.append(anchor);
+      });
+    }
+  }
+  if (layer.childElementCount > 0) card.append(layer);
 }
 
 async function loadBackdrop(): Promise<void> {
@@ -1527,6 +1591,8 @@ async function updateCharacterPreview(): Promise<void> {
 async function addPanel(): Promise<void> {
   const message = messageInput.value.trim();
   if (!message || isAdding) return;
+  const unsafeLink = blockedMessageLink(message);
+  if (unsafeLink) throw new Error(blockedLinkMessage(unsafeLink));
   isAdding = true;
   updateControls();
   setStatus("Reading the line and choosing a pose…");
@@ -1544,11 +1610,14 @@ async function addPanel(): Promise<void> {
       // Whispers go privately to each selected member; nobody else receives them.
       if (mode === "whisper") liveClient.whisper(whisperTo, message);
       else liveClient.say(message, mode === "action");
+      const sentNote = mode === "whisper" ? ` · whispered to ${whisperTo.join(", ")}` : " · sent to IRC";
+      pendingLiveLines.push({ line, sentNote });
+      setStatus(`Sending ${line.mode === "whisper" ? "whisper" : "message"}…`);
+    } else {
+      appendConversationLine(line, false);
+      setStatus(`${line.characterName}: ${line.expression} · ${line.mode} balloon`);
     }
-    appendConversationLine(line, liveState === "joined");
     messageInput.value = "";
-    const sentNote = liveState !== "joined" ? "" : mode === "whisper" ? ` · whispered to ${whisperTo.join(", ")}` : " · sent to IRC";
-    setStatus(`${line.characterName}: ${line.expression} · ${line.mode} balloon${sentNote}`);
   } finally {
     isAdding = false;
     updateControls();
