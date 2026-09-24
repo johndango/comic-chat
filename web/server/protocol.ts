@@ -59,7 +59,26 @@ export function validateChatMessage(value: unknown): { message: string; action: 
   if (candidate.type !== "say" || typeof candidate.message !== "string") {
     throw new Error("Invalid chat message");
   }
-  const message = candidate.message.trim();
+  return messageBody(candidate);
+}
+
+/**
+ * A whisper is a private message to one member of the room, as Comic Chat
+ * sent them: `PRIVMSG <nick> :text`. The recipient draws it in the comic of
+ * the room they share with the sender.
+ */
+export function validateWhisperMessage(value: unknown): { to: string; message: string; action: boolean } {
+  if (!value || typeof value !== "object") throw new Error("Invalid whisper");
+  const candidate = value as Record<string, unknown>;
+  if (candidate.type !== "whisper" || typeof candidate.message !== "string") throw new Error("Invalid whisper");
+  if (typeof candidate.to !== "string" || !nicknamePattern.test(candidate.to)) {
+    throw new Error("Choose a room member to whisper to");
+  }
+  return { to: candidate.to, ...messageBody(candidate) };
+}
+
+function messageBody(candidate: Record<string, unknown>): { message: string; action: boolean } {
+  const message = String(candidate.message).trim();
   if (!message) throw new Error("Message cannot be empty");
   if (/[\r\n\0]/.test(message)) throw new Error("Message contains invalid control characters");
   if (Buffer.byteLength(message, "utf8") > 400) throw new Error("Message is too long for IRC");

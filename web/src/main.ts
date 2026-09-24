@@ -1012,12 +1012,16 @@ async function addRemoteMessage(event: LiveMessageEvent): Promise<void> {
     return;
   }
   renderMembers();
-  const { text, mode } = normalizeIrcText(event.message);
+  const normalized = normalizeIrcText(event.message);
+  const { text } = normalized;
   if (!text) return;
+  // A whisper shows in this room's comic only for the person it was sent to,
+  // with the sender facing them, as Comic Chat drew it.
+  const mode: BalloonMode = event.whisper && normalized.mode !== "action" ? "whisper" : normalized.mode;
   const characterFile = characterForNickname(event.nickname);
-  const line = await createConversationLine(characterFile, text, event.nickname, mode);
+  const line = await createConversationLine(characterFile, text, event.nickname, mode, event.whisper && event.to ? [event.to] : []);
   appendConversationLine(line, true);
-  setStatus(`${event.nickname}: ${line.expression} · live IRC`);
+  setStatus(`${event.nickname}${event.whisper ? " whispered to you" : ""}: ${line.expression} · live IRC`);
 }
 
 function renderMembers(): void {
@@ -1513,11 +1517,20 @@ async function addPanel(): Promise<void> {
   setStatus("Reading the line and choosing a pose…");
   try {
     const mode = messageMode.value as BalloonMode;
-    const line = await createConversationLine(characterSelect.value, message, undefined, mode, [...selectedAddressees]);
-    if (liveState === "joined") liveClient.say(message, mode === "action");
+    const whisperTo = [...selectedAddressees];
+    if (liveState === "joined" && mode === "whisper" && whisperTo.length === 0) {
+      throw new Error("Select who to whisper to in the member list first");
+    }
+    const line = await createConversationLine(characterSelect.value, message, undefined, mode, whisperTo);
+    if (liveState === "joined") {
+      // Whispers go privately to each selected member; nobody else receives them.
+      if (mode === "whisper") for (const nickname of whisperTo) liveClient.whisper(nickname, message);
+      else liveClient.say(message, mode === "action");
+    }
     appendConversationLine(line, liveState === "joined");
     messageInput.value = "";
-    setStatus(`${line.characterName}: ${line.expression} · ${line.mode} balloon${liveState === "joined" ? " · sent to IRC" : ""}`);
+    const sentNote = liveState !== "joined" ? "" : mode === "whisper" ? ` · whispered to ${whisperTo.join(", ")}` : " · sent to IRC";
+    setStatus(`${line.characterName}: ${line.expression} · ${line.mode} balloon${sentNote}`);
   } finally {
     isAdding = false;
     updateControls();

@@ -11,6 +11,7 @@ import {
   nicknameFromPrefix,
   parseIrcLine,
   validateChatMessage,
+  validateWhisperMessage,
   validateConnectRequest,
   validateJoinRequest,
   type ConnectRequest,
@@ -108,6 +109,10 @@ export class IrcBridge {
       else if (type === "say") {
         const chat = validateChatMessage(value);
         this.say(chat.message, chat.action);
+      }
+      else if (type === "whisper") {
+        const whisper = validateWhisperMessage(value);
+        this.whisper(whisper.to, whisper.message, whisper.action);
       }
       else if (type === "disconnect") this.disconnect("Disconnected");
       else throw new Error("Unknown browser message type");
@@ -313,14 +318,25 @@ export class IrcBridge {
     }
     if (message.command === "PRIVMSG") {
       const target = message.params[0];
-      if (!target || !this.activeChannel || !sameChannel(target, this.activeChannel) || message.trailing === undefined) return;
+      if (!target || !this.activeChannel || message.trailing === undefined) return;
       const nickname = nicknameFromPrefix(message.prefix);
       if (ircCaseFold(nickname) === ircCaseFold(this.request.nickname)) return;
+      if (sameChannel(target, this.activeChannel)) {
+        sendJson(this.webSocket, { type: "message", nickname, message: message.trailing, self: false, timestamp: Date.now() });
+        return;
+      }
+      // A private message is a whisper. Like Comic Chat, only show it when the
+      // sender shares the room; other private messages are dropped. Of CTCP,
+      // only ACTION (a whispered /me) is passed on.
+      if (ircCaseFold(target) !== ircCaseFold(this.request.nickname) || !this.joined || !this.isMember(nickname)) return;
+      if (message.trailing.startsWith("\u0001") && !/^\u0001ACTION /.test(message.trailing)) return;
       sendJson(this.webSocket, {
         type: "message",
         nickname,
         message: message.trailing,
         self: false,
+        whisper: true,
+        to: this.request.nickname,
         timestamp: Date.now(),
       });
     }
@@ -391,13 +407,43 @@ export class IrcBridge {
     sendJson(this.webSocket, { type: "status", state: "joining", message: `Joining ${channel}…`, channel });
   }
 
-  private say(message: string, action = false): void {
-    if (!this.socket || !this.request || !this.activeChannel || !this.joined) throw new Error("Join a channel before sending messages");
+  private checkOutgoingRate(): number {
     const now = Date.now();
     this.recentMessages = this.recentMessages.filter((timestamp) => now - timestamp < 10_000);
     if (this.recentMessages.length >= 5) throw new Error("Slow down: IRC messages are limited to five per ten seconds");
     this.recentMessages.push(now);
     this.onOutboundMessage();
+    return now;
+  }
+
+  private isMember(nickname: string): boolean {
+    const folded = ircCaseFold(nickname);
+    for (const member of this.members) if (ircCaseFold(member) === folded) return true;
+    return false;
+  }
+
+  /** Send a whisper: a private message to someone in the current room. */
+  private whisper(to: string, message: string, action = false): void {
+    if (!this.socket || !this.request || !this.activeChannel || !this.joined) throw new Error("Join a channel before whispering");
+    if (ircCaseFold(to) === ircCaseFold(this.request.nickname)) throw new Error("You can't whisper to yourself");
+    if (!this.isMember(to)) throw new Error(`${to} isn't in this room`);
+    const now = this.checkOutgoingRate();
+    const ircMessage = action ? `\u0001ACTION ${message}\u0001` : message;
+    this.write(`PRIVMSG ${to} :${ircMessage}`);
+    sendJson(this.webSocket, {
+      type: "message",
+      nickname: this.request.nickname,
+      message: ircMessage,
+      self: true,
+      whisper: true,
+      to,
+      timestamp: now,
+    });
+  }
+
+  private say(message: string, action = false): void {
+    if (!this.socket || !this.request || !this.activeChannel || !this.joined) throw new Error("Join a channel before sending messages");
+    const now = this.checkOutgoingRate();
     const ircMessage = action ? `\u0001ACTION ${message}\u0001` : message;
     this.write(`PRIVMSG ${this.activeChannel} :${ircMessage}`);
     sendJson(this.webSocket, {

@@ -13,6 +13,10 @@ export interface LiveMessageEvent {
   nickname: string;
   message: string;
   self: boolean;
+  /** A private message between two members of the room (Comic Chat whisper). */
+  whisper?: boolean;
+  /** For whispers: who it was sent to. */
+  to?: string;
   timestamp: number;
 }
 
@@ -98,6 +102,14 @@ export class IrcWebClient {
       throw new Error("Join a channel before sending live messages");
     }
     this.socket.send(JSON.stringify({ type: "say", message, ...(action ? { action: true } : {}) }));
+  }
+
+  /** Whisper privately to one member of the room. */
+  whisper(to: string, message: string, action = false): void {
+    if (!this.joined || !this.socket || this.socket.readyState !== WebSocket.OPEN) {
+      throw new Error("Join a channel before whispering");
+    }
+    this.socket.send(JSON.stringify({ type: "whisper", to, message, ...(action ? { action: true } : {}) }));
   }
 
   join(channel: string): void {

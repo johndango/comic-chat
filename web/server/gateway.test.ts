@@ -13,6 +13,7 @@ interface BridgeHarness {
   roomResults: { channel: string; users: number; topic: string }[];
   socket: { destroyed: boolean; write(command: string): void };
   handleIrcLine(line: string): void;
+  handleBrowserMessage(raw: Buffer): void;
   joinChannel(channel: string): void;
   requestRooms(): void;
 }
@@ -254,5 +255,61 @@ describe("IRC room state recovery", () => {
     expect(bridge.activeChannel).toBeUndefined();
     expect(events).toContainEqual({ type: "error", message: "Removed from #comics: Please cool down" });
     expect(events.at(-1)).toMatchObject({ type: "status", state: "browsing" });
+  });
+});
+
+describe("whispers", () => {
+  function inRoom() {
+    const harness = bridgeHarness();
+    harness.bridge.activeChannel = "#comics";
+    harness.bridge.joined = true;
+    harness.bridge.handleIrcLine(":Dan!d@example JOIN #comics");
+    harness.events.length = 0;
+    harness.writes.length = 0;
+    const send = (value: Record<string, unknown>) => harness.bridge.handleBrowserMessage(Buffer.from(JSON.stringify(value)));
+    return { ...harness, send };
+  }
+
+  it("sends a whisper privately to a room member and echoes it as a whisper", () => {
+    const { send, writes, events } = inRoom();
+    send({ type: "whisper", to: "Dan", message: "just between us" });
+    expect(writes).toEqual(["PRIVMSG Dan :just between us\r\n"]);
+    expect(events.at(-1)).toMatchObject({ type: "message", nickname: "ComicFan", self: true, whisper: true, to: "Dan", message: "just between us" });
+  });
+
+  it("won't whisper to someone outside the room, or to yourself", () => {
+    const { send, writes, events } = inRoom();
+    send({ type: "whisper", to: "Stranger", message: "hi" });
+    send({ type: "whisper", to: "ComicFan", message: "hi" });
+    expect(writes).toEqual([]);
+    expect(events).toContainEqual({ type: "error", message: "Stranger isn't in this room" });
+    expect(events).toContainEqual({ type: "error", message: "You can't whisper to yourself" });
+  });
+
+  it("shows whispers from room members, and only from them", () => {
+    const { bridge, events } = inRoom();
+    bridge.handleIrcLine(":Dan!d@example PRIVMSG ComicFan :psst");
+    bridge.handleIrcLine(":Stranger!s@example PRIVMSG ComicFan :buy my stuff");
+    bridge.handleIrcLine(":Dan!d@example PRIVMSG ComicFan :\u0001VERSION\u0001");
+    bridge.handleIrcLine(":Dan!d@example PRIVMSG ComicFan :\u0001ACTION winks\u0001");
+    const messages = events.filter((e) => e.type === "message");
+    expect(messages).toHaveLength(2);
+    expect(messages[0]).toMatchObject({ nickname: "Dan", message: "psst", whisper: true, to: "ComicFan", self: false });
+    expect(messages[1]).toMatchObject({ nickname: "Dan", message: "\u0001ACTION winks\u0001", whisper: true });
+  });
+
+  it("still delivers ordinary room messages without the whisper flag", () => {
+    const { bridge, events } = inRoom();
+    bridge.handleIrcLine(":Dan!d@example PRIVMSG #comics :hello all");
+    expect(events.at(-1)).toMatchObject({ type: "message", nickname: "Dan", message: "hello all" });
+    expect(events.at(-1)).not.toHaveProperty("whisper");
+  });
+
+  it("shares the five-per-ten-seconds limit with room messages", () => {
+    const { send, writes, events } = inRoom();
+    for (let i = 0; i < 3; i += 1) send({ type: "say", message: `line ${i}` });
+    for (let i = 0; i < 3; i += 1) send({ type: "whisper", to: "Dan", message: `psst ${i}` });
+    expect(writes).toHaveLength(5);
+    expect(events.at(-1)).toMatchObject({ type: "error", message: expect.stringContaining("Slow down") });
   });
 });
