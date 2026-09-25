@@ -615,7 +615,7 @@ app.innerHTML = `
             <summary>How to build an offline comic</summary>
             <ol>
               <li>Each beat adds one character appearance. Reuse a character or choose another to build the cast.</li>
-              <li>Choose <strong>Automatic</strong> to let words and emoticons choose the pose, or select an exact expression or gesture.</li>
+              <li>Choose <strong>Automatic</strong> to let words and emoticons choose the pose, or select an exact expression or gesture. The preview shows the resulting character art before you add it.</li>
               <li>Choose exactly where the new beat belongs: <strong>new panel</strong>, <strong>current panel</strong>, or <strong>automatic</strong> original Comic Chat placement.</li>
               <li>Use <strong>Add speaking character</strong> for dialogue, <strong>Add silent character</strong> for a posed character without a balloon, or <strong>Add empty panel</strong> for a backdrop-only pacing shot.</li>
               <li>Edit, recast, or pose an existing beat below, then choose its highlighted <strong>Apply changes</strong> button. Reorder, duplicate, and remove are immediate.</li>
@@ -631,6 +631,10 @@ app.innerHTML = `
               <label>Display name<input id="workshop-add-name" maxlength="32" placeholder="Character name" /></label>
               <label>Pose<select id="workshop-add-pose"></select></label>
               <label>Balloon<select id="workshop-add-mode"><option value="say">Say</option><option value="think">Think</option><option value="whisper">Whisper</option><option value="action">Action / narration</option></select></label>
+              <figure class="workshop-add-preview">
+                <canvas id="workshop-add-pose-preview" width="128" height="128" role="img" aria-label="Preview of the selected character pose"></canvas>
+                <figcaption id="workshop-add-pose-caption">Selected pose preview</figcaption>
+              </figure>
               <label class="workshop-add-dialogue">Dialogue<textarea id="workshop-add-message" maxlength="180" rows="2" placeholder="Type a line, or use Add silent character without one"></textarea></label>
               <label class="workshop-add-placement">Panel placement<select id="workshop-add-placement"><option value="new">Start a new panel (guaranteed)</option><option value="current">Add to the current panel (if it fits)</option><option value="auto">Automatic Comic Chat placement</option></select></label>
               <div class="workshop-add-actions"><button id="workshop-add-speaking" type="button">Add speaking character to new panel</button><button id="workshop-add-silent" type="button">Add silent character to new panel</button><button id="workshop-add-empty" type="button">Add empty panel</button></div>
@@ -769,6 +773,8 @@ const workshopFont = element<HTMLSelectElement>("#workshop-font");
 const workshopAddCharacter = element<HTMLSelectElement>("#workshop-add-character");
 const workshopAddName = element<HTMLInputElement>("#workshop-add-name");
 const workshopAddPose = element<HTMLSelectElement>("#workshop-add-pose");
+const workshopAddPosePreview = element<HTMLCanvasElement>("#workshop-add-pose-preview");
+const workshopAddPoseCaption = element<HTMLElement>("#workshop-add-pose-caption");
 const workshopAddMode = element<HTMLSelectElement>("#workshop-add-mode");
 const workshopAddMessage = element<HTMLTextAreaElement>("#workshop-add-message");
 const workshopAddPlacement = element<HTMLSelectElement>("#workshop-add-placement");
@@ -832,6 +838,8 @@ let workshopPanelSummaries: WorkshopPanelSummary[] = [];
 const studioUndoHistory: StudioSnapshot[] = [];
 const studioRedoHistory: StudioSnapshot[] = [];
 let activeWorkshopDraftRow: HTMLElement | undefined;
+let workshopPosePreviewGeneration = 0;
+let workshopPosePreviewTimer: ReturnType<typeof setTimeout> | undefined;
 let remoteQueue = Promise.resolve();
 const pendingLiveLines: PendingLiveLine[] = [];
 const publicRooms = new Map<string, LiveRoomEvent>();
@@ -1199,6 +1207,48 @@ function studioPoseChoice(avatar: AvatarFile, pose: StudioPoseId): PoseChoice | 
   const gesture = STUDIO_GESTURES[pose];
   if (gesture === undefined) return undefined;
   return choosePoses(avatar, [{ emotion: gesture, intensity: 1, priority: 100, source: "Offline Comic Studio" }], newPoseMemory());
+}
+
+function drawPosePreview(canvas: HTMLCanvasElement, bitmap: DecodedBitmap): void {
+  const context = canvas.getContext("2d");
+  if (!context) return;
+  const source = bitmapCanvas(bitmap);
+  context.clearRect(0, 0, canvas.width, canvas.height);
+  context.fillStyle = "#ffffff";
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  const scale = Math.min((canvas.width - 12) / bitmap.width, (canvas.height - 10) / bitmap.height);
+  const width = bitmap.width * scale;
+  const height = bitmap.height * scale;
+  context.imageSmoothingEnabled = false;
+  context.drawImage(source, (canvas.width - width) / 2, canvas.height - height - 4, width, height);
+}
+
+async function updateWorkshopPosePreview(): Promise<void> {
+  const generation = ++workshopPosePreviewGeneration;
+  const characterFile = workshopAddCharacter.value;
+  if (!characterFile) return;
+  workshopAddPosePreview.classList.add("loading");
+  const avatar = await loadAvatar(characterFile);
+  const pose = workshopAddPose.value as StudioPoseId;
+  const choice = studioPoseChoice(avatar.metadata, pose);
+  const body = choice
+    ? await composeChoice(avatar.buffer, avatar.metadata, choice)
+    : await bodyForText(avatar.buffer, avatar.metadata, workshopAddMessage.value, newPoseMemory());
+  if (generation !== workshopPosePreviewGeneration) return;
+  drawPosePreview(workshopAddPosePreview, body.bitmap);
+  const poseLabel = STUDIO_POSES.find((candidate) => candidate.id === pose)?.label ?? "Selected pose";
+  const characterName = selectedWorkshopCharacterName();
+  workshopAddPoseCaption.textContent = pose === "auto" ? `${characterName} · Automatic from dialogue` : `${characterName} · ${poseLabel}`;
+  workshopAddPosePreview.setAttribute("aria-label", `Preview of ${characterName}: ${poseLabel}`);
+  workshopAddPosePreview.classList.remove("loading");
+}
+
+function scheduleWorkshopPosePreview(): void {
+  if (workshopPosePreviewTimer !== undefined) clearTimeout(workshopPosePreviewTimer);
+  workshopPosePreviewTimer = setTimeout(() => {
+    workshopPosePreviewTimer = undefined;
+    void updateWorkshopPosePreview().catch(showError);
+  }, 120);
 }
 
 async function createConversationLine(
@@ -2277,6 +2327,7 @@ function prepareWorkshopAddForm(resetCharacter = false): void {
   if (resetCharacter || !workshopAddName.value.trim()) workshopAddName.value = selectedWorkshopCharacterName();
   if (workshopAddPose.options.length === 0) appendStudioPoseOptions(workshopAddPose);
   updateWorkshopAddActions();
+  void updateWorkshopPosePreview().catch(showError);
 }
 
 async function addWorkshopBeat(silent: boolean): Promise<void> {
@@ -2303,6 +2354,7 @@ async function addWorkshopBeat(silent: boolean): Promise<void> {
     await renderStrip();
     workshopAddMessage.value = "";
     renderStripWorkshop();
+    scheduleWorkshopPosePreview();
     setStatus(silent
       ? `${line.characterName} was added silently. Check “What is in each panel” to see the final placement.`
       : `${line.characterName}'s line was added. Check “What is in each panel” to see the final placement.`);
@@ -3226,7 +3278,12 @@ workshopFont.addEventListener("change", () => {
 });
 workshopAddCharacter.addEventListener("change", () => {
   workshopAddName.value = selectedWorkshopCharacterName();
+  void updateWorkshopPosePreview().catch(showError);
 });
+workshopAddPose.addEventListener("change", () => {
+  void updateWorkshopPosePreview().catch(showError);
+});
+workshopAddMessage.addEventListener("input", scheduleWorkshopPosePreview);
 workshopAddPlacement.addEventListener("change", updateWorkshopAddActions);
 workshopAddSpeakingButton.addEventListener("click", () => {
   void addWorkshopBeat(false).catch(showError);

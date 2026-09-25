@@ -23,7 +23,7 @@ user chooses another one.
 character beat can start a guaranteed new panel, join the current panel when it
 fits, or use the original automatic Comic Chat placement. Speaking and silent
 characters are explicit, true backdrop-only pacing panels can be inserted,
-exact expressions can be selected, and a live panel
+exact expressions can be selected with a live pose preview before insertion, and a live panel
 map shows a thumbnail plus the cast and dialogue actually present in every
 shot. Editable `.wcc.json` project files preserve the title, scene, balloon
 font, cast, dialogue, poses and panel choices across browser sessions; the
