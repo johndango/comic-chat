@@ -103,6 +103,19 @@ describe("CamBot follows Libera.Chat's LLM policy", () => {
     expect(await brain.message("#webcomicchat", "OtherBot", "CamBot: keep talking", T0 + 1000)).toEqual([]);
   });
 
+  it("ignores the daily starter's lines that merely mention it", async () => {
+    const sent: string[] = [];
+    const brain = new CamBrain(
+      { ...config, dailyStarter: "BettyBot" },
+      async (_system, content) => (sent.push(content), { text: "hi", refused: false, costUsd: 0.001 }),
+    );
+    brain.names("#webcomicchat", ["@johndango", "BettyBot", "CamBot"]);
+    const about = 'This room is drawn live as a comic. CamBot is here too, an AI you can chat with any time: start a line with "CamBot:" or pick it in the member list.';
+    expect(await brain.message("#webcomicchat", "BettyBot", about, T0)).toEqual([]);
+    expect(await brain.message("#webcomicchat", "BettyBot", "Hi CamBot :)", T0 + 1000)).toEqual([]);
+    expect(sent).toHaveLength(0);
+  });
+
   it("does not answer a daily bot prompt without its required administrator", async () => {
     const configured = new CamBrain(
       { ...config, dailyStarter: "BettyBot" },

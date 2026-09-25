@@ -157,6 +157,15 @@ describe("BotBrain daily room spark", () => {
     expect(spark.text.length).toBeGreaterThan(20);
   });
 
+  it("waits for a lull instead of interrupting people", () => {
+    const brain = new BotBrain(dailyConfig, () => 0.9);
+    brain.handle({ type: "names", channel: "#c", nicks: ["BettyBot", "Anna", "Dan"], at: before });
+    brain.handle({ type: "message", channel: "#c", nick: "Anna", text: "so anyway", at: due - 60_000 });
+    expect(brain.handle({ type: "tick", at: due })).toEqual([]);
+    expect(brain.handle({ type: "tick", at: due + 20 * 60_000 })).toEqual([]);
+    expect(brain.handle({ type: "tick", at: due + 30 * 60_000 })).toHaveLength(1);
+  });
+
   it("restores the last daily date so a bot restart cannot post twice", () => {
     const first = new BotBrain(dailyConfig, () => 0.9);
     first.handle({ type: "names", channel: "#c", nicks: ["BettyBot"], at: due });

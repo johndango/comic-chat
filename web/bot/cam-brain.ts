@@ -212,7 +212,8 @@ export class CamBrain {
    * "Name: hi" / "@Name hi" / "Anna, Name: hi" (what the site sends when you
    * pick people in the member list), or the name anywhere in the line.
    */
-  private addressed(text: string): string | null {
+  /** `prefixOnly`: only "Name: ..." counts, not the name anywhere in the line. */
+  private addressed(text: string, prefixOnly = false): string | null {
     const names = this.aliases();
     // "Anna, Name: hi" (a list needs the colon) or "Name, hi" (one name, comma).
     const prefix = text.match(/^\s*@?([^:]{1,120}?)\s*:\s+(\S[\s\S]*)$/u) ?? text.match(/^\s*@?([^\s,:]{1,32}),\s+(\S[\s\S]*)$/u);
@@ -220,6 +221,7 @@ export class CamBrain {
       const listed = prefix[1].split(/\s*,\s*|\s+and\s+/u).map((name) => name.replace(/^@/, "").toLowerCase());
       if (listed.some((name) => names.includes(name))) return prefix[2].trim();
     }
+    if (prefixOnly) return null;
     const anywhere = new RegExp(`(^|[^a-z0-9_])@?(${names.map((n) => n.replace(/[.*+?^${}()|[\]\\-]/g, "\\$&")).join("|")})(?=$|[^a-z0-9_])`, "i");
     return anywhere.test(text) ? text.trim() : null;
   }
@@ -237,7 +239,9 @@ export class CamBrain {
     if (!dailyStarter) this.lastHumanLine.set(fold(channel), at);
 
     // Lines not addressed to CamBot are never kept or sent anywhere.
-    const request = this.addressed(text);
+    // The daily starter's other lines (BettyBot's "about" names this bot)
+    // aren't prompts; only a line that starts with this bot's name is.
+    const request = this.addressed(text, dailyStarter);
     if (request === null) return [];
 
     // Operator controls.

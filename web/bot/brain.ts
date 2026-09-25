@@ -59,6 +59,8 @@ const LONELY_AFTER = 3 * MINUTE;
 /** Answers per person per minute; enough to explore every command, too few to spam. */
 const ANSWERS_PER_MINUTE = 6;
 const DAILY_SPARK_HOUR_UTC = 18;
+/** The daily line waits for a lull, so it never cuts into a conversation. */
+const DAILY_SPARK_QUIET = 30 * MINUTE;
 
 const fold = (s: string) => s.toLowerCase();
 
@@ -398,6 +400,7 @@ export class BotBrain {
     const day = now.toISOString().slice(0, 10);
     for (const [key, state] of this.channels) {
       if (this.dailySparkDays.get(key) === day || state.members.size === 0) continue;
+      if (at - state.lastHumanLineAt < DAILY_SPARK_QUIET) continue;
       this.dailySparkDays.set(key, day);
       const allowedFriends = new Set((this.config.dailyFriends ?? []).map(fold));
       const friends = [...state.members].filter((member) => allowedFriends.has(fold(member)));
