@@ -93,14 +93,20 @@ The color files come from
 Users can import a
 custom `.avb` for their own character without uploading it; the file is fully
 validated, stays in the current browser tab, and is clearly marked as local.
+**Gallery…** opens a separately credited set of curated community avatars
+bundled from `community-avatars/catalog.json`. Gallery files are served from
+WebComicChat's own origin, fully decoded and validated before use, and can be
+announced to other WebComicChat clients with their approved hosted URL. The
+gallery includes an email contribution path, and its repository instructions
+require redistribution permission plus creator/source credit for every entry.
 The built-in **Create…** dialog can also turn up to 16 PNG, WebP or JPEG pose
 images into a classic monochrome or color version 2 `.avb`, assign an
 emotion and intensity to each pose, use the result immediately, and download it.
 When official-only mode is switched off, room announcements may load validated
 custom avatars from the same HTTPS webcomicchat.com origin. Arbitrary external
 art hosts remain blocked. The client announces official character changes using
-the original convention. Hosted uploads, moderation, gallery browsing and the
-visual builder remain separate follow-up work.
+the original convention. General public uploads and moderation remain separate
+follow-up work.
 
 Room links use the page URL to prefill a supported IRC network and channel, so a
 room can be shared without including anyone's nickname. Opening a link never
@@ -112,6 +118,11 @@ The connection bar defaults to Libera.Chat's `#webcomicchat` community room.
 channel. Visitors can also type any supported `#channel` and choose
 **Join channel** or **Switch channel**, copy a direct WebComicChat link, or open
 that channel in [Libera's web client](https://web.libera.chat/#webcomicchat).
+The **Room** menu keeps Libera.Chat `#webcomicchat` pinned as a permanent home
+room and can bookmark up to 20 additional Libera.Chat or OFTC channels. Custom
+bookmarks stay only in that browser, can be opened directly from the menu, and
+can be removed from **Manage room bookmarks…**. Opening a bookmark on another
+network disconnects cleanly before reconnecting to the saved room.
 
 The classic menu bar and title bar are functional rather than decorative.
 File, Edit, View, Format, Room, Character and Help expose the corresponding

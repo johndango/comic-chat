@@ -39,7 +39,17 @@ import {
   DEFAULT_ROOM_SELECTION,
   normalizeRoomSelection,
   roomSelectionFromUrl,
+  type RoomSelection,
 } from "./room-link";
+import {
+  addRoomBookmark,
+  isDefaultRoomBookmark,
+  parseRoomBookmarks,
+  removeRoomBookmark,
+  roomBookmarkKey,
+  ROOM_BOOKMARKS_STORAGE_KEY,
+  serializeRoomBookmarks,
+} from "./room-bookmarks";
 import { stripExportGrid } from "./strip-export";
 import {
   FILTERABLE_COMIC_BOTS,
@@ -67,8 +77,11 @@ import {
   type StudioProjectLine,
 } from "./studio-project";
 import { studioEntryNeedsDisconnect } from "./studio-entry";
+import communityAvatarCatalogSource from "../../community-avatars/catalog.json";
+import { parseCommunityAvatarCatalog, type CommunityAvatarEntry } from "./community-avatars";
 
 interface ArtChoice { file: string; label: string; announcementName?: string }
+interface HostedCommunityAvatar extends CommunityAvatarEntry { fileUrl: string }
 
 const COLOR_REPLACEMENT_CREDIT_URL = "https://www.phoenix-online-nexus.com/Nexus_21/index.htm#instructionsavb";
 const MICROSOFT_OPEN_SOURCE_URL = "https://opensource.microsoft.com/blog/2026/07/16/microsoft-comic-chat-is-now-open-source/";
@@ -99,6 +112,17 @@ const colorReplacement = (file: string): string => {
   if (!asset) throw new Error(`Missing color replacement asset: ${file}`);
   return asset;
 };
+
+const communityAvatarAssets = import.meta.glob("../../community-avatars/*.{avb,AVB}", {
+  eager: true,
+  query: "?url",
+  import: "default",
+}) as Record<string, string>;
+const communityAvatars: HostedCommunityAvatar[] = parseCommunityAvatarCatalog(communityAvatarCatalogSource).avatars
+  .flatMap((entry) => {
+    const fileUrl = communityAvatarAssets[`../../community-avatars/${entry.file}`];
+    return fileUrl ? [{ ...entry, fileUrl }] : [];
+  });
 
 const monochromeCharacters: ArtChoice[] = [
   { file: "anna.avb", label: "Anna" },
@@ -378,15 +402,21 @@ app.innerHTML = `
         <hr />
         <button type="button" data-command="choose-font">Choose balloon font…</button>
       </div></details>
-      <details><summary><u>R</u>oom</summary><div class="classic-menu-popup">
+      <details><summary><u>R</u>oom</summary><div class="classic-menu-popup room-menu-popup">
         <button type="button" data-command="join-channel">Join/Switch typed channel</button>
         <button type="button" data-command="browse-channels">Browse channels…</button>
         <button type="button" data-command="copy-channel">Copy channel link</button>
+        <hr />
+        <button type="button" data-command="bookmark-room">Bookmark typed/current room</button>
+        <button type="button" data-command="manage-room-bookmarks">Manage room bookmarks…</button>
+        <span class="classic-menu-label">Bookmarked rooms</span>
+        <div id="room-bookmark-menu-list" class="room-bookmark-menu-list"></div>
         <hr />
         <button type="button" data-command="disconnect">Disconnect</button>
       </div></details>
       <details><summary><u>C</u>haracter</summary><div class="classic-menu-popup">
         <button type="button" data-command="choose-character">Choose your character</button>
+        <button type="button" data-command="community-avatars">Browse community avatars…</button>
         <button type="button" data-command="avatar-rules">Avatar display rules…</button>
       </div></details>
       <details id="favorites-menu"><summary>F<u>a</u>vorites</summary><div class="classic-menu-popup classic-menu-popup-right">
@@ -480,11 +510,12 @@ app.innerHTML = `
               <label for="character">Character</label>
               <select id="character">${characterOptionMarkup}</select>
               <div class="character-actions">
+                <button id="community-avatars" type="button">Gallery…</button>
                 <button id="import-avatar" type="button">Import .avb…</button>
                 <button id="create-avatar" type="button">Create…</button>
                 <input id="avatar-file" class="visually-hidden" type="file" accept=".avb,application/octet-stream" />
               </div>
-              <small class="local-avatar-note">Imported characters stay in this browser tab until hosted.</small>
+              <small class="local-avatar-note">Gallery characters are hosted here; file imports stay only in this browser tab.</small>
               <label for="backdrop">Background</label>
               <select id="backdrop">${backdrops.map(({ file, label }) => `<option value="${file}">${label}</option>`).join("")}</select>
               <div id="emotion-wheel" class="emotion-wheel" aria-label="Emotion wheel"></div>
@@ -564,6 +595,27 @@ app.innerHTML = `
           <small>Only bots shown in Members are currently available. AI-generated replies are identified on IRC.</small>
         </div>
         <footer><button value="cancel">OK</button></footer>
+      </form>
+    </dialog>
+    <dialog id="room-bookmarks-dialog" class="classic-dialog room-bookmarks-dialog" aria-labelledby="room-bookmarks-title">
+      <form method="dialog">
+        <header><strong id="room-bookmarks-title">Room bookmarks</strong><button value="cancel" aria-label="Close">×</button></header>
+        <div class="dialog-body">
+          <p>Bookmarks are saved only in this browser. Libera.Chat ${DEFAULT_ROOM_SELECTION.channel} is always pinned as the WebComicChat home room.</p>
+          <div id="room-bookmark-dialog-list" class="room-bookmark-dialog-list"></div>
+        </div>
+        <footer><button value="cancel">Close</button></footer>
+      </form>
+    </dialog>
+    <dialog id="community-avatars-dialog" class="classic-dialog community-avatars-dialog" aria-labelledby="community-avatars-title">
+      <form method="dialog">
+        <header><strong id="community-avatars-title">Community Avatars</strong><button value="cancel" aria-label="Close">×</button></header>
+        <div class="dialog-body">
+          <p>These non-default characters are curated and hosted by WebComicChat. Each file is validated before it can be used. Other users can display one when their avatar rules allow community art.</p>
+          <div id="community-avatar-list" class="community-avatar-list"></div>
+          <p class="community-avatar-submit">Want to contribute a character you made or have permission to share? Email <a href="mailto:admin@webcomicchat.com?subject=Community%20avatar%20submission">admin@webcomicchat.com</a> with the .avb file, creator credit, and source or permission information.</p>
+        </div>
+        <footer><button value="cancel">Close</button></footer>
       </form>
     </dialog>
     <dialog id="close-dialog" class="classic-dialog close-dialog" aria-labelledby="close-title">
@@ -747,6 +799,11 @@ const menuCommandButtons = [...classicMenu.querySelectorAll<HTMLButtonElement>("
 const aboutDialog = element<HTMLDialogElement>("#about-dialog");
 const botTipsDialog = element<HTMLDialogElement>("#bot-tips-dialog");
 const botTipsPresence = element<HTMLElement>("#bot-tips-presence");
+const roomBookmarksDialog = element<HTMLDialogElement>("#room-bookmarks-dialog");
+const roomBookmarkMenuList = element<HTMLElement>("#room-bookmark-menu-list");
+const roomBookmarkDialogList = element<HTMLElement>("#room-bookmark-dialog-list");
+const communityAvatarsDialog = element<HTMLDialogElement>("#community-avatars-dialog");
+const communityAvatarList = element<HTMLElement>("#community-avatar-list");
 const closeDialog = element<HTMLDialogElement>("#close-dialog");
 const workshopLiveWarningDialog = element<HTMLDialogElement>("#workshop-live-warning-dialog");
 const workshopLiveWarningDetail = element<HTMLElement>("#workshop-live-warning-detail");
@@ -816,6 +873,7 @@ const characterPaneToggle = element<HTMLButtonElement>("#character-pane-toggle")
 const characterPreview = element<HTMLCanvasElement>("#character-preview");
 const characterPaneSizeButton = element<HTMLButtonElement>("#character-pane-size");
 const emotionWheelHost = element<HTMLElement>("#emotion-wheel");
+const communityAvatarsButton = element<HTMLButtonElement>("#community-avatars");
 const importAvatarButton = element<HTMLButtonElement>("#import-avatar");
 const avatarFileInput = element<HTMLInputElement>("#avatar-file");
 const createAvatarButton = element<HTMLButtonElement>("#create-avatar");
@@ -833,6 +891,12 @@ const builderClearButton = element<HTMLButtonElement>("#builder-clear");
 const builderDownloadButton = element<HTMLButtonElement>("#builder-download");
 
 const avatarCache = new Map<string, Promise<LoadedAvatar>>();
+const communityAvatarLoads = new Map<string, Promise<LoadedAvatar>>();
+const communityAvatarByFile = new Map<string, HostedCommunityAvatar>();
+for (const entry of communityAvatars) {
+  communityAvatarByFile.set(entry.fileUrl, entry);
+  communityAvatarByFile.set(new URL(entry.fileUrl, window.location.href).href, entry);
+}
 const acceptedHostedAvatars = new Set<string>();
 const sessionCustomAvatars = new Set<string>();
 const conversation: ConversationLine[] = [];
@@ -851,6 +915,7 @@ let previewGeneration = 0;
 let isAdding = false;
 let liveState: LiveState = "offline";
 let joinedChannel = "";
+let roomBookmarks: RoomSelection[] = parseRoomBookmarks(null);
 let roomDirectoryLoaded = false;
 let panelsAcross: PanelsAcross = "auto";
 let comicFontId: ComicFontId = "comic-sans-ms";
@@ -1206,6 +1271,137 @@ async function avatarIcon(avatar: LoadedAvatar): Promise<HTMLCanvasElement | und
   return avatar.icon;
 }
 
+function loadCommunityAvatar(entry: HostedCommunityAvatar): Promise<LoadedAvatar> {
+  const existing = communityAvatarLoads.get(entry.id);
+  if (existing) return existing;
+  const absoluteUrl = new URL(entry.fileUrl, window.location.href).href;
+  const pending = fetchAvatarFile(absoluteUrl)
+    .then((buffer) => validateAvatarImport(buffer, entry.file).then((imported) => loadedAvatar(buffer, imported.metadata)))
+    .then((avatar) => {
+      const resolved = Promise.resolve(avatar);
+      avatarCache.set(entry.fileUrl, resolved);
+      avatarCache.set(absoluteUrl, resolved);
+      return avatar;
+    });
+  communityAvatarLoads.set(entry.id, pending);
+  return pending;
+}
+
+async function useCommunityAvatar(entry: HostedCommunityAvatar): Promise<void> {
+  if (!sessionCustomAvatars.has(entry.fileUrl) && sessionCustomAvatars.size >= MAX_SESSION_CUSTOM_AVATARS) {
+    throw new Error("This tab already has the maximum of 24 custom avatars");
+  }
+  await loadCommunityAvatar(entry);
+  const absoluteUrl = new URL(entry.fileUrl, window.location.href).href;
+  sessionCustomAvatars.add(entry.fileUrl);
+  acceptedHostedAvatars.add(absoluteUrl);
+  if (![...characterSelect.options].some((option) => option.value === entry.fileUrl)) {
+    characterSelect.append(new Option(`${entry.name} — Community`, entry.fileUrl));
+  }
+  characterSelect.value = entry.fileUrl;
+  resetEmotionWheel();
+  frozenPoses.delete(entry.fileUrl);
+  await updateCharacterPreview();
+  updateControls();
+  const announced = announceSelectedAvatar();
+  communityAvatarsDialog.close();
+  setStatus(liveClient.joined && announced
+    ? `You are now appearing as ${entry.name}. People allowing community art can see it.`
+    : `${entry.name} is selected. It is hosted by WebComicChat and ready for live chat.`);
+}
+
+function drawCommunityAvatarIcon(canvas: HTMLCanvasElement, source?: HTMLCanvasElement): void {
+  const context = canvas.getContext("2d");
+  if (!context) return;
+  context.fillStyle = "#fff";
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  if (!source) {
+    context.fillStyle = "#000080";
+    context.font = "700 14px 'MS Sans Serif', sans-serif";
+    context.textAlign = "center";
+    context.textBaseline = "middle";
+    context.fillText("AVB", canvas.width / 2, canvas.height / 2);
+    return;
+  }
+  const scale = Math.min(canvas.width / source.width, canvas.height / source.height);
+  context.imageSmoothingEnabled = false;
+  context.drawImage(
+    source,
+    (canvas.width - source.width * scale) / 2,
+    (canvas.height - source.height * scale) / 2,
+    source.width * scale,
+    source.height * scale,
+  );
+}
+
+function renderCommunityAvatarGallery(): void {
+  communityAvatarList.replaceChildren();
+  if (communityAvatars.length === 0) {
+    const empty = document.createElement("p");
+    empty.className = "community-avatar-empty";
+    empty.textContent = "No community avatars have been published yet.";
+    communityAvatarList.append(empty);
+    return;
+  }
+
+  for (const entry of communityAvatars) {
+    const card = document.createElement("article");
+    card.className = "community-avatar-card";
+    const preview = document.createElement("canvas");
+    preview.width = 72;
+    preview.height = 72;
+    preview.setAttribute("aria-label", `${entry.name} preview`);
+    drawCommunityAvatarIcon(preview);
+    const copy = document.createElement("div");
+    const name = document.createElement("strong");
+    name.textContent = entry.name;
+    const creator = document.createElement("small");
+    creator.textContent = entry.creator ? `By ${entry.creator}` : "Community character";
+    const description = document.createElement("p");
+    description.textContent = entry.description ?? "A community-made Comic Chat character.";
+    copy.append(name, creator, description);
+    if (entry.sourceUrl) {
+      const source = document.createElement("a");
+      source.href = entry.sourceUrl;
+      source.target = "_blank";
+      source.rel = "noopener noreferrer";
+      source.textContent = "Source & credit ↗";
+      copy.append(source);
+    }
+    const use = document.createElement("button");
+    use.type = "button";
+    use.disabled = true;
+    use.textContent = "Checking…";
+    use.addEventListener("click", () => {
+      use.disabled = true;
+      use.textContent = "Loading…";
+      void useCommunityAvatar(entry).catch((error) => {
+        use.disabled = false;
+        use.textContent = "Try again";
+        showError(error);
+      });
+    });
+    card.append(preview, copy, use);
+    communityAvatarList.append(card);
+    void loadCommunityAvatar(entry).then(avatarIcon).then((icon) => {
+      if (!card.isConnected) return;
+      drawCommunityAvatarIcon(preview, icon);
+      use.disabled = false;
+      use.textContent = characterSelect.value === entry.fileUrl ? "Use again" : "Use avatar";
+    }).catch((error) => {
+      card.classList.add("invalid");
+      use.disabled = true;
+      use.textContent = "Unavailable";
+      description.textContent = error instanceof Error ? `This avatar failed validation: ${error.message}` : "This avatar failed validation.";
+    });
+  }
+}
+
+function showCommunityAvatarGallery(): void {
+  renderCommunityAvatarGallery();
+  communityAvatarsDialog.showModal();
+}
+
 function addressedPeople(message: string, speaker: string, selected: readonly string[] = []): string[] {
   const explicit = selected.filter((name) => name.toLocaleLowerCase() !== speaker.toLocaleLowerCase());
   if (explicit.length > 0) return explicit;
@@ -1216,7 +1412,10 @@ function addressedPeople(message: string, speaker: string, selected: readonly st
 }
 
 function displayCharacterName(avatar: AvatarFile, file: string): string {
-  const name = characters.find((choice) => choice.file === file)?.label.split(" —")[0] || avatar.name || "Character";
+  const name = characters.find((choice) => choice.file === file)?.label.split(" —")[0]
+    || communityAvatarByFile.get(file)?.name
+    || avatar.name
+    || "Character";
   return name.toLocaleLowerCase().replace(/(^|[\s-])\p{L}/gu, (letter) => letter.toLocaleUpperCase());
 }
 
@@ -1386,6 +1585,22 @@ function selectedOfficialAvatarName(): string | undefined {
   return choice?.announcementName ?? choice?.label.split(" —")[0];
 }
 
+function selectedAvatarAnnouncement(): { name: string; message: string } | undefined {
+  const officialName = selectedOfficialAvatarName();
+  if (officialName) return { name: officialName, message: `# Appears as ${officialName}` };
+  const community = communityAvatarByFile.get(characterSelect.value);
+  if (!community || window.location.protocol !== "https:") return undefined;
+  const url = new URL(community.fileUrl, window.location.href).href;
+  return {
+    name: community.name,
+    message: `# Appears as ${community.announcementName}.${url}`,
+  };
+}
+
+function selectedAvatarDisplayName(): string | undefined {
+  return selectedAvatarAnnouncement()?.name;
+}
+
 function preferredAvatarFile(file: string): string {
   return preferAvatarEdition(file, avatarDisplayPolicy.artPreference, avatarEditions);
 }
@@ -1399,9 +1614,9 @@ function applyPreferenceToSelectedCharacter(): boolean {
 
 function announceSelectedAvatar(): boolean {
   if (!liveClient.joined) return false;
-  const name = selectedOfficialAvatarName();
-  if (!name) return false;
-  liveClient.say(`# Appears as ${name}`);
+  const announcement = selectedAvatarAnnouncement();
+  if (!announcement) return false;
+  liveClient.say(announcement.message);
   return true;
 }
 
@@ -1598,8 +1813,8 @@ async function addRemoteMessage(event: LiveMessageEvent, generation: number): Pr
   if (announcement) {
     announcedAvatars.set(memberAvatarRuleKey(event.nickname), announcement);
     if (!event.whisper) {
-      const ownAvatar = selectedOfficialAvatarName();
-      if (ownAvatar) liveClient.whisper([event.nickname], `# Appears as ${ownAvatar}`);
+      const ownAvatar = selectedAvatarAnnouncement();
+      if (ownAvatar) liveClient.whisper([event.nickname], ownAvatar.message);
     }
     let hostedFile: string | undefined;
     let hostedError: unknown;
@@ -1839,7 +2054,7 @@ function handleLiveEvent(event: LiveEvent): void {
       if (event.nickname) knownMembers.add(event.nickname);
       renderMembers();
       const announced = announceSelectedAvatar();
-      setStatus(`${event.message}. New channel messages will become panels.${announced ? ` You are appearing as ${selectedOfficialAvatarName()}.` : " Your imported avatar remains local to this tab."}`);
+      setStatus(`${event.message}. New channel messages will become panels.${announced ? ` You are appearing as ${selectedAvatarDisplayName()}.` : " Your imported avatar remains local to this tab."}`);
     }
     return;
   }
@@ -1969,6 +2184,8 @@ function updateControls(): void {
   selectPanelsButton.disabled = !panelSelectionMode && panelCanvases.length === 0;
   const room = normalizeRoomSelection(networkSelect.value, channelInput.value);
   const busy = liveState === "connecting" || liveState === "joining";
+  const roomIsBookmarked = room !== undefined
+    && roomBookmarks.some((bookmark) => roomBookmarkKey(bookmark) === roomBookmarkKey(room));
   const alreadyJoined = liveState === "joined"
     && room !== undefined
     && room.channel.toLocaleLowerCase() === joinedChannel.toLocaleLowerCase();
@@ -2000,6 +2217,10 @@ function updateControls(): void {
     else if (command === "join-channel") button.disabled = connectButton.disabled;
     else if (command === "browse-channels") button.disabled = browseRoomsButton.disabled;
     else if (command === "copy-channel") button.disabled = shareRoomButton.disabled;
+    else if (command === "bookmark-room") {
+      button.disabled = !room || roomIsBookmarked;
+      button.textContent = roomIsBookmarked ? "Room is already bookmarked" : "Bookmark typed/current room";
+    }
     else if (command === "disconnect") button.disabled = disconnectButton.disabled;
     else if (command === "select-panels") button.disabled = !panelSelectionMode && panelCanvases.length === 0;
     if (command.startsWith("mode-")) {
@@ -2011,6 +2232,9 @@ function updateControls(): void {
     }
     if (command === "censor-content") button.setAttribute("aria-checked", String(censorContent));
     if (command === "select-panels") button.setAttribute("aria-checked", String(panelSelectionMode));
+  }
+  for (const button of document.querySelectorAll<HTMLButtonElement>("[data-room-bookmark-key]")) {
+    button.disabled = busy;
   }
   syncPanelSelectionUi();
 }
@@ -2048,6 +2272,111 @@ async function copyRoomLink(): Promise<void> {
   setStatus(copied
     ? `Channel link copied for ${room.channel}. It will not connect until opened and confirmed.`
     : `Channel link ready for ${room.channel}. Copy it from the address bar.`);
+}
+
+function roomNetworkLabel(network: RoomSelection["network"]): string {
+  return network === "libera" ? "Libera.Chat" : "OFTC";
+}
+
+function saveRoomBookmarks(): void {
+  try {
+    localStorage.setItem(ROOM_BOOKMARKS_STORAGE_KEY, serializeRoomBookmarks(roomBookmarks));
+  } catch {
+    setStatus("The bookmark list works for this visit, but this browser would not save it permanently.");
+  }
+}
+
+function openRoomBookmark(room: RoomSelection): void {
+  const busy = liveState === "connecting" || liveState === "joining";
+  if (busy) {
+    setStatus("Wait for the current IRC connection to finish before opening another bookmark.");
+    return;
+  }
+
+  const sameNetwork = networkSelect.value === room.network;
+  const sameJoinedRoom = sameNetwork
+    && liveState === "joined"
+    && joinedChannel.toLocaleLowerCase() === room.channel.toLocaleLowerCase();
+  if (sameJoinedRoom) {
+    channelInput.value = room.channel;
+    setStatus(`You are already in ${roomNetworkLabel(room.network)} ${room.channel}.`);
+    updateControls();
+    return;
+  }
+
+  if (liveClient.active && !sameNetwork) liveClient.disconnect();
+  networkSelect.value = room.network;
+  channelInput.value = room.channel;
+  setRoomBrowserVisible(false);
+  updateControls();
+  connectButton.click();
+}
+
+function renderRoomBookmarks(): void {
+  roomBookmarkMenuList.replaceChildren();
+  roomBookmarkDialogList.replaceChildren();
+
+  for (const room of roomBookmarks) {
+    const pinned = isDefaultRoomBookmark(room);
+    const label = `${roomNetworkLabel(room.network)} · ${room.channel}`;
+
+    const menuButton = document.createElement("button");
+    menuButton.type = "button";
+    menuButton.dataset.roomBookmarkKey = roomBookmarkKey(room);
+    menuButton.textContent = `${pinned ? "★" : "•"} ${label}`;
+    menuButton.title = pinned ? "Pinned WebComicChat home room" : `Open ${label}`;
+    menuButton.addEventListener("click", () => {
+      closeClassicMenus();
+      openRoomBookmark(room);
+    });
+    roomBookmarkMenuList.append(menuButton);
+
+    const row = document.createElement("div");
+    row.className = "room-bookmark-row";
+    const description = document.createElement("span");
+    const roomName = document.createElement("strong");
+    roomName.textContent = room.channel;
+    const networkName = document.createElement("small");
+    networkName.textContent = pinned ? `${roomNetworkLabel(room.network)} · pinned home room` : roomNetworkLabel(room.network);
+    description.append(roomName, networkName);
+    const join = document.createElement("button");
+    join.type = "button";
+    join.dataset.roomBookmarkKey = roomBookmarkKey(room);
+    join.textContent = "Join";
+    join.addEventListener("click", () => {
+      roomBookmarksDialog.close();
+      openRoomBookmark(room);
+    });
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.textContent = pinned ? "Pinned" : "Remove";
+    remove.disabled = pinned;
+    remove.title = pinned ? "The WebComicChat home room cannot be removed" : `Remove ${label}`;
+    remove.addEventListener("click", () => {
+      roomBookmarks = removeRoomBookmark(roomBookmarks, room);
+      saveRoomBookmarks();
+      renderRoomBookmarks();
+      updateControls();
+      setStatus(`${label} was removed from your room bookmarks.`);
+    });
+    row.append(description, join, remove);
+    roomBookmarkDialogList.append(row);
+  }
+}
+
+function bookmarkCurrentRoom(): void {
+  const room = normalizeRoomSelection(networkSelect.value, channelInput.value);
+  if (!room) throw new Error("Enter a valid #channel before bookmarking it");
+  const existing = roomBookmarks.some((bookmark) => roomBookmarkKey(bookmark) === roomBookmarkKey(room));
+  if (existing) {
+    setStatus(`${roomNetworkLabel(room.network)} ${room.channel} is already bookmarked.`);
+    return;
+  }
+  roomBookmarks = addRoomBookmark(roomBookmarks, room);
+  saveRoomBookmarks();
+  renderRoomBookmarks();
+  updateControls();
+  setStatus(`${roomNetworkLabel(room.network)} ${room.channel} was added to your Room menu.`);
 }
 
 function createPanelCanvas(label: string): { card: HTMLElement; canvas: HTMLCanvasElement; context: CanvasRenderingContext2D; ratio: number } {
@@ -3264,10 +3593,11 @@ characterSelect.addEventListener("change", () => {
     }
     const announced = announceSelectedAvatar();
     setStatus(announced
-      ? `You are now appearing as ${selectedOfficialAvatarName()}.`
+      ? `You are now appearing as ${selectedAvatarDisplayName()}.`
       : "Your imported avatar is selected locally, but it cannot be shared until it has an approved webcomicchat.com URL.");
   }).catch(showError);
 });
+communityAvatarsButton.addEventListener("click", showCommunityAvatarGallery);
 importAvatarButton.addEventListener("click", () => avatarFileInput.click());
 avatarFileInput.addEventListener("change", () => {
   const file = avatarFileInput.files?.[0];
@@ -3736,12 +4066,26 @@ function runMenuCommand(command: string): void {
     case "copy-channel":
       shareRoomButton.click();
       break;
+    case "bookmark-room":
+      try {
+        bookmarkCurrentRoom();
+      } catch (error) {
+        showError(error);
+      }
+      break;
+    case "manage-room-bookmarks":
+      renderRoomBookmarks();
+      roomBookmarksDialog.showModal();
+      break;
     case "disconnect":
       disconnectButton.click();
       break;
     case "choose-character":
       characterSelect.scrollIntoView({ block: "nearest" });
       characterSelect.focus();
+      break;
+    case "community-avatars":
+      showCommunityAvatarGallery();
       break;
     case "avatar-rules":
       avatarRulesButton.click();
@@ -3967,6 +4311,7 @@ try {
     localStorage.getItem("comic-chat-hide-bettybot") === "1",
   );
   censorContent = localStorage.getItem("comic-chat-censor-content") === "1";
+  roomBookmarks = parseRoomBookmarks(localStorage.getItem(ROOM_BOOKMARKS_STORAGE_KEY));
 } catch {}
 try {
   setCharacterPaneLarge(localStorage.getItem("comic-chat-character-pane-large") === "1", false, false);
@@ -3998,5 +4343,6 @@ if (linkedRoom) {
   channelInput.value = linkedRoom.channel;
   liveStatus.textContent = `Room ready: ${linkedRoom.channel}`;
 }
+renderRoomBookmarks();
 updateControls();
 void initialLoad();

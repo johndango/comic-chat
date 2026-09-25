@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "avatars": [
+    {
+      "id": "bikini-girl",
+      "name": "Bikini Girl",
+      "announcementName": "Bikini_girl",
+      "file": "Bikini_girl.AVB",
+      "creator": "gunma_kaorin",
+      "description": "A colorful community-made character with 16 poses.",
+      "sourceUrl": "https://comic.dedoky.com/gallery.php?id=Bikini_girl"
+    }
+  ]
+}
