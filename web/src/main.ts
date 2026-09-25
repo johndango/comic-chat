@@ -1,5 +1,4 @@
 import { addressedText, parseAddressing, withoutAiMarker } from "./addressing";
-import { parseComicChatAnnotation, poseForAnnotation, type ComicChatAnnotation } from "./cc-annotation";
 import "@fontsource/comic-neue/400.css";
 import "@fontsource/comic-neue/400-italic.css";
 import comicNeueLicenseUrl from "@fontsource/comic-neue/LICENSE?url";
@@ -65,6 +64,7 @@ import { blockedLinkMessage, blockedMessageLink, displayMessageLinks } from "./m
 import { censorComicText } from "./content-censor";
 import { parseSlashCommand, SLASH_HELP } from "./slash-commands";
 import { describePanel, transcriptLine } from "./panel-text";
+import { parseComicChatAnnotation, poseForAnnotation, type ComicChatAnnotation } from "./cc-annotation";
 import {
   COMIC_FONT_OPTIONS,
   comicFontOption,
