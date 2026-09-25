@@ -27,7 +27,9 @@ map shows a thumbnail plus the cast and dialogue actually present in every
 shot. Editable `.wcc.json` project files preserve the title, scene, balloon
 font, cast, dialogue, poses and panel choices across browser sessions; the
 Studio validates project files before replacing the current comic. Ctrl/⌘+S
-saves the editable project.
+saves the editable project. A bounded Undo/Redo history covers additions,
+rewrites, reordering, duplication, removal, title changes, scenes and fonts
+during the current Studio session.
 
 The member list and character controls have independent, clipped scroll areas,
 so a long room roster cannot overlap the character preview. **Enlarge** widens

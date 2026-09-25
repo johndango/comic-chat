@@ -260,6 +260,13 @@ interface WorkshopPanelSummary {
   balloons: Array<{ speaker: string; text: string }>;
 }
 
+interface StudioSnapshot {
+  title: string;
+  backgroundFile: string;
+  fontId: ComicFontId;
+  lines: ConversationLine[];
+}
+
 const STUDIO_POSES: ReadonlyArray<{ id: StudioPoseId; label: string }> = [
   { id: "auto", label: "Automatic (from words)" },
   { id: "neutral", label: "Neutral" },
@@ -609,7 +616,8 @@ app.innerHTML = `
               <li>Choose <strong>Automatic</strong> to let words and emoticons choose the pose, or select an exact expression or gesture.</li>
               <li>Choose exactly where the new beat belongs: <strong>new panel</strong>, <strong>current panel</strong>, or <strong>automatic</strong> original Comic Chat placement.</li>
               <li>Use <strong>Add speaking character</strong> for dialogue or <strong>Add silent character</strong> to place a posed character without a balloon.</li>
-              <li>Edit, recast, pose, reorder, or remove existing beats below. Use <strong>Save project</strong> to keep an editable copy, then <strong>Save Comic</strong> in the main window to export the PNG.</li>
+              <li>Edit, recast, pose, reorder, duplicate, or remove existing beats below. <strong>Undo edit</strong> and <strong>Redo</strong> cover the current Studio session.</li>
+              <li>Use <strong>Save project</strong> to keep an editable copy, then <strong>Save Comic</strong> in the main window to export the PNG.</li>
             </ol>
             <p>Studio changes stay in this browser and are never sent to IRC. Comic Chat may start a new panel automatically when a character speaks twice or a shot becomes full. Press Ctrl/⌘+S to save the editable project.</p>
           </details>
@@ -633,7 +641,7 @@ app.innerHTML = `
           <div id="workshop-lines" class="workshop-lines"></div>
           <p class="workshop-local-note">Workshop edits change only this local comic. They are never sent back to IRC.</p>
         </div>
-        <footer><span>Tip: every beat can use a different character and pose.</span><button value="cancel">Close</button></footer>
+        <footer><span>Tip: every beat can use a different character and pose.</span><button id="workshop-undo" type="button" disabled>Undo edit</button><button id="workshop-redo" type="button" disabled>Redo</button><button value="cancel">Close</button></footer>
       </form>
     </dialog>
     <dialog id="avatar-builder-dialog" class="classic-dialog avatar-builder-dialog" aria-labelledby="avatar-builder-title">
@@ -765,6 +773,8 @@ const workshopAddSpeakingButton = element<HTMLButtonElement>("#workshop-add-spea
 const workshopAddSilentButton = element<HTMLButtonElement>("#workshop-add-silent");
 const workshopPanelMap = element<HTMLElement>("#workshop-panel-map");
 const workshopLines = element<HTMLElement>("#workshop-lines");
+const workshopUndoButton = element<HTMLButtonElement>("#workshop-undo");
+const workshopRedoButton = element<HTMLButtonElement>("#workshop-redo");
 const roomTabLabel = element<HTMLElement>("#room-tab-label");
 const windowRoom = element<HTMLElement>("#window-room");
 const characterPane = element<HTMLElement>("#character-pane");
@@ -815,6 +825,8 @@ let hiddenComicBots = new Set<string>();
 let censorContent = false;
 let comicTitleOverride = "";
 let workshopPanelSummaries: WorkshopPanelSummary[] = [];
+const studioUndoHistory: StudioSnapshot[] = [];
+const studioRedoHistory: StudioSnapshot[] = [];
 let remoteQueue = Promise.resolve();
 const pendingLiveLines: PendingLiveLine[] = [];
 const publicRooms = new Map<string, LiveRoomEvent>();
@@ -2049,6 +2061,85 @@ function updateWorkshopAddActions(): void {
   workshopAddSilentButton.textContent = `Add silent character → ${destination}`;
 }
 
+function cloneStudioLine(line: ConversationLine): ConversationLine {
+  return {
+    ...line,
+    links: line.links.map((link) => ({ ...link })),
+    talkTo: [...line.talkTo],
+  };
+}
+
+function captureStudioSnapshot(): StudioSnapshot {
+  return {
+    title: comicTitleOverride,
+    backgroundFile: backdropSelect.value,
+    fontId: comicFontId,
+    lines: conversation.map(cloneStudioLine),
+  };
+}
+
+function updateStudioHistoryControls(): void {
+  workshopUndoButton.disabled = studioUndoHistory.length === 0;
+  workshopRedoButton.disabled = studioRedoHistory.length === 0;
+  workshopUndoButton.title = studioUndoHistory.length ? `Undo (${studioUndoHistory.length} available)` : "Nothing to undo";
+  workshopRedoButton.title = studioRedoHistory.length ? `Redo (${studioRedoHistory.length} available)` : "Nothing to redo";
+}
+
+function recordStudioEdit(): void {
+  studioUndoHistory.push(captureStudioSnapshot());
+  if (studioUndoHistory.length > 50) studioUndoHistory.shift();
+  studioRedoHistory.length = 0;
+  updateStudioHistoryControls();
+}
+
+function resetStudioHistory(): void {
+  studioUndoHistory.length = 0;
+  studioRedoHistory.length = 0;
+  updateStudioHistoryControls();
+}
+
+async function restoreStudioSnapshot(snapshot: StudioSnapshot, message: string): Promise<void> {
+  setWorkshopBusy(true);
+  try {
+    conversation.splice(0, conversation.length, ...snapshot.lines.map(cloneStudioLine));
+    comicTitleOverride = snapshot.title;
+    comicFontId = snapshot.fontId;
+    balloonFontSelect.value = comicFontId;
+    workshopFont.value = comicFontId;
+    const font = comicFontOption(comicFontId);
+    balloonFontSelect.style.fontFamily = font.family;
+    workshopFont.style.fontFamily = font.family;
+    try {
+      localStorage.setItem("comic-chat-balloon-font", comicFontId);
+    } catch {}
+    const backgroundChanged = backdropSelect.value !== snapshot.backgroundFile;
+    backdropSelect.value = snapshot.backgroundFile;
+    workshopBackground.value = snapshot.backgroundFile;
+    if (backgroundChanged) await loadBackdrop();
+    else await renderStrip();
+    prepareWorkshopAddForm(true);
+    renderStripWorkshop();
+    setStatus(message);
+  } finally {
+    setWorkshopBusy(false);
+    updateStudioHistoryControls();
+  }
+}
+
+async function undoStudioEdit(): Promise<void> {
+  const snapshot = studioUndoHistory.pop();
+  if (!snapshot) return;
+  studioRedoHistory.push(captureStudioSnapshot());
+  await restoreStudioSnapshot(snapshot, "Undid the last Studio edit.");
+}
+
+async function redoStudioEdit(): Promise<void> {
+  const snapshot = studioRedoHistory.pop();
+  if (!snapshot) return;
+  studioUndoHistory.push(captureStudioSnapshot());
+  await restoreStudioSnapshot(snapshot, "Redid the Studio edit.");
+}
+
 function downloadableStudioLine(line: ConversationLine): StudioProjectLine {
   const characterId = studioCharacterIdByFile.get(line.characterFile);
   if (!characterId) {
@@ -2084,6 +2175,7 @@ async function newStudioProject(): Promise<void> {
   await renderStrip();
   prepareWorkshopAddForm(true);
   renderStripWorkshop();
+  resetStudioHistory();
   setStatus("New blank Studio project ready. Scene and font choices were kept.");
 }
 
@@ -2147,6 +2239,7 @@ async function openStudioProject(file: File): Promise<void> {
     await loadBackdrop();
     prepareWorkshopAddForm(true);
     renderStripWorkshop();
+    resetStudioHistory();
     setStatus(`Opened ${file.name}: ${project.lines.length} editable character ${project.lines.length === 1 ? "beat" : "beats"}.`);
   } finally {
     setWorkshopBusy(false);
@@ -2182,6 +2275,7 @@ async function addWorkshopBeat(silent: boolean): Promise<void> {
     );
     applyLinePlacement(line, workshopAddPlacement.value as StudioPlacement);
     line.reaction = silent;
+    recordStudioEdit();
     conversation.push(line);
     await renderStrip();
     workshopAddMessage.value = "";
@@ -2197,7 +2291,15 @@ async function addWorkshopBeat(silent: boolean): Promise<void> {
 function setWorkshopBusy(busy: boolean): void {
   for (const control of stripWorkshopDialog.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement | HTMLButtonElement>("input, select, textarea, button")) {
     if (control.closest("header") || control.value === "cancel") continue;
-    control.disabled = busy;
+    if (busy) {
+      if (!control.disabled) {
+        control.disabled = true;
+        control.dataset.workshopBusyDisabled = "1";
+      }
+    } else if (control.dataset.workshopBusyDisabled === "1") {
+      control.disabled = false;
+      delete control.dataset.workshopBusyDisabled;
+    }
   }
 }
 
@@ -2232,6 +2334,7 @@ async function applyWorkshopLine(
     );
     applyLinePlacement(next, placement.value as StudioPlacement);
     next.reaction = reaction.checked;
+    recordStudioEdit();
     conversation[index] = next;
     await renderStrip();
     renderStripWorkshop();
@@ -2244,6 +2347,7 @@ async function applyWorkshopLine(
 function renderStripWorkshop(): void {
   workshopComicTitle.value = comicTitleOverride;
   updateWorkshopAddActions();
+  updateStudioHistoryControls();
   const comicPanels = Math.max(0, panelCanvases.length - 1);
   workshopSummary.value = `${conversation.length} ${conversation.length === 1 ? "line" : "lines"} · ${comicPanels} ${comicPanels === 1 ? "comic panel" : "comic panels"}`;
   workshopPanelMap.replaceChildren();
@@ -2377,6 +2481,7 @@ function renderStripWorkshop(): void {
     earlier.textContent = "↑ Earlier";
     earlier.disabled = index === 0;
     earlier.addEventListener("click", () => {
+      recordStudioEdit();
       const [moved] = conversation.splice(index, 1);
       conversation.splice(index - 1, 0, moved);
       void renderStrip().then(renderStripWorkshop).catch(showError);
@@ -2386,6 +2491,7 @@ function renderStripWorkshop(): void {
     later.textContent = "↓ Later";
     later.disabled = index === conversation.length - 1;
     later.addEventListener("click", () => {
+      recordStudioEdit();
       const [moved] = conversation.splice(index, 1);
       conversation.splice(index + 1, 0, moved);
       void renderStrip().then(renderStripWorkshop).catch(showError);
@@ -2394,6 +2500,7 @@ function renderStripWorkshop(): void {
     duplicate.type = "button";
     duplicate.textContent = "Duplicate";
     duplicate.addEventListener("click", () => {
+      recordStudioEdit();
       conversation.splice(index + 1, 0, { ...line, talkTo: [...line.talkTo], links: [...line.links] });
       void renderStrip().then(renderStripWorkshop).catch(showError);
     });
@@ -2401,6 +2508,7 @@ function renderStripWorkshop(): void {
     remove.type = "button";
     remove.textContent = "Remove";
     remove.addEventListener("click", () => {
+      recordStudioEdit();
       conversation.splice(index, 1);
       void renderStrip().then(renderStripWorkshop).catch(showError);
     });
@@ -2415,6 +2523,7 @@ function openStripWorkshop(): void {
   workshopBackground.value = backdropSelect.value;
   workshopFont.value = comicFontId;
   workshopFont.style.fontFamily = comicFontOption(comicFontId).family;
+  resetStudioHistory();
   renderStripWorkshop();
   stripWorkshopDialog.showModal();
 }
@@ -2917,7 +3026,9 @@ clearButton.addEventListener("click", () => {
 });
 openStripWorkshopButton.addEventListener("click", openStripWorkshop);
 workshopApplyTitleButton.addEventListener("click", () => {
-  comicTitleOverride = workshopComicTitle.value.trim();
+  const nextTitle = workshopComicTitle.value.trim();
+  if (nextTitle !== comicTitleOverride) recordStudioEdit();
+  comicTitleOverride = nextTitle;
   void renderStrip().then(() => {
     renderStripWorkshop();
     setStatus(comicTitleOverride ? `Opening title changed to “${comicTitleOverride}”.` : "The opening title is automatic again.");
@@ -2933,17 +3044,26 @@ workshopSaveProjectButton.addEventListener("click", () => {
 workshopNewProjectButton.addEventListener("click", () => {
   void newStudioProject().catch(showError);
 });
+workshopUndoButton.addEventListener("click", () => {
+  void undoStudioEdit().catch(showError);
+});
+workshopRedoButton.addEventListener("click", () => {
+  void redoStudioEdit().catch(showError);
+});
 workshopOpenProjectButton.addEventListener("click", () => workshopProjectFile.click());
 workshopProjectFile.addEventListener("change", () => {
   const file = workshopProjectFile.files?.[0];
   if (file) void openStudioProject(file).catch(showError).finally(() => { workshopProjectFile.value = ""; });
 });
 workshopBackground.addEventListener("change", () => {
+  if (workshopBackground.value !== backdropSelect.value) recordStudioEdit();
   backdropSelect.value = workshopBackground.value;
   void loadBackdrop().then(renderStripWorkshop).catch(showError);
 });
 workshopFont.addEventListener("change", () => {
-  comicFontId = parseComicFontId(workshopFont.value);
+  const nextFont = parseComicFontId(workshopFont.value);
+  if (nextFont !== comicFontId) recordStudioEdit();
+  comicFontId = nextFont;
   workshopFont.value = comicFontId;
   balloonFontSelect.value = comicFontId;
   const choice = comicFontOption(comicFontId);
