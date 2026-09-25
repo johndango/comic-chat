@@ -1,7 +1,7 @@
 {
   "name": "comic-chat-web-prototype",
   "private": true,
-  "version": "0.27.0",
+  "version": "0.27.1",
   "type": "module",
   "scripts": {
     "dev": "concurrently --kill-others --names web,gateway --prefix-colors blue,magenta \"vite\" \"tsx watch server/index.ts\"",

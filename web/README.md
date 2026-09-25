@@ -102,6 +102,12 @@ require redistribution permission plus creator/source credit for every entry.
 The built-in **Create…** dialog can also turn up to 16 PNG, WebP or JPEG pose
 images into a classic monochrome or color version 2 `.avb`, assign an
 emotion and intensity to each pose, use the result immediately, and download it.
+The background controls accept local version 2 `.bgb` backdrops as well as PNG,
+JPEG and WebP images. Imported backgrounds are decoded and size-checked before
+use, remain only in the current browser tab, work in the offline Studio, and
+are included in saved comic PNGs. Because editable Studio project files do not
+embed art, a project using temporary background art must switch to a built-in
+scene before its portable `.wcc.json` can be saved.
 When official-only mode is switched off, room announcements may load validated
 custom avatars from the same HTTPS webcomicchat.com origin. Arbitrary external
 art hosts remain blocked. The client announces official character changes using

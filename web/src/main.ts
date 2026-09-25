@@ -79,6 +79,7 @@ import {
 import { studioEntryNeedsDisconnect } from "./studio-entry";
 import communityAvatarCatalogSource from "../../community-avatars/catalog.json";
 import { parseCommunityAvatarCatalog, type CommunityAvatarEntry } from "./community-avatars";
+import { validateBackdropImport } from "./backdrop-import";
 
 interface ArtChoice { file: string; label: string; announcementName?: string }
 interface HostedCommunityAvatar extends CommunityAvatarEntry { fileUrl: string }
@@ -251,6 +252,7 @@ const PANEL_SCALE = 1 / 15;
 const PANEL_PIXELS = PANEL_TWIPS * PANEL_SCALE;
 const MAX_LIVE_LINES = 48;
 const MAX_SESSION_CUSTOM_AVATARS = 24;
+const MAX_SESSION_CUSTOM_BACKDROPS = 12;
 const STUDIO_AUTOSAVE_KEY = "webcomicchat-studio-autosave-v1";
 const STUDIO_AUTOSAVE_TIME_KEY = "webcomicchat-studio-autosave-time-v1";
 
@@ -371,6 +373,7 @@ app.innerHTML = `
         <button type="button" data-command="new-comic">New comic</button>
         <button type="button" data-command="strip-workshop">Open Offline Comic Studio…</button>
         <button type="button" data-command="import-avatar">Import character…</button>
+        <button type="button" data-command="import-background">Import background…</button>
         <button type="button" data-command="create-avatar">Create character…</button>
         <hr />
         <button type="button" role="menuitemcheckbox" data-command="select-panels">Select panels to save…</button>
@@ -518,6 +521,11 @@ app.innerHTML = `
               <small class="local-avatar-note">Gallery characters are hosted here; file imports stay only in this browser tab.</small>
               <label for="backdrop">Background</label>
               <select id="backdrop">${backdrops.map(({ file, label }) => `<option value="${file}">${label}</option>`).join("")}</select>
+              <div class="backdrop-actions">
+                <button id="import-backdrop" type="button">Import .bgb or image…</button>
+                <input id="backdrop-file" class="visually-hidden" type="file" accept=".bgb,application/octet-stream,image/png,image/jpeg,image/webp" />
+              </div>
+              <small class="local-backdrop-note">Custom backgrounds stay in this browser tab and are included in saved comic PNGs.</small>
               <div id="emotion-wheel" class="emotion-wheel" aria-label="Emotion wheel"></div>
               <strong id="tone-value" class="tone-value">Neutral</strong>
               <small id="tone-reason">No expression cues</small>
@@ -675,10 +683,11 @@ app.innerHTML = `
           </div>
           <div class="workshop-project-tools">
             <div class="workshop-project-description"><strong>Editable project</strong><span>Download a project, or recover the latest compatible Studio edit kept in this browser.</span></div>
-            <label>Scene<select id="workshop-background">${backdrops.map(({ file, label }) => `<option value="${file}">${label}</option>`).join("")}</select></label>
+            <div class="workshop-scene-tools"><label>Scene<select id="workshop-background">${backdrops.map(({ file, label }) => `<option value="${file}">${label}</option>`).join("")}</select></label><button id="workshop-import-backdrop" type="button">Import scene…</button></div>
             <label>Font<select id="workshop-font">${comicFontOptionsMarkup}</select></label>
             <div class="workshop-project-actions"><button id="workshop-new-project" type="button">New blank</button><button id="workshop-recover-project" type="button" disabled>Recover draft</button><button id="workshop-open-project" type="button">Open project…</button><button id="workshop-save-project" type="button">Save project</button></div>
             <input id="workshop-project-file" class="visually-hidden" type="file" accept=".json,.wcc.json,application/json" />
+            <input id="workshop-backdrop-file" class="visually-hidden" type="file" accept=".bgb,application/octet-stream,image/png,image/jpeg,image/webp" />
           </div>
           <details class="workshop-help">
             <summary>How to build an offline comic</summary>
@@ -689,6 +698,7 @@ app.innerHTML = `
               <li>Use <strong>Add speaking character</strong> for dialogue, <strong>Add silent character</strong> for a posed character without a balloon, or <strong>Add empty panel</strong> for a backdrop-only pacing shot.</li>
               <li>Edit, recast, or pose an existing beat below, then choose its highlighted <strong>Apply changes</strong> button. Reorder, duplicate, and remove are immediate.</li>
               <li><strong>Undo edit</strong> and <strong>Redo</strong> cover the current Studio session.</li>
+              <li>Use <strong>Import scene…</strong> for a local .bgb, PNG, JPEG, or WebP background. It appears in PNG exports; switch to a built-in scene before saving an editable project.</li>
               <li>Use <strong>Save project</strong> to download an editable copy. <strong>Recover draft</strong> restores the latest compatible edit saved only in this browser.</li>
               <li>Use <strong>Export PNG</strong> to save the finished comic without leaving Studio.</li>
             </ol>
@@ -758,6 +768,8 @@ function element<T extends HTMLElement>(selector: string): T {
 
 const characterSelect = element<HTMLSelectElement>("#character");
 const backdropSelect = element<HTMLSelectElement>("#backdrop");
+const importBackdropButton = element<HTMLButtonElement>("#import-backdrop");
+const backdropFileInput = element<HTMLInputElement>("#backdrop-file");
 const messageInput = element<HTMLTextAreaElement>("#message");
 const messageMode = element<HTMLSelectElement>("#message-mode");
 const modeButtons = [...document.querySelectorAll<HTMLButtonElement>(".mode-button")];
@@ -847,6 +859,8 @@ const workshopOpenProjectButton = element<HTMLButtonElement>("#workshop-open-pro
 const workshopSaveProjectButton = element<HTMLButtonElement>("#workshop-save-project");
 const workshopProjectFile = element<HTMLInputElement>("#workshop-project-file");
 const workshopBackground = element<HTMLSelectElement>("#workshop-background");
+const workshopImportBackdropButton = element<HTMLButtonElement>("#workshop-import-backdrop");
+const workshopBackdropFileInput = element<HTMLInputElement>("#workshop-backdrop-file");
 const workshopFont = element<HTMLSelectElement>("#workshop-font");
 const workshopAddCharacter = element<HTMLSelectElement>("#workshop-add-character");
 const workshopAddName = element<HTMLInputElement>("#workshop-add-name");
@@ -897,6 +911,7 @@ for (const entry of communityAvatars) {
   communityAvatarByFile.set(entry.fileUrl, entry);
   communityAvatarByFile.set(new URL(entry.fileUrl, window.location.href).href, entry);
 }
+const sessionCustomBackdrops = new Map<string, { name: string; bitmap: DecodedBitmap }>();
 const acceptedHostedAvatars = new Set<string>();
 const sessionCustomAvatars = new Set<string>();
 const conversation: ConversationLine[] = [];
@@ -941,6 +956,7 @@ let totalPublicRooms = 0;
 let currentWheelEmotion: WheelEmotion = { emotion: 0, intensity: 0 };
 let suppressWheelChange = false;
 let importedAvatarSequence = 0;
+let importedBackdropSequence = 0;
 const builderPoses: Array<CreatorPose & { filename: string }> = [];
 let builderBusy = false;
 let forceNextPanel = false;
@@ -1091,6 +1107,58 @@ async function importLocalAvatar(file: File): Promise<void> {
   await updateCharacterPreview();
   updateControls();
   setStatus(`${imported.name} is now appearing locally. It stays in this tab and is not uploaded or shared.`);
+}
+
+function importedBackgroundName(filename: string): string {
+  const stem = filename.replace(/\.(?:bgb|png|jpe?g|webp)$/iu, "").replace(/[\u0000-\u001f\u007f]/gu, "").trim();
+  return stem.slice(0, 60) || "Imported background";
+}
+
+async function decodeBackgroundImage(file: File): Promise<DecodedBitmap> {
+  if (file.size > 4 * 1024 * 1024) throw new Error("Background images must be 4 MB or smaller");
+  const bitmap = await createImageBitmap(file);
+  try {
+    if (bitmap.width < 1 || bitmap.height < 1 || bitmap.width > 2048 || bitmap.height > 2048
+      || bitmap.width * bitmap.height > 4 * 1024 * 1024) {
+      throw new Error("Background images must be 2048×2048 pixels or smaller");
+    }
+    const canvas = document.createElement("canvas");
+    canvas.width = bitmap.width;
+    canvas.height = bitmap.height;
+    const context = canvas.getContext("2d", { willReadFrequently: true });
+    if (!context) throw new Error("Canvas image decoding is unavailable");
+    context.drawImage(bitmap, 0, 0);
+    const pixels = context.getImageData(0, 0, bitmap.width, bitmap.height).data;
+    return { width: bitmap.width, height: bitmap.height, pixels: new Uint8ClampedArray(pixels) };
+  } finally {
+    bitmap.close();
+  }
+}
+
+async function importLocalBackdrop(file: File): Promise<void> {
+  if (sessionCustomBackdrops.size >= MAX_SESSION_CUSTOM_BACKDROPS) {
+    throw new Error(`This tab already has the maximum of ${MAX_SESSION_CUSTOM_BACKDROPS} custom backgrounds`);
+  }
+  const lowerName = file.name.toLocaleLowerCase();
+  const isBgb = lowerName.endsWith(".bgb");
+  const isImage = /\.(?:png|jpe?g|webp)$/iu.test(lowerName)
+    || ["image/png", "image/jpeg", "image/webp"].includes(file.type);
+  if (!isBgb && !isImage) throw new Error("Choose a .bgb, PNG, JPEG, or WebP background");
+  setStatus(`Checking ${file.name}…`);
+  const imported = isBgb
+    ? await validateBackdropImport(await file.arrayBuffer(), file.name)
+    : { name: importedBackgroundName(file.name), bitmap: await decodeBackgroundImage(file) };
+  const key = `local-backdrop:${++importedBackdropSequence}`;
+  sessionCustomBackdrops.set(key, imported);
+  const label = `${imported.name} — imported`;
+  backdropSelect.append(new Option(label, key));
+  workshopBackground.append(new Option(label, key));
+  if (stripWorkshopDialog.open) recordStudioEdit();
+  backdropSelect.value = key;
+  workshopBackground.value = key;
+  await loadBackdrop();
+  if (stripWorkshopDialog.open) renderStripWorkshop();
+  setStatus(`${imported.name} is now the background. It stays in this tab and will appear in saved comic PNGs.`);
 }
 
 function setBuilderStatus(message: string, error = false): void {
@@ -3406,17 +3474,23 @@ function addPanelLinkOverlays(card: HTMLElement, layout: import("./layout/page")
 async function loadBackdrop(): Promise<void> {
   const currentGeneration = ++backdropGeneration;
   setStatus("Decoding backdrop…");
-  const buffer = await fetchAsset(backdropSelect.value);
-  const parsed = parseAvatar(buffer);
-  if (parsed.type !== AvatarType.Backdrop || !parsed.backdrop) {
-    throw new Error("This is not a Comic Chat backdrop");
+  const custom = sessionCustomBackdrops.get(backdropSelect.value);
+  let bitmap: DecodedBitmap;
+  if (custom) {
+    bitmap = custom.bitmap;
+  } else {
+    const buffer = await fetchAsset(backdropSelect.value);
+    const parsed = parseAvatar(buffer);
+    if (parsed.type !== AvatarType.Backdrop || !parsed.backdrop) {
+      throw new Error("This is not a Comic Chat backdrop");
+    }
+    bitmap = await decodeImage(buffer, parsed.backdrop, parsed.palette);
   }
-  const bitmap = await decodeImage(buffer, parsed.backdrop, parsed.palette);
   if (currentGeneration !== backdropGeneration) return;
   backdropBitmap = bitmap;
   backdropCanvas = bitmapCanvas(bitmap);
   await renderStrip();
-  setStatus(`Scene changed · ${bitmap.width}×${bitmap.height}px original art`);
+  setStatus(`Scene changed · ${bitmap.width}×${bitmap.height}px ${custom ? "local background" : "original art"}`);
 }
 
 async function updateCharacterPreview(): Promise<void> {
@@ -3581,6 +3655,15 @@ messageInput.addEventListener("keydown", (event) => {
   if ((event.metaKey || event.ctrlKey) && event.key === "Enter") void addPanel().catch(showError);
 });
 backdropSelect.addEventListener("change", () => loadBackdrop().catch(showError));
+importBackdropButton.addEventListener("click", () => backdropFileInput.click());
+workshopImportBackdropButton.addEventListener("click", () => workshopBackdropFileInput.click());
+function handleBackdropFileInput(input: HTMLInputElement): void {
+  const file = input.files?.[0];
+  input.value = "";
+  if (file) void importLocalBackdrop(file).catch(showError);
+}
+backdropFileInput.addEventListener("change", () => handleBackdropFileInput(backdropFileInput));
+workshopBackdropFileInput.addEventListener("change", () => handleBackdropFileInput(workshopBackdropFileInput));
 characterSelect.addEventListener("change", () => {
   const swapped = applyPreferenceToSelectedCharacter();
   resetEmotionWheel();
@@ -4013,6 +4096,9 @@ function runMenuCommand(command: string): void {
       break;
     case "import-avatar":
       importAvatarButton.click();
+      break;
+    case "import-background":
+      importBackdropButton.click();
       break;
     case "create-avatar":
       createAvatarButton.click();

@@ -225,6 +225,9 @@ button:disabled { color: #808080; text-shadow: 1px 1px #fff; cursor: not-allowed
 .character-actions { margin-top: 5px; display: flex; gap: 5px; }
 .character-actions button { flex: 1; }
 .character-pane .local-avatar-note { margin: 4px 0 7px; text-align: left; }
+.backdrop-actions { margin-top: 5px; }
+.backdrop-actions button { width: 100%; }
+.character-pane .local-backdrop-note { margin: 4px 0 7px; text-align: left; }
 .emotion-wheel { width: 132px; height: 132px; margin: 10px auto 2px; }
 .character-pane-large .emotion-wheel { width: 180px; height: 180px; }
 .emotion-wheel canvas { display: block; image-rendering: pixelated; }
@@ -319,6 +322,10 @@ button:disabled { color: #808080; text-shadow: 1px 1px #fff; cursor: not-allowed
 .workshop-project-description span { color: #444; font-size: 10px; }
 .workshop-project-tools > label { display: grid; gap: 2px; font-size: 10px; font-weight: 700; }
 .workshop-project-tools > label select { max-width: 155px; font-size: 11px; }
+.workshop-scene-tools { width: 155px; display: grid; gap: 3px; }
+.workshop-scene-tools label { display: grid; gap: 2px; font-size: 10px; font-weight: 700; }
+.workshop-scene-tools select { width: 100%; font-size: 11px; }
+.workshop-scene-tools button { min-height: 21px; padding: 1px 5px; font-size: 10px; }
 .workshop-project-tools button { white-space: nowrap; }
 .workshop-project-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 5px; }
 .workshop-help { margin-top: 7px; padding: 5px 8px; background: #ffffdf; border: 1px solid #9a9a70; }
@@ -526,6 +533,7 @@ button:disabled { color: #808080; text-shadow: 1px 1px #fff; cursor: not-allowed
   .workshop-project-description { width: 100%; }
   .workshop-project-tools > label { flex: 1 1 130px; }
   .workshop-project-tools > label select { width: 100%; max-width: none; }
+  .workshop-scene-tools { width: auto; flex: 1 1 150px; }
   .workshop-project-actions { width: 100%; }
   .workshop-project-actions button { flex: 1; }
   .workshop-add > header { align-items: flex-start; flex-direction: column; gap: 2px; }
