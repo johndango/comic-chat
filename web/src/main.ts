@@ -1,4 +1,5 @@
 import { addressedText, parseAddressing, withoutAiMarker } from "./addressing";
+import { parseComicChatAnnotation, poseForAnnotation, type ComicChatAnnotation } from "./cc-annotation";
 import "@fontsource/comic-neue/400.css";
 import "@fontsource/comic-neue/400-italic.css";
 import comicNeueLicenseUrl from "@fontsource/comic-neue/LICENSE?url";
@@ -1560,12 +1561,15 @@ async function createConversationLine(
   selected: readonly string[] = [],
   linkable = mode !== "whisper",
   studioPose: StudioPoseId = "auto",
+  annotation?: ComicChatAnnotation,
 ): Promise<ConversationLine> {
   const avatar = await loadAvatar(characterFile);
   const explicitStudioPose = studioPoseChoice(avatar.metadata, studioPose);
-  const frozen = studioPose === "auto" ? frozenPoses.get(characterFile) : undefined;
+  // A line from the original Comic Chat client carries the pose its sender chose.
+  const annotatedPose = annotation ? poseForAnnotation(avatar.metadata, annotation) ?? undefined : undefined;
+  const frozen = studioPose === "auto" && !annotation ? frozenPoses.get(characterFile) : undefined;
   if (frozen) frozenPoses.delete(characterFile);
-  const chosenPose = explicitStudioPose ?? frozen;
+  const chosenPose = explicitStudioPose ?? annotatedPose ?? frozen;
   const body = chosenPose
     ? await composeChoice(avatar.buffer, avatar.metadata, chosenPose)
     : await bodyForText(avatar.buffer, avatar.metadata, message, avatar.memory);
@@ -1586,7 +1590,7 @@ async function createConversationLine(
     poseRef: `${characterFile}|${body.key}`,
     expression: explicitStudioPose
       ? STUDIO_POSES.find((candidate) => candidate.id === studioPose)?.label ?? "studio pose"
-      : frozen ? "wheel selection" : describeOptions(options),
+      : annotatedPose ? "Comic Chat pose" : frozen ? "wheel selection" : describeOptions(options),
     talkTo: addressedPeople(message, characterName, selected),
     linkable,
     studioPose,
@@ -1922,18 +1926,23 @@ async function addRemoteMessage(event: LiveMessageEvent, generation: number): Pr
   }
   renderMembers();
   const normalized = normalizeIrcText(event.message);
+  // The original Comic Chat client prefixes its lines with "(#G…E…M…T…) ":
+  // the pose, balloon and addressees. Draw those instead of the prefix.
+  const annotation = normalized.mode === "say" ? parseComicChatAnnotation(normalized.text, event.whisper) ?? undefined : undefined;
   // Draw bots' AI-marked lines without the marker; take a "Name:" prefix off
   // the balloon and turn the speaker toward those people instead.
-  const addressed = parseAddressing(withoutAiMarker(event.nickname, normalized.text), knownMembers);
+  const addressed = parseAddressing(withoutAiMarker(event.nickname, annotation?.text ?? normalized.text), knownMembers);
   const { text } = addressed;
   if (!text) return;
   // A whisper shows in this room's comic only for the person it was sent to,
   // with the sender facing them, as Comic Chat drew it.
-  const mode: BalloonMode = event.whisper && normalized.mode !== "action" ? "whisper" : normalized.mode;
+  const sentMode = annotation?.mode ?? normalized.mode;
+  const mode: BalloonMode = event.whisper && sentMode !== "action" ? "whisper" : sentMode;
   const characterFile = characterForNickname(event.nickname);
   const whisperTarget = typeof event.to === "string" ? [event.to] : [];
-  const faceToward = event.whisper ? whisperTarget : addressed.to;
-  const line = await createConversationLine(characterFile, text, event.nickname, mode, faceToward, !event.whisper);
+  const annotatedTo = (annotation?.talkTo ?? []).flatMap((name) => [...knownMembers].filter((member) => member.toLocaleLowerCase() === name.toLocaleLowerCase()));
+  const faceToward = event.whisper ? whisperTarget : addressed.to.length ? addressed.to : annotatedTo;
+  const line = await createConversationLine(characterFile, text, event.nickname, mode, faceToward, !event.whisper, "auto", annotation);
   if (generation !== liveComicGeneration) return;
   appendConversationLine(line, true);
   setStatus(`${event.nickname}${event.whisper ? " whispered to you" : ""}: ${line.expression} · live IRC`);

@@ -273,6 +273,33 @@ describe("IrcBot operator tracking", () => {
     expect(events).toEqual(["#c johndango +o", "#c Dan +o", "#c Dan -o"]);
   });
 
+  it("hands the brain original Comic Chat lines without their pose prefix", async () => {
+    let client: Socket | undefined;
+    const server = createServer((socket) => {
+      client = socket;
+      socket.on("data", (chunk) => {
+        if (String(chunk).includes("USER ")) {
+          socket.write(":irc.test 001 CamBot :Welcome\r\n");
+          socket.write(":Anna!u@h PRIVMSG #c :(#G0:9E4:9M1TCamBot) CamBot: hi there\r\n");
+        }
+      });
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const lines: string[] = [];
+    const bot = new IrcBot(
+      { host: "127.0.0.1", port: (server.address() as { port: number }).port, tls: false, nick: "CamBot", realname: "t", channels: [] },
+      { onMessage: (channel, nick, text) => lines.push(`${channel} ${nick} ${text}`) },
+    );
+    close = () => {
+      bot.stop();
+      client?.destroy();
+      server.close();
+    };
+    bot.start();
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(lines).toEqual(["#c Anna CamBot: hi there"]);
+  });
+
   it("reports nick changes, quits and disconnects", async () => {
     let client: Socket | undefined;
     const server = createServer((socket) => {

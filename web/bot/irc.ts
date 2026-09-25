@@ -6,6 +6,7 @@ import { connect as connectTls, type TLSSocket } from "node:tls";
 import { connect as connectTcp, type Socket } from "node:net";
 import { ircCaseFold, nicknameFromPrefix, parseIrcLine, type IrcMessage } from "../server/protocol";
 import { parseAvatarAnnouncement } from "../src/avatar-policy";
+import { parseComicChatAnnotation } from "../src/cc-annotation";
 
 export interface IrcOptions {
   host: string;
@@ -347,7 +348,8 @@ export class IrcBot {
           }
           return;
         }
-        this.handlers.onMessage?.(channel, nick, text);
+        // Original clients put their pose in front of each line: "(#G…) hi".
+        this.handlers.onMessage?.(channel, nick, parseComicChatAnnotation(text)?.text ?? text);
         return;
       }
       default:
