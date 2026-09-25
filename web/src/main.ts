@@ -250,6 +250,8 @@ interface ConversationLine {
   stayInPanel?: boolean;
   reaction?: boolean;
   studioPose?: StudioPoseId;
+  /** Offline Studio pacing shot containing only the selected backdrop. */
+  blankPanel?: boolean;
 }
 
 type StudioPoseId = "auto" | "neutral" | "happy" | "coy" | "bored" | "scared" | "sad" | "angry" | "shout" | "laugh" | "wave" | "point-other" | "point-self" | "shrug";
@@ -592,7 +594,7 @@ app.innerHTML = `
         <div class="dialog-body workshop-body">
           <div class="workshop-intro">
             <div>
-              <strong>Direct the comic one line at a time.</strong>
+              <strong>Direct the comic one beat at a time.</strong>
               <p>Build a cast, direct expressions and gestures, rewrite dialogue, move beats, or mark where a new panel begins. The Comic Chat engine composes the finished shots.</p>
             </div>
             <output id="workshop-summary">0 lines</output>
@@ -615,7 +617,7 @@ app.innerHTML = `
               <li>Each beat adds one character appearance. Reuse a character or choose another to build the cast.</li>
               <li>Choose <strong>Automatic</strong> to let words and emoticons choose the pose, or select an exact expression or gesture.</li>
               <li>Choose exactly where the new beat belongs: <strong>new panel</strong>, <strong>current panel</strong>, or <strong>automatic</strong> original Comic Chat placement.</li>
-              <li>Use <strong>Add speaking character</strong> for dialogue or <strong>Add silent character</strong> to place a posed character without a balloon.</li>
+              <li>Use <strong>Add speaking character</strong> for dialogue, <strong>Add silent character</strong> for a posed character without a balloon, or <strong>Add empty panel</strong> for a backdrop-only pacing shot.</li>
               <li>Edit, recast, pose, reorder, duplicate, or remove existing beats below. <strong>Undo edit</strong> and <strong>Redo</strong> cover the current Studio session.</li>
               <li>Use <strong>Save project</strong> to keep an editable copy, then <strong>Save Comic</strong> in the main window to export the PNG.</li>
             </ol>
@@ -630,7 +632,7 @@ app.innerHTML = `
               <label>Balloon<select id="workshop-add-mode"><option value="say">Say</option><option value="think">Think</option><option value="whisper">Whisper</option><option value="action">Action / narration</option></select></label>
               <label class="workshop-add-dialogue">Dialogue<textarea id="workshop-add-message" maxlength="180" rows="2" placeholder="Type a line, or use Add silent character without one"></textarea></label>
               <label class="workshop-add-placement">Panel placement<select id="workshop-add-placement"><option value="new">Start a new panel (guaranteed)</option><option value="current">Add to the current panel (if it fits)</option><option value="auto">Automatic Comic Chat placement</option></select></label>
-              <div class="workshop-add-actions"><button id="workshop-add-speaking" type="button">Add speaking character to new panel</button><button id="workshop-add-silent" type="button">Add silent character to new panel</button></div>
+              <div class="workshop-add-actions"><button id="workshop-add-speaking" type="button">Add speaking character to new panel</button><button id="workshop-add-silent" type="button">Add silent character to new panel</button><button id="workshop-add-empty" type="button">Add empty panel</button></div>
             </div>
           </section>
           <section class="workshop-panel-plan" aria-labelledby="workshop-panel-plan-title">
@@ -771,6 +773,7 @@ const workshopAddMessage = element<HTMLTextAreaElement>("#workshop-add-message")
 const workshopAddPlacement = element<HTMLSelectElement>("#workshop-add-placement");
 const workshopAddSpeakingButton = element<HTMLButtonElement>("#workshop-add-speaking");
 const workshopAddSilentButton = element<HTMLButtonElement>("#workshop-add-silent");
+const workshopAddEmptyButton = element<HTMLButtonElement>("#workshop-add-empty");
 const workshopPanelMap = element<HTMLElement>("#workshop-panel-map");
 const workshopLines = element<HTMLElement>("#workshop-lines");
 const workshopUndoButton = element<HTMLButtonElement>("#workshop-undo");
@@ -1355,6 +1358,7 @@ function saveAvatarDisplayPolicy(): void {
 async function refreshMemberAvatars(nicknames?: ReadonlySet<string>): Promise<void> {
   const generation = ++avatarRemapGeneration;
   const replacements = await Promise.all(conversation.map(async (line) => {
+    if (line.blankPanel) return line;
     const member = [...knownMembers].find((nickname) => nickname.toLocaleLowerCase() === line.characterName.toLocaleLowerCase());
     if (!member || (nicknames && !nicknames.has(member))) return line;
     const nextFile = characterForNickname(member);
@@ -1370,6 +1374,7 @@ async function refreshMemberAvatars(nicknames?: ReadonlySet<string>): Promise<vo
 async function refreshAvatarArtPreference(): Promise<void> {
   const generation = ++avatarRemapGeneration;
   const replacements = await Promise.all(conversation.map(async (line) => {
+    if (line.blankPanel) return line;
     const member = [...knownMembers].find((nickname) => nickname.toLocaleLowerCase() === line.characterName.toLocaleLowerCase());
     const nextFile = member ? characterForNickname(member) : preferredAvatarFile(line.characterFile);
     if (line.characterFile === nextFile) return line;
@@ -2046,16 +2051,22 @@ function applyLinePlacement(line: ConversationLine, placement: StudioPlacement):
 
 function updateWorkshopAddActions(): void {
   const currentPanelNumber = workshopPanelSummaries.length;
+  const currentPanel = workshopPanelSummaries.at(-1);
+  const currentPanelIsBlank = Boolean(currentPanel && currentPanel.characters.length === 0 && currentPanel.balloons.length === 0);
   const currentOption = workshopAddPlacement.querySelector<HTMLOptionElement>('option[value="current"]');
   if (currentOption) {
-    currentOption.textContent = currentPanelNumber > 0
-      ? `Add to current Panel ${currentPanelNumber} (if it fits)`
+    currentOption.textContent = currentPanelIsBlank
+      ? `Panel ${currentPanelNumber} is intentionally empty (starts Panel ${currentPanelNumber + 1})`
+      : currentPanelNumber > 0
+        ? `Add to current Panel ${currentPanelNumber} (if it fits)`
       : "No current panel yet (creates Panel 1)";
   }
   const destination = workshopAddPlacement.value === "new"
     ? "new panel"
     : workshopAddPlacement.value === "current"
-      ? currentPanelNumber > 0 ? `current Panel ${currentPanelNumber}` : "create Panel 1"
+      ? currentPanelIsBlank
+        ? `new panel after empty Panel ${currentPanelNumber}`
+        : currentPanelNumber > 0 ? `current Panel ${currentPanelNumber}` : "create Panel 1"
       : "automatic placement";
   workshopAddSpeakingButton.textContent = `Add speaking character → ${destination}`;
   workshopAddSilentButton.textContent = `Add silent character → ${destination}`;
@@ -2141,11 +2152,13 @@ async function redoStudioEdit(): Promise<void> {
 }
 
 function downloadableStudioLine(line: ConversationLine): StudioProjectLine {
+  if (line.blankPanel) return { kind: "blank" };
   const characterId = studioCharacterIdByFile.get(line.characterFile);
   if (!characterId) {
     throw new Error(`${line.characterName} uses a temporary or hosted character. Choose a built-in character before saving an editable project.`);
   }
   return {
+    kind: "character",
     characterId,
     characterName: line.characterName,
     message: line.message,
@@ -2194,7 +2207,7 @@ function saveStudioProject(): void {
   link.download = studioProjectFilename(comicTitleOverride);
   link.click();
   setTimeout(() => URL.revokeObjectURL(url), 1_000);
-  setStatus(`Editable Studio project saved with ${project.lines.length} character ${project.lines.length === 1 ? "beat" : "beats"}.`);
+  setStatus(`Editable Studio project saved with ${project.lines.length} ${project.lines.length === 1 ? "beat" : "beats"}.`);
 }
 
 async function openStudioProject(file: File): Promise<void> {
@@ -2210,6 +2223,14 @@ async function openStudioProject(file: File): Promise<void> {
     }
     const nextConversation: ConversationLine[] = [];
     for (const [index, saved] of project.lines.entries()) {
+      if (saved.kind === "blank") {
+        const blank = await createConversationLine(characters[0].file, "", "", "say", [], false, "neutral");
+        blank.blankPanel = true;
+        blank.breakBefore = true;
+        blank.reaction = true;
+        nextConversation.push(blank);
+        continue;
+      }
       const characterFile = studioCharacterFileById.get(saved.characterId);
       if (!characterFile) throw new Error(`Character beat ${index + 1} uses a character that is not available in this version`);
       const unsafeLink = blockedMessageLink(saved.message);
@@ -2240,7 +2261,7 @@ async function openStudioProject(file: File): Promise<void> {
     prepareWorkshopAddForm(true);
     renderStripWorkshop();
     resetStudioHistory();
-    setStatus(`Opened ${file.name}: ${project.lines.length} editable character ${project.lines.length === 1 ? "beat" : "beats"}.`);
+    setStatus(`Opened ${file.name}: ${project.lines.length} editable ${project.lines.length === 1 ? "beat" : "beats"}.`);
   } finally {
     setWorkshopBusy(false);
   }
@@ -2283,6 +2304,26 @@ async function addWorkshopBeat(silent: boolean): Promise<void> {
     setStatus(silent
       ? `${line.characterName} was added silently. Check “What is in each panel” to see the final placement.`
       : `${line.characterName}'s line was added. Check “What is in each panel” to see the final placement.`);
+  } finally {
+    setWorkshopBusy(false);
+  }
+}
+
+async function addWorkshopBlankPanel(): Promise<void> {
+  setWorkshopBusy(true);
+  try {
+    // Keep a structurally valid internal beat so the existing history and
+    // sequence tools can move/duplicate it. Rendering intentionally ignores
+    // every character field when blankPanel is set.
+    const line = await createConversationLine(characters[0].file, "", "", "say", [], false, "neutral");
+    line.blankPanel = true;
+    line.breakBefore = true;
+    line.reaction = true;
+    recordStudioEdit();
+    conversation.push(line);
+    await renderStrip();
+    renderStripWorkshop();
+    setStatus("Added an empty backdrop-only panel. Use the sequence tools below to move or duplicate it.");
   } finally {
     setWorkshopBusy(false);
   }
@@ -2349,7 +2390,7 @@ function renderStripWorkshop(): void {
   updateWorkshopAddActions();
   updateStudioHistoryControls();
   const comicPanels = Math.max(0, panelCanvases.length - 1);
-  workshopSummary.value = `${conversation.length} ${conversation.length === 1 ? "line" : "lines"} · ${comicPanels} ${comicPanels === 1 ? "comic panel" : "comic panels"}`;
+  workshopSummary.value = `${conversation.length} ${conversation.length === 1 ? "beat" : "beats"} · ${comicPanels} ${comicPanels === 1 ? "comic panel" : "comic panels"}`;
   workshopPanelMap.replaceChildren();
   if (workshopPanelSummaries.length === 0) {
     const emptyPlan = document.createElement("p");
@@ -2393,7 +2434,9 @@ function renderStripWorkshop(): void {
       if (dialogue.childElementCount === 0) {
         const silent = document.createElement("p");
         silent.className = "workshop-panel-silent";
-        silent.textContent = "No balloons—posed characters only.";
+        silent.textContent = panel.characters.length === 0
+          ? "Empty pacing panel—backdrop only."
+          : "No balloons—posed characters only.";
         card.append(heading, preview, cast, silent);
       } else {
         card.append(heading, preview, cast, dialogue);
@@ -2416,12 +2459,70 @@ function renderStripWorkshop(): void {
     if (line.breakBefore) row.classList.add("starts-panel");
     else if (line.stayInPanel) row.classList.add("joins-panel");
 
+    if (line.blankPanel) {
+      row.classList.add("blank-panel", "starts-panel");
+      const sequence = document.createElement("div");
+      sequence.className = "workshop-sequence";
+      const number = document.createElement("strong");
+      number.textContent = String(index + 1).padStart(2, "0");
+      const beat = document.createElement("span");
+      beat.textContent = "EMPTY PANEL";
+      sequence.append(number, beat);
+
+      const description = document.createElement("div");
+      description.className = "workshop-blank-description";
+      description.innerHTML = "<strong>Backdrop-only pacing panel</strong><span>No characters, dialogue, or balloons. The current Studio scene fills the panel.</span>";
+
+      const tools = document.createElement("div");
+      tools.className = "workshop-line-tools";
+      const earlier = document.createElement("button");
+      earlier.type = "button";
+      earlier.textContent = "↑ Earlier";
+      earlier.disabled = index === 0;
+      earlier.addEventListener("click", () => {
+        recordStudioEdit();
+        const [moved] = conversation.splice(index, 1);
+        conversation.splice(index - 1, 0, moved);
+        void renderStrip().then(renderStripWorkshop).catch(showError);
+      });
+      const later = document.createElement("button");
+      later.type = "button";
+      later.textContent = "↓ Later";
+      later.disabled = index === conversation.length - 1;
+      later.addEventListener("click", () => {
+        recordStudioEdit();
+        const [moved] = conversation.splice(index, 1);
+        conversation.splice(index + 1, 0, moved);
+        void renderStrip().then(renderStripWorkshop).catch(showError);
+      });
+      const duplicate = document.createElement("button");
+      duplicate.type = "button";
+      duplicate.textContent = "Duplicate";
+      duplicate.addEventListener("click", () => {
+        recordStudioEdit();
+        conversation.splice(index + 1, 0, cloneStudioLine(line));
+        void renderStrip().then(renderStripWorkshop).catch(showError);
+      });
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.textContent = "Remove";
+      remove.addEventListener("click", () => {
+        recordStudioEdit();
+        conversation.splice(index, 1);
+        void renderStrip().then(renderStripWorkshop).catch(showError);
+      });
+      tools.append(earlier, later, duplicate, remove);
+      row.append(sequence, description, tools);
+      workshopLines.append(row);
+      return;
+    }
+
     const sequence = document.createElement("div");
     sequence.className = "workshop-sequence";
     const number = document.createElement("strong");
     number.textContent = String(index + 1).padStart(2, "0");
     const beat = document.createElement("span");
-    beat.textContent = line.breakBefore ? "NEW PANEL" : line.stayInPanel ? "CURRENT" : "AUTO";
+    beat.textContent = line.breakBefore ? "NEW PANEL" : line.stayInPanel ? "TRY CURRENT" : "AUTO";
     sequence.append(number, beat);
 
     const script = document.createElement("div");
@@ -2575,7 +2676,9 @@ async function renderStrip(): Promise<void> {
     whisper: balloonFontMetrics(canvasMeasurer(measureContext, { italic: true, fontFamily: fontChoice.family }), { comicSans: fontChoice.comicMetrics }),
   };
   const castFiles = new Map<string, string>();
-  for (const line of renderedConversation) castFiles.set(line.characterName, line.characterFile);
+  for (const line of renderedConversation) {
+    if (!line.blankPanel) castFiles.set(line.characterName, line.characterFile);
+  }
   const images = new Map<string, HTMLCanvasElement>();
   const icons = new Map<string, HTMLCanvasElement>();
   const neutral = new Map<string, { pose: { width: number; height: number; faceX: number }; poseRef: string }>();
@@ -2590,6 +2693,7 @@ async function renderStrip(): Promise<void> {
     if (icon) icons.set(name, icon);
   }));
   for (const line of renderedConversation) {
+    if (line.blankPanel) continue;
     const avatar = await loadAvatar(line.characterFile);
     const image = cacheBody(avatar, line.body);
     images.set(line.poseRef, image);
@@ -2606,6 +2710,10 @@ async function renderStrip(): Promise<void> {
   });
   const title = comicTitleOverride || page.chooseTitle();
   for (const line of renderedConversation) {
+    if (line.blankPanel) {
+      page.addBlankPanel();
+      continue;
+    }
     currentTalkTo.set(line.characterName, line.talkTo);
     const image = images.get(line.poseRef)!;
     const comicLine: ComicLine = {
@@ -2664,8 +2772,9 @@ async function renderStrip(): Promise<void> {
       body: (body) => images.get(String(body.poseRef)),
     }, { scale: PANEL_SCALE, fontFamily: fontChoice.family });
     addPanelLinkOverlays(panel.card, layout);
-    panel.card.querySelector<HTMLElement>(".panel-meta")!.textContent =
-      `Panel ${index + 1} · ${layout.balloons.length} ${layout.balloons.length === 1 ? "balloon" : "balloons"}`;
+    panel.card.querySelector<HTMLElement>(".panel-meta")!.textContent = layout.bodies.length === 0 && layout.balloons.length === 0
+      ? `Panel ${index + 1} · empty pacing panel`
+      : `Panel ${index + 1} · ${layout.balloons.length} ${layout.balloons.length === 1 ? "balloon" : "balloons"}`;
     const panelKeyBase = panelContentSignature(layout);
     const occurrence = panelKeyOccurrences.get(panelKeyBase) ?? 0;
     panelKeyOccurrences.set(panelKeyBase, occurrence + 1);
@@ -2685,7 +2794,7 @@ async function renderStrip(): Promise<void> {
   workshopPanelSummaries = nextWorkshopPanelSummaries;
   selectedPanelKeys = reconcilePanelSelection(selectedPanelKeys, panelKeys);
   const count = page.layouts.length + 1;
-  stripCount.textContent = `${count} ${count === 1 ? "panel" : "panels"} · ${renderedConversation.length} ${renderedConversation.length === 1 ? "line" : "lines"}`;
+  stripCount.textContent = `${count} ${count === 1 ? "panel" : "panels"} · ${renderedConversation.length} ${renderedConversation.length === 1 ? "beat" : "beats"}`;
   updateControls();
   if (stillFollowing) followNewestPanel(generation, previousScrollTop);
 }
@@ -3015,7 +3124,9 @@ addButton.addEventListener("click", () => addPanel().catch(showError));
 undoButton.addEventListener("click", () => {
   const removed = conversation.pop();
   void renderStrip().catch(showError);
-  setStatus(removed ? `Removed ${removed.characterName}'s last line.` : "The strip is already empty.");
+  setStatus(removed
+    ? removed.blankPanel ? "Removed the last empty panel." : `Removed ${removed.characterName}'s last line.`
+    : "The strip is already empty.");
 });
 clearButton.addEventListener("click", () => {
   conversation.length = 0;
@@ -3087,6 +3198,9 @@ workshopAddSpeakingButton.addEventListener("click", () => {
 });
 workshopAddSilentButton.addEventListener("click", () => {
   void addWorkshopBeat(true).catch(showError);
+});
+workshopAddEmptyButton.addEventListener("click", () => {
+  void addWorkshopBlankPanel().catch(showError);
 });
 stripWorkshopDialog.addEventListener("keydown", (event) => {
   if (!(event.metaKey || event.ctrlKey) || event.altKey) return;

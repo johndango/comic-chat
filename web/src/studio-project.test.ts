@@ -7,6 +7,7 @@ import {
 
 describe("Studio project files", () => {
   const line = {
+    kind: "character" as const,
     characterId: "classic:connor.avb",
     characterName: "Connor",
     message: "Hello there",
@@ -26,7 +27,15 @@ describe("Studio project files", () => {
     const talkTo = ["Anna"];
     const project = createStudioProject("", "classic:room.bgb", "comic-sans-ms", [{ ...line, talkTo }]);
     talkTo.push("Bolo");
-    expect(project.lines[0].talkTo).toEqual(["Anna"]);
+    expect(project.lines[0]).toMatchObject({ talkTo: ["Anna"] });
+  });
+
+  it("round-trips true empty panels and reads early version-1 character beats", () => {
+    const project = createStudioProject("", "classic:room.bgb", "comic-sans-ms", [line, { kind: "blank" }]);
+    expect(parseStudioProject(studioProjectJson(project)).lines[1]).toEqual({ kind: "blank" });
+    const legacy = JSON.parse(studioProjectJson(project));
+    delete legacy.lines[0].kind;
+    expect(parseStudioProject(JSON.stringify(legacy)).lines[0]).toMatchObject({ kind: "character" });
   });
 
   it("rejects unrelated JSON and unsupported versions", () => {

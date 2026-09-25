@@ -13,7 +13,8 @@ export type StudioProjectMode = typeof STUDIO_PROJECT_MODES[number];
 export type StudioProjectPlacement = typeof STUDIO_PROJECT_PLACEMENTS[number];
 export type StudioProjectPose = typeof STUDIO_PROJECT_POSES[number];
 
-export interface StudioProjectLine {
+export interface StudioProjectCharacterLine {
+  kind: "character";
   /** Stable catalog id, not a build-specific asset URL. */
   characterId: string;
   characterName: string;
@@ -24,6 +25,12 @@ export interface StudioProjectLine {
   studioPose: StudioProjectPose;
   talkTo: string[];
 }
+
+export interface StudioProjectBlankPanel {
+  kind: "blank";
+}
+
+export type StudioProjectLine = StudioProjectCharacterLine | StudioProjectBlankPanel;
 
 export interface StudioProject {
   format: typeof STUDIO_PROJECT_FORMAT;
@@ -64,7 +71,7 @@ export function createStudioProject(
     title,
     backgroundId,
     fontId,
-    lines: lines.map((line) => ({ ...line, talkTo: [...line.talkTo] })),
+    lines: lines.map((line) => line.kind === "blank" ? { kind: "blank" } : { ...line, talkTo: [...line.talkTo] }),
   };
 }
 
@@ -86,11 +93,17 @@ export function parseStudioProject(source: string): StudioProject {
   const backgroundId = limitedString(project.backgroundId, "Project background", 120);
   const fontId = limitedString(project.fontId, "Project font", 80);
   if (!Array.isArray(project.lines) || project.lines.length > MAX_STUDIO_PROJECT_LINES) {
-    throw new Error(`A Studio project can contain at most ${MAX_STUDIO_PROJECT_LINES} character beats`);
+    throw new Error(`A Studio project can contain at most ${MAX_STUDIO_PROJECT_LINES} beats`);
   }
   const lines = project.lines.map((value, index): StudioProjectLine => {
     const line = record(value);
     if (!line) throw new Error(`Character beat ${index + 1} is invalid`);
+    if (line.kind === "blank") return { kind: "blank" };
+    // Early version-1 project files did not write a discriminator. Treat a
+    // missing kind as a character beat so those downloads stay editable.
+    if (line.kind !== undefined && line.kind !== "character") {
+      throw new Error(`Character beat ${index + 1} has an unsupported kind`);
+    }
     if (!Array.isArray(line.talkTo) || line.talkTo.length > 12) {
       throw new Error(`Character beat ${index + 1} has an invalid audience`);
     }
@@ -98,6 +111,7 @@ export function parseStudioProject(source: string): StudioProject {
       throw new Error(`Character beat ${index + 1} has an invalid silent-reaction setting`);
     }
     return {
+      kind: "character",
       characterId: limitedString(line.characterId, `Character beat ${index + 1} character`, 120),
       characterName: limitedString(line.characterName, `Character beat ${index + 1} name`, 32),
       message: limitedString(line.message, `Character beat ${index + 1} dialogue`, 180, true),

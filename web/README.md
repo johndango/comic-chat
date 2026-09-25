@@ -22,7 +22,8 @@ user chooses another one.
 **Open Comic Studio…** turns the offline strip into a directed editor. Each
 character beat can start a guaranteed new panel, join the current panel when it
 fits, or use the original automatic Comic Chat placement. Speaking and silent
-characters are explicit, exact expressions can be selected, and a live panel
+characters are explicit, true backdrop-only pacing panels can be inserted,
+exact expressions can be selected, and a live panel
 map shows a thumbnail plus the cast and dialogue actually present in every
 shot. Editable `.wcc.json` project files preserve the title, scene, balloon
 font, cast, dialogue, poses and panel choices across browser sessions; the

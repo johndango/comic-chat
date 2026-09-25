@@ -193,6 +193,26 @@ describe("ComicPage", () => {
     expect(page.layouts[0].balloons).toHaveLength(1);
   });
 
+  it("adds a true empty pacing panel without inventing a cast member", () => {
+    const page = new ComicPage({ fonts, seed: 5 });
+    page.addLine({ speakerId: "anna", text: "One", pose });
+    page.addBlankPanel();
+    page.addLine({ speakerId: "dan", text: "Three", pose });
+    expect(page.layouts).toHaveLength(3);
+    expect(page.layouts[1].bodies).toEqual([]);
+    expect(page.layouts[1].balloons).toEqual([]);
+    expect(page.layouts[2].balloons[0].text).toBe("THREE");
+  });
+
+  it("preserves an empty pacing panel when the next beat requests the current panel", () => {
+    const page = new ComicPage({ fonts, seed: 5 });
+    page.addBlankPanel();
+    page.addLine({ speakerId: "anna", text: "After the pause", pose, stayInPanel: true });
+    expect(page.layouts).toHaveLength(2);
+    expect(page.layouts[0].bodies).toEqual([]);
+    expect(page.layouts[1].balloons[0].text).toBe("AFTER THE PAUSE");
+  });
+
   it("never zooms the establishing panel but may zoom later ones", () => {
     const page = new ComicPage({ fonts, seed: 5 });
     page.addLine({ speakerId: "anna", text: "One", pose });

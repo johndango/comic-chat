@@ -111,11 +111,13 @@ class Panel {
   layout: PanelLayout | null = null;
   zoom = 1;
   fixedY = 0;
+  blank = false;
 
   constructor(readonly seed: number) {}
 
   clone(): Panel {
     const copy = new Panel(this.seed);
+    copy.blank = this.blank;
     copy.bodies = this.bodies.map((b) => ({ ...b, bbox: { ...b.bbox } }));
     copy.balloons = this.balloons.map((b) => {
       const c = b.clone();
@@ -169,6 +171,17 @@ export class ComicPage {
     this.newPanel = true;
   }
 
+  /** Studio-only pacing panel: render the selected backdrop with no cast or balloons. */
+  addBlankPanel(): void {
+    const panel = new Panel(this.rng.rand());
+    panel.blank = true;
+    panel.layout = this.snapshot(panel, this.panels.length === 0, new Set());
+    this.panels.push(panel);
+    // Automatic placement should preserve the empty shot. An explicit
+    // stayInPanel beat may still turn it into a populated panel later.
+    this.newPanel = true;
+  }
+
   /** CUnitPanelPage::AddLine */
   addLine(line: ComicLine): void {
     if (line.breakBefore) this.startNewPanel();
@@ -184,7 +197,7 @@ export class ComicPage {
     const old = this.panels[this.panels.length - 1];
     let panel: Panel;
     let replaceLast: boolean;
-    const stayInPanel = allowStayInPanel && line.stayInPanel && old && old.bodies.length < MAXBODIES;
+    const stayInPanel = allowStayInPanel && line.stayInPanel && old && !old.blank && old.bodies.length < MAXBODIES;
     if (!stayInPanel && (this.newPanel || !old || old.bodies.length >= MAXBODIES || this.panels.length < 2)) {
       panel = new Panel(this.rng.rand());
       this.newPanel = false;
@@ -229,7 +242,7 @@ export class ComicPage {
     const old = this.panels[this.panels.length - 1];
     let panel: Panel;
     let replaceLast: boolean;
-    const stayInPanel = allowStayInPanel && line.stayInPanel && old && old.balloons.length < MAXBALLOONS;
+    const stayInPanel = allowStayInPanel && line.stayInPanel && old && !old.blank && old.balloons.length < MAXBALLOONS;
     if (!stayInPanel && (this.newPanel || !old || old.balloons.length >= MAXBALLOONS || old.hasAvatar(line.speakerId))) {
       panel = new Panel(this.rng.rand());
       this.newPanel = false;
