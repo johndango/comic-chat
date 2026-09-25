@@ -23,9 +23,11 @@ user chooses another one.
 character beat can start a guaranteed new panel, join the current panel when it
 fits, or use the original automatic Comic Chat placement. Speaking and silent
 characters are explicit, true backdrop-only pacing panels can be inserted,
-exact expressions can be selected with a live pose preview before insertion, and a live panel
-map shows a thumbnail plus the cast and dialogue actually present in every
-shot. Editable `.wcc.json` project files preserve the title, scene, balloon
+exact expressions can be selected with a live pose preview before insertion,
+and a live panel map shows a thumbnail plus the cast and dialogue actually
+present in every shot. Dialogue fields show their 180-character limit, and long
+unbroken text wraps inside the panel map instead of escaping its card. Editable
+`.wcc.json` project files preserve the title, scene, balloon
 font, cast, dialogue, poses and panel choices across browser sessions; the
 Studio validates project files before replacing the current comic. Ctrl/⌘+S
 saves the editable project. The latest compatible Studio edit is also kept
@@ -35,6 +37,8 @@ rewrites, reordering, duplication, removal, title changes, scenes and fonts
 during the current Studio session. When an existing beat is being rewritten,
 the Studio highlights it and temporarily locks the other editing commands until
 **Apply changes** is chosen, so an unfinished line cannot be silently discarded.
+The finished PNG can be exported directly from the Studio dialog, and keyboard
+Undo/Redo leaves ordinary typing history alone while the cursor is in a text field.
 
 The member list and character controls have independent, clipped scroll areas,
 so a long room roster cannot overlap the character preview. **Enlarge** widens

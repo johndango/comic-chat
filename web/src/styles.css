@@ -312,6 +312,9 @@ button:disabled { color: #808080; text-shadow: 1px 1px #fff; cursor: not-allowed
 .workshop-add-preview canvas.loading { opacity: .45; }
 .workshop-add-preview figcaption { min-height: 22px; display: grid; place-items: center; color: #333; font-size: 9px; line-height: 1.2; text-align: center; }
 .workshop-add-dialogue { grid-column: 1 / 5; }
+.workshop-add-dialogue > span { display: flex; justify-content: space-between; gap: 8px; }
+.workshop-add-dialogue output, .workshop-line-dialogue output { color: #555; font-size: 9px; font-weight: 400; }
+.workshop-add-dialogue output.near-limit, .workshop-line-dialogue output.near-limit { color: #9a0000; font-weight: 700; }
 .workshop-add-dialogue textarea { height: 45px; font-weight: 400; resize: vertical; }
 .workshop-add-fields .workshop-add-placement { grid-column: 1 / 3; }
 .workshop-add-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; grid-column: 3 / 5; }
@@ -329,7 +332,7 @@ button:disabled { color: #808080; text-shadow: 1px 1px #fff; cursor: not-allowed
 .workshop-panel-preview { width: 100%; height: auto; margin-top: 5px; display: block; background: #fff; border: 1px solid #111; image-rendering: auto; }
 .workshop-panel-summary p { margin: 5px 0; }
 .workshop-panel-summary ul { margin: 5px 0 0; padding-left: 17px; }
-.workshop-panel-summary li { margin: 3px 0; }
+.workshop-panel-summary li { margin: 3px 0; overflow-wrap: anywhere; }
 .workshop-panel-cast { font-weight: 700; }
 .workshop-panel-silent { color: #555; font-style: italic; }
 .workshop-key { margin-top: 8px; padding: 4px 7px; display: grid; grid-template-columns: 82px minmax(0, 1fr) 90px; gap: 8px; color: #fff; background: #505050; font-size: 10px; font-weight: 700; }
@@ -359,7 +362,9 @@ button:disabled { color: #808080; text-shadow: 1px 1px #fff; cursor: not-allowed
 .workshop-blank-description strong { font-size: 13px; }
 .workshop-blank-description span { color: #555; }
 .workshop-script > select, .workshop-script > input { min-width: 0; }
-.workshop-script textarea { min-width: 0; height: 47px; grid-column: 1 / -1; resize: vertical; }
+.workshop-line-dialogue { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 7px; grid-column: 1 / -1; }
+.workshop-line-dialogue textarea { min-width: 0; width: 100%; height: 47px; grid-column: 1 / -1; resize: vertical; }
+.workshop-line-dialogue output { justify-self: end; }
 .workshop-staging { display: flex; flex-wrap: wrap; gap: 7px 18px; grid-column: 1 / -1; }
 .workshop-staging label { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
 .workshop-staging input { width: 14px; height: 14px; padding: 0; }
@@ -371,6 +376,7 @@ button:disabled { color: #808080; text-shadow: 1px 1px #fff; cursor: not-allowed
 .workshop-empty strong { color: #222; font-size: 14px; }
 .workshop-local-note { margin: 7px 1px 0 !important; color: #444 !important; }
 .strip-workshop-dialog form > footer > span { align-self: center; margin-right: auto; color: #444; }
+#workshop-export-comic { color: #fff; background: #000080; font-weight: 700; }
 .close-dialog { width: min(390px, calc(100vw - 24px)); }
 .close-dialog-body { min-height: 92px; display: flex; align-items: center; gap: 16px; font-size: 14px; }
 .close-dialog-body > span { width: 42px; height: 42px; flex: 0 0 auto; display: grid; place-items: center; color: #fff; background: #000080; border-radius: 50%; font: 700 30px Georgia, serif; }
@@ -500,7 +506,7 @@ button:disabled { color: #808080; text-shadow: 1px 1px #fff; cursor: not-allowed
   .workshop-sequence { grid-row: 1 / 3; padding-right: 4px; padding-left: 4px; }
   .workshop-sequence span { font-size: 7px; }
   .workshop-script { padding-right: 6px; grid-template-columns: 1fr; }
-  .workshop-script textarea, .workshop-staging { grid-column: 1; }
+  .workshop-line-dialogue, .workshop-staging { grid-column: 1; }
   .workshop-line-tools { padding: 0 6px 7px 0; grid-column: 2; flex-flow: row wrap; }
   .workshop-line-tools button { flex: 1 1 68px; }
   .strip-workshop-dialog form > footer > span { display: none; }

@@ -624,9 +624,9 @@ app.innerHTML = `
               <li>Edit, recast, or pose an existing beat below, then choose its highlighted <strong>Apply changes</strong> button. Reorder, duplicate, and remove are immediate.</li>
               <li><strong>Undo edit</strong> and <strong>Redo</strong> cover the current Studio session.</li>
               <li>Use <strong>Save project</strong> to download an editable copy. <strong>Recover draft</strong> restores the latest compatible edit saved only in this browser.</li>
-              <li>Use <strong>Save Comic</strong> in the main window to export the finished PNG.</li>
+              <li>Use <strong>Export PNG</strong> to save the finished comic without leaving Studio.</li>
             </ol>
-            <p>Studio changes stay in this browser and are never sent to IRC. Comic Chat may start a new panel automatically when a character speaks twice or a shot becomes full. Press Ctrl/⌘+S to save the editable project.</p>
+            <p>Studio changes stay in this browser and are never sent to IRC. Comic Chat may start a new panel automatically when a character speaks twice or a shot becomes full. Press Ctrl/⌘+S to save the editable project; outside a text field, Ctrl/⌘+Z and Ctrl/⌘+Shift+Z undo and redo.</p>
           </details>
           <section class="workshop-add" aria-labelledby="workshop-add-title">
             <header><strong id="workshop-add-title">Add a character beat</strong><span>One click adds one character appearance. Choose its panel below.</span></header>
@@ -639,7 +639,7 @@ app.innerHTML = `
                 <canvas id="workshop-add-pose-preview" width="128" height="128" role="img" aria-label="Preview of the selected character pose"></canvas>
                 <figcaption id="workshop-add-pose-caption">Selected pose preview</figcaption>
               </figure>
-              <label class="workshop-add-dialogue">Dialogue<textarea id="workshop-add-message" maxlength="180" rows="2" placeholder="Type a line, or use Add silent character without one"></textarea></label>
+              <label class="workshop-add-dialogue"><span>Dialogue <output id="workshop-add-count">0 / 180</output></span><textarea id="workshop-add-message" maxlength="180" rows="2" placeholder="Type a line, or use Add silent character without one"></textarea></label>
               <label class="workshop-add-placement">Panel placement<select id="workshop-add-placement"><option value="new">Start a new panel (guaranteed)</option><option value="current">Add to the current panel (if it fits)</option><option value="auto">Automatic Comic Chat placement</option></select></label>
               <div class="workshop-add-actions"><button id="workshop-add-speaking" type="button">Add speaking character to new panel</button><button id="workshop-add-silent" type="button">Add silent character to new panel</button><button id="workshop-add-empty" type="button">Add empty panel</button></div>
             </div>
@@ -652,7 +652,7 @@ app.innerHTML = `
           <div id="workshop-lines" class="workshop-lines"></div>
           <p class="workshop-local-note">Workshop edits change only this local comic. They are never sent back to IRC.</p>
         </div>
-        <footer><span>Tip: every beat can use a different character and pose.</span><button id="workshop-undo" type="button" disabled>Undo edit</button><button id="workshop-redo" type="button" disabled>Redo</button><button value="cancel">Close</button></footer>
+        <footer><span>Tip: every beat can use a different character and pose.</span><button id="workshop-undo" type="button" disabled>Undo edit</button><button id="workshop-redo" type="button" disabled>Redo</button><button id="workshop-export-comic" type="button">Export PNG</button><button value="cancel">Close</button></footer>
       </form>
     </dialog>
     <dialog id="avatar-builder-dialog" class="classic-dialog avatar-builder-dialog" aria-labelledby="avatar-builder-title">
@@ -782,6 +782,7 @@ const workshopAddPosePreview = element<HTMLCanvasElement>("#workshop-add-pose-pr
 const workshopAddPoseCaption = element<HTMLElement>("#workshop-add-pose-caption");
 const workshopAddMode = element<HTMLSelectElement>("#workshop-add-mode");
 const workshopAddMessage = element<HTMLTextAreaElement>("#workshop-add-message");
+const workshopAddCount = element<HTMLOutputElement>("#workshop-add-count");
 const workshopAddPlacement = element<HTMLSelectElement>("#workshop-add-placement");
 const workshopAddSpeakingButton = element<HTMLButtonElement>("#workshop-add-speaking");
 const workshopAddSilentButton = element<HTMLButtonElement>("#workshop-add-silent");
@@ -790,6 +791,7 @@ const workshopPanelMap = element<HTMLElement>("#workshop-panel-map");
 const workshopLines = element<HTMLElement>("#workshop-lines");
 const workshopUndoButton = element<HTMLButtonElement>("#workshop-undo");
 const workshopRedoButton = element<HTMLButtonElement>("#workshop-redo");
+const workshopExportComicButton = element<HTMLButtonElement>("#workshop-export-comic");
 const roomTabLabel = element<HTMLElement>("#room-tab-label");
 const windowRoom = element<HTMLElement>("#window-room");
 const characterPane = element<HTMLElement>("#character-pane");
@@ -2096,6 +2098,13 @@ function selectedWorkshopCharacterName(): string {
   return workshopAddCharacter.selectedOptions[0]?.textContent?.split(" —")[0].trim() || "Character";
 }
 
+function updateWorkshopTextCount(textarea: HTMLTextAreaElement, output: HTMLOutputElement): void {
+  const maximum = textarea.maxLength > 0 ? textarea.maxLength : 180;
+  const length = textarea.value.length;
+  output.value = `${length} / ${maximum}`;
+  output.classList.toggle("near-limit", maximum - length <= 20);
+}
+
 function linePlacement(line: ConversationLine): StudioPlacement {
   if (line.breakBefore) return "new";
   if (line.stayInPanel) return "current";
@@ -2411,6 +2420,7 @@ function prepareWorkshopAddForm(resetCharacter = false): void {
   if (resetCharacter || !workshopAddName.value.trim()) workshopAddName.value = selectedWorkshopCharacterName();
   if (workshopAddPose.options.length === 0) appendStudioPoseOptions(workshopAddPose);
   updateWorkshopAddActions();
+  updateWorkshopTextCount(workshopAddMessage, workshopAddCount);
   void updateWorkshopPosePreview().catch(showError);
 }
 
@@ -2437,6 +2447,7 @@ async function addWorkshopBeat(silent: boolean): Promise<void> {
     conversation.push(line);
     await renderStrip();
     workshopAddMessage.value = "";
+    updateWorkshopTextCount(workshopAddMessage, workshopAddCount);
     renderStripWorkshop();
     scheduleWorkshopPosePreview();
     setStatus(silent
@@ -2554,6 +2565,7 @@ function renderStripWorkshop(): void {
   workshopComicTitle.value = comicTitleOverride;
   updateWorkshopAddActions();
   updateStudioHistoryControls();
+  workshopExportComicButton.disabled = panelCanvases.length === 0;
   const comicPanels = Math.max(0, panelCanvases.length - 1);
   workshopSummary.value = `${conversation.length} ${conversation.length === 1 ? "beat" : "beats"} · ${comicPanels} ${comicPanels === 1 ? "comic panel" : "comic panels"}`;
   workshopPanelMap.replaceChildren();
@@ -2707,6 +2719,12 @@ function renderStripWorkshop(): void {
     message.value = line.message;
     message.placeholder = line.reaction ? "Silent reaction" : "Dialogue";
     message.setAttribute("aria-label", `Text for line ${index + 1}`);
+    const messageField = document.createElement("div");
+    messageField.className = "workshop-line-dialogue";
+    const messageCount = document.createElement("output");
+    messageCount.setAttribute("aria-label", `Character count for line ${index + 1}`);
+    updateWorkshopTextCount(message, messageCount);
+    messageField.append(message, messageCount);
     const staging = document.createElement("div");
     staging.className = "workshop-staging";
     const placementLabel = document.createElement("label");
@@ -2731,7 +2749,7 @@ function renderStripWorkshop(): void {
     });
     message.disabled = reaction.checked;
     staging.append(placementLabel, reactionLabel);
-    script.append(cast, name, mode, pose, message, staging);
+    script.append(cast, name, mode, pose, messageField, staging);
 
     const tools = document.createElement("div");
     tools.className = "workshop-line-tools";
@@ -2748,6 +2766,7 @@ function renderStripWorkshop(): void {
     for (const control of [name, message]) {
       control.addEventListener("input", () => markWorkshopLineDraft(row, apply, index));
     }
+    message.addEventListener("input", () => updateWorkshopTextCount(message, messageCount));
     const earlier = document.createElement("button");
     earlier.type = "button";
     earlier.textContent = "↑ Earlier";
@@ -3336,6 +3355,7 @@ workshopUndoButton.addEventListener("click", () => {
 workshopRedoButton.addEventListener("click", () => {
   void redoStudioEdit().catch(showError);
 });
+workshopExportComicButton.addEventListener("click", () => downloadStrip());
 workshopOpenProjectButton.addEventListener("click", () => workshopProjectFile.click());
 workshopProjectFile.addEventListener("change", () => {
   const file = workshopProjectFile.files?.[0];
@@ -3371,7 +3391,10 @@ workshopAddCharacter.addEventListener("change", () => {
 workshopAddPose.addEventListener("change", () => {
   void updateWorkshopPosePreview().catch(showError);
 });
-workshopAddMessage.addEventListener("input", scheduleWorkshopPosePreview);
+workshopAddMessage.addEventListener("input", () => {
+  updateWorkshopTextCount(workshopAddMessage, workshopAddCount);
+  scheduleWorkshopPosePreview();
+});
 workshopAddPlacement.addEventListener("change", updateWorkshopAddActions);
 workshopAddSpeakingButton.addEventListener("click", () => {
   void addWorkshopBeat(false).catch(showError);
@@ -3395,16 +3418,35 @@ stripWorkshopDialog.addEventListener("cancel", (event) => {
 stripWorkshopDialog.addEventListener("close", clearWorkshopDraftLock);
 stripWorkshopDialog.addEventListener("keydown", (event) => {
   if (!(event.metaKey || event.ctrlKey) || event.altKey) return;
-  if (event.key.toLocaleLowerCase() === "s") {
+  const key = event.key.toLocaleLowerCase();
+  const target = event.target instanceof HTMLElement ? event.target : undefined;
+  const editingText = Boolean(target?.matches("input, textarea, [contenteditable='true']"));
+  if (key === "s") {
     event.preventDefault();
+    if (activeWorkshopDraftRow) {
+      setStatus("Apply the highlighted line changes before saving the project.");
+      return;
+    }
     try {
       saveStudioProject();
     } catch (error) {
       showError(error);
     }
-  } else if (event.key.toLocaleLowerCase() === "o") {
+  } else if (key === "o") {
     event.preventDefault();
+    if (activeWorkshopDraftRow) {
+      setStatus("Apply the highlighted line changes before opening another project.");
+      return;
+    }
     workshopProjectFile.click();
+  } else if (!editingText && (key === "z" || key === "y")) {
+    event.preventDefault();
+    if (activeWorkshopDraftRow) {
+      setStatus("Apply or discard the highlighted line changes before using Undo or Redo.");
+      return;
+    }
+    const redo = key === "y" || event.shiftKey;
+    void (redo ? redoStudioEdit() : undoStudioEdit()).catch(showError);
   }
 });
 workshopAddMessage.addEventListener("keydown", (event) => {
