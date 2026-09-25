@@ -19,6 +19,16 @@ and around all four outer edges. In
 offline mode the selected character remains selected until the
 user chooses another one.
 
+**Open Comic Studio…** turns the offline strip into a directed editor. Each
+character beat can start a guaranteed new panel, join the current panel when it
+fits, or use the original automatic Comic Chat placement. Speaking and silent
+characters are explicit, exact expressions can be selected, and a live panel
+map shows a thumbnail plus the cast and dialogue actually present in every
+shot. Editable `.wcc.json` project files preserve the title, scene, balloon
+font, cast, dialogue, poses and panel choices across browser sessions; the
+Studio validates project files before replacing the current comic. Ctrl/⌘+S
+saves the editable project.
+
 The member list and character controls have independent, clipped scroll areas,
 so a long room roster cannot overlap the character preview. **Enlarge** widens
 the optional character sidebar and increases both the character preview and

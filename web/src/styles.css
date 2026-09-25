@@ -289,6 +289,13 @@ button:disabled { color: #808080; text-shadow: 1px 1px #fff; cursor: not-allowed
 .workshop-intro output { min-width: 155px; padding: 7px; color: #000; background: #fff; border-top: 2px solid #404040; border-left: 2px solid #404040; border-right: 2px solid #fff; border-bottom: 2px solid #fff; text-align: center; }
 .workshop-title-editor { margin-top: 7px; padding: 6px; display: grid; grid-template-columns: auto minmax(160px, 1fr) auto; gap: 7px; align-items: center; background: #d7d7d7; border: 1px solid #808080; }
 .workshop-title-editor label { font-weight: 700; }
+.workshop-project-tools { margin-top: 7px; padding: 6px; display: flex; align-items: center; gap: 7px; background: #d7d7d7; border: 1px solid #808080; }
+.workshop-project-description { min-width: 150px; margin-right: auto; display: grid; gap: 2px; }
+.workshop-project-description span { color: #444; font-size: 10px; }
+.workshop-project-tools > label { display: grid; gap: 2px; font-size: 10px; font-weight: 700; }
+.workshop-project-tools > label select { max-width: 155px; font-size: 11px; }
+.workshop-project-tools button { white-space: nowrap; }
+.workshop-project-actions { display: flex; gap: 5px; }
 .workshop-help { margin-top: 7px; padding: 5px 8px; background: #ffffdf; border: 1px solid #9a9a70; }
 .workshop-help summary { cursor: pointer; font-weight: 700; }
 .workshop-help ol { margin: 8px 0 6px; padding-left: 24px; }
@@ -315,6 +322,7 @@ button:disabled { color: #808080; text-shadow: 1px 1px #fff; cursor: not-allowed
 .workshop-panel-summary.current-panel { outline: 3px solid #000080; outline-offset: -3px; }
 .workshop-panel-summary > header { padding-bottom: 3px; display: flex; justify-content: space-between; gap: 6px; border-bottom: 1px solid #aaa; }
 .workshop-panel-summary > header span { color: #000080; font-size: 8px; font-weight: 700; }
+.workshop-panel-preview { width: 100%; height: auto; margin-top: 5px; display: block; background: #fff; border: 1px solid #111; image-rendering: auto; }
 .workshop-panel-summary p { margin: 5px 0; }
 .workshop-panel-summary ul { margin: 5px 0 0; padding-left: 17px; }
 .workshop-panel-summary li { margin: 3px 0; }
@@ -462,6 +470,12 @@ button:disabled { color: #808080; text-shadow: 1px 1px #fff; cursor: not-allowed
   .workshop-intro output { min-width: 0; }
   .workshop-title-editor { grid-template-columns: 1fr auto; }
   .workshop-title-editor label { grid-column: 1 / -1; }
+  .workshop-project-tools { align-items: stretch; flex-wrap: wrap; }
+  .workshop-project-description { width: 100%; }
+  .workshop-project-tools > label { flex: 1 1 130px; }
+  .workshop-project-tools > label select { width: 100%; max-width: none; }
+  .workshop-project-actions { width: 100%; }
+  .workshop-project-actions button { flex: 1; }
   .workshop-add > header { align-items: flex-start; flex-direction: column; gap: 2px; }
   .workshop-add-fields { grid-template-columns: 1fr; }
   .workshop-add-dialogue, .workshop-add-fields .workshop-add-placement, .workshop-add-actions { grid-column: 1; }

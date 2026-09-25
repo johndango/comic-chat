@@ -59,6 +59,12 @@ import {
   parseComicFontId,
   type ComicFontId,
 } from "./comic-font";
+import {
+  createStudioProject,
+  parseStudioProject,
+  studioProjectJson,
+  type StudioProjectLine,
+} from "./studio-project";
 
 interface ArtChoice { file: string; label: string; announcementName?: string }
 
@@ -158,6 +164,19 @@ const colorCharacters: ArtChoice[] = colorReplacementDefinitions.map(({ name, so
   announcementName: source.replace(/\.AVB$/u, ""),
 }));
 const characters: ArtChoice[] = [...monochromeCharacters, ...colorCharacters];
+const artPackStudioIds = new Map(Object.entries(artPackAssets).map(([path, url]) => [
+  url,
+  `art-pack:${path.split("/").at(-1)?.toLocaleLowerCase()}`,
+]));
+const studioCharacterIdByFile = new Map<string, string>();
+const studioCharacterFileById = new Map<string, string>();
+for (const choice of characters) {
+  const id = choice.announcementName
+    ? `color:${choice.announcementName.toLocaleLowerCase()}`
+    : artPackStudioIds.get(choice.file) ?? `classic:${choice.file.toLocaleLowerCase()}`;
+  studioCharacterIdByFile.set(choice.file, id);
+  studioCharacterFileById.set(id, choice.file);
+}
 const characterOptionMarkup = `
   <optgroup label="Classic &amp; Art Pack">
     ${monochromeCharacters.map(({ file, label }) => `<option value="${file}">${label}</option>`).join("")}
@@ -193,6 +212,13 @@ const backdrops: ArtChoice[] = [
   { file: artPack("den.bgb"), label: "The den — Art Pack" },
   { file: artPack("volcano.bgb"), label: "Volcano — Art Pack" },
 ];
+const studioBackdropIdByFile = new Map<string, string>();
+const studioBackdropFileById = new Map<string, string>();
+for (const choice of backdrops) {
+  const id = artPackStudioIds.get(choice.file) ?? `classic:${choice.file.toLocaleLowerCase()}`;
+  studioBackdropIdByFile.set(choice.file, id);
+  studioBackdropFileById.set(id, choice.file);
+}
 
 const PANEL_TWIPS = 4860;
 const PANEL_SCALE = 1 / 15;
@@ -569,6 +595,13 @@ app.innerHTML = `
             <input id="workshop-comic-title" maxlength="80" placeholder="Automatic Comic Chat title" />
             <button id="workshop-apply-title" type="button">Apply title</button>
           </div>
+          <div class="workshop-project-tools">
+            <div class="workshop-project-description"><strong>Editable project</strong><span>Save the script, cast, poses, and panel choices so you can continue later.</span></div>
+            <label>Scene<select id="workshop-background">${backdrops.map(({ file, label }) => `<option value="${file}">${label}</option>`).join("")}</select></label>
+            <label>Font<select id="workshop-font">${comicFontOptionsMarkup}</select></label>
+            <div class="workshop-project-actions"><button id="workshop-new-project" type="button">New blank</button><button id="workshop-open-project" type="button">Open project…</button><button id="workshop-save-project" type="button">Save project</button></div>
+            <input id="workshop-project-file" class="visually-hidden" type="file" accept=".json,.wcc.json,application/json" />
+          </div>
           <details class="workshop-help">
             <summary>How to build an offline comic</summary>
             <ol>
@@ -576,9 +609,9 @@ app.innerHTML = `
               <li>Choose <strong>Automatic</strong> to let words and emoticons choose the pose, or select an exact expression or gesture.</li>
               <li>Choose exactly where the new beat belongs: <strong>new panel</strong>, <strong>current panel</strong>, or <strong>automatic</strong> original Comic Chat placement.</li>
               <li>Use <strong>Add speaking character</strong> for dialogue or <strong>Add silent character</strong> to place a posed character without a balloon.</li>
-              <li>Edit, recast, pose, reorder, or remove existing beats below, then use <strong>Save Comic</strong> in the main window to export the PNG.</li>
+              <li>Edit, recast, pose, reorder, or remove existing beats below. Use <strong>Save project</strong> to keep an editable copy, then <strong>Save Comic</strong> in the main window to export the PNG.</li>
             </ol>
-            <p>Studio changes stay in this browser and are never sent to IRC. Comic Chat may start a new panel automatically when a character speaks twice or a shot becomes full.</p>
+            <p>Studio changes stay in this browser and are never sent to IRC. Comic Chat may start a new panel automatically when a character speaks twice or a shot becomes full. Press Ctrl/⌘+S to save the editable project.</p>
           </details>
           <section class="workshop-add" aria-labelledby="workshop-add-title">
             <header><strong id="workshop-add-title">Add a character beat</strong><span>One click adds one character appearance. Choose its panel below.</span></header>
@@ -716,6 +749,12 @@ const stripWorkshopDialog = element<HTMLDialogElement>("#strip-workshop-dialog")
 const workshopSummary = element<HTMLOutputElement>("#workshop-summary");
 const workshopComicTitle = element<HTMLInputElement>("#workshop-comic-title");
 const workshopApplyTitleButton = element<HTMLButtonElement>("#workshop-apply-title");
+const workshopNewProjectButton = element<HTMLButtonElement>("#workshop-new-project");
+const workshopOpenProjectButton = element<HTMLButtonElement>("#workshop-open-project");
+const workshopSaveProjectButton = element<HTMLButtonElement>("#workshop-save-project");
+const workshopProjectFile = element<HTMLInputElement>("#workshop-project-file");
+const workshopBackground = element<HTMLSelectElement>("#workshop-background");
+const workshopFont = element<HTMLSelectElement>("#workshop-font");
 const workshopAddCharacter = element<HTMLSelectElement>("#workshop-add-character");
 const workshopAddName = element<HTMLInputElement>("#workshop-add-name");
 const workshopAddPose = element<HTMLSelectElement>("#workshop-add-pose");
@@ -2010,6 +2049,110 @@ function updateWorkshopAddActions(): void {
   workshopAddSilentButton.textContent = `Add silent character → ${destination}`;
 }
 
+function downloadableStudioLine(line: ConversationLine): StudioProjectLine {
+  const characterId = studioCharacterIdByFile.get(line.characterFile);
+  if (!characterId) {
+    throw new Error(`${line.characterName} uses a temporary or hosted character. Choose a built-in character before saving an editable project.`);
+  }
+  return {
+    characterId,
+    characterName: line.characterName,
+    message: line.message,
+    mode: line.mode,
+    placement: linePlacement(line),
+    reaction: Boolean(line.reaction),
+    studioPose: line.studioPose ?? "auto",
+    talkTo: [...line.talkTo],
+  };
+}
+
+function studioProjectFilename(title: string): string {
+  const slug = title.trim().toLocaleLowerCase()
+    .normalize("NFKD")
+    .replace(/[^a-z0-9]+/gu, "-")
+    .replace(/^-|-$/gu, "")
+    .slice(0, 48);
+  return `${slug || "webcomicchat-comic"}.wcc.json`;
+}
+
+async function newStudioProject(): Promise<void> {
+  if (conversation.length > 0 && !window.confirm("Start a new blank Studio project and discard the current comic?")) return;
+  conversation.length = 0;
+  comicTitleOverride = "";
+  forceNextPanel = false;
+  workshopComicTitle.value = "";
+  await renderStrip();
+  prepareWorkshopAddForm(true);
+  renderStripWorkshop();
+  setStatus("New blank Studio project ready. Scene and font choices were kept.");
+}
+
+function saveStudioProject(): void {
+  const backgroundId = studioBackdropIdByFile.get(backdropSelect.value);
+  if (!backgroundId) throw new Error("Choose a built-in Studio scene before saving an editable project");
+  const project = createStudioProject(
+    comicTitleOverride,
+    backgroundId,
+    comicFontId,
+    conversation.map(downloadableStudioLine),
+  );
+  const url = URL.createObjectURL(new Blob([studioProjectJson(project)], { type: "application/json" }));
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = studioProjectFilename(comicTitleOverride);
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1_000);
+  setStatus(`Editable Studio project saved with ${project.lines.length} character ${project.lines.length === 1 ? "beat" : "beats"}.`);
+}
+
+async function openStudioProject(file: File): Promise<void> {
+  if (file.size > 512 * 1024) throw new Error("Studio project files must be 512 KB or smaller");
+  const project = parseStudioProject(await file.text());
+  if (conversation.length > 0 && !window.confirm("Replace the current comic with this Studio project?")) return;
+  setWorkshopBusy(true);
+  try {
+    const backgroundFile = studioBackdropFileById.get(project.backgroundId);
+    if (!backgroundFile) throw new Error("This project uses a scene that is not available in this version");
+    if (!COMIC_FONT_OPTIONS.some((option) => option.id === project.fontId)) {
+      throw new Error("This project uses a balloon font that is not available in this version");
+    }
+    const nextConversation: ConversationLine[] = [];
+    for (const [index, saved] of project.lines.entries()) {
+      const characterFile = studioCharacterFileById.get(saved.characterId);
+      if (!characterFile) throw new Error(`Character beat ${index + 1} uses a character that is not available in this version`);
+      const unsafeLink = blockedMessageLink(saved.message);
+      if (unsafeLink && saved.mode !== "whisper") throw new Error(blockedLinkMessage(unsafeLink));
+      const line = await createConversationLine(
+        characterFile,
+        saved.message,
+        saved.characterName,
+        saved.mode,
+        saved.talkTo,
+        saved.mode !== "whisper",
+        saved.studioPose,
+      );
+      applyLinePlacement(line, saved.placement);
+      line.reaction = saved.reaction;
+      nextConversation.push(line);
+    }
+    conversation.splice(0, conversation.length, ...nextConversation);
+    comicTitleOverride = project.title;
+    backdropSelect.value = backgroundFile;
+    workshopBackground.value = backgroundFile;
+    comicFontId = project.fontId as ComicFontId;
+    balloonFontSelect.value = comicFontId;
+    workshopFont.value = comicFontId;
+    balloonFontSelect.style.fontFamily = comicFontOption(comicFontId).family;
+    workshopFont.style.fontFamily = comicFontOption(comicFontId).family;
+    await loadBackdrop();
+    prepareWorkshopAddForm(true);
+    renderStripWorkshop();
+    setStatus(`Opened ${file.name}: ${project.lines.length} editable character ${project.lines.length === 1 ? "beat" : "beats"}.`);
+  } finally {
+    setWorkshopBusy(false);
+  }
+}
+
 function prepareWorkshopAddForm(resetCharacter = false): void {
   const previous = resetCharacter ? characterSelect.value : workshopAddCharacter.value;
   workshopAddCharacter.replaceChildren(...[...characterSelect.children].map((child) => child.cloneNode(true)));
@@ -2120,6 +2263,17 @@ function renderStripWorkshop(): void {
       const current = document.createElement("span");
       current.textContent = index === workshopPanelSummaries.length - 1 ? "CURRENT PANEL" : "";
       heading.append(title, current);
+      const sourceCanvas = panelCanvases[index + 1];
+      const preview = document.createElement("canvas");
+      preview.className = "workshop-panel-preview";
+      preview.setAttribute("role", "img");
+      preview.setAttribute("aria-label", `Preview of Panel ${index + 1}`);
+      if (sourceCanvas) {
+        const previewWidth = 208;
+        preview.width = previewWidth;
+        preview.height = Math.max(1, Math.round(previewWidth * sourceCanvas.height / sourceCanvas.width));
+        preview.getContext("2d")?.drawImage(sourceCanvas, 0, 0, preview.width, preview.height);
+      }
       const cast = document.createElement("p");
       cast.className = "workshop-panel-cast";
       cast.textContent = panel.characters.length
@@ -2136,9 +2290,9 @@ function renderStripWorkshop(): void {
         const silent = document.createElement("p");
         silent.className = "workshop-panel-silent";
         silent.textContent = "No balloons—posed characters only.";
-        card.append(heading, cast, silent);
+        card.append(heading, preview, cast, silent);
       } else {
-        card.append(heading, cast, dialogue);
+        card.append(heading, preview, cast, dialogue);
       }
       workshopPanelMap.append(card);
     });
@@ -2258,6 +2412,9 @@ function renderStripWorkshop(): void {
 
 function openStripWorkshop(): void {
   prepareWorkshopAddForm(true);
+  workshopBackground.value = backdropSelect.value;
+  workshopFont.value = comicFontId;
+  workshopFont.style.fontFamily = comicFontOption(comicFontId).family;
   renderStripWorkshop();
   stripWorkshopDialog.showModal();
 }
@@ -2766,6 +2923,41 @@ workshopApplyTitleButton.addEventListener("click", () => {
     setStatus(comicTitleOverride ? `Opening title changed to “${comicTitleOverride}”.` : "The opening title is automatic again.");
   }).catch(showError);
 });
+workshopSaveProjectButton.addEventListener("click", () => {
+  try {
+    saveStudioProject();
+  } catch (error) {
+    showError(error);
+  }
+});
+workshopNewProjectButton.addEventListener("click", () => {
+  void newStudioProject().catch(showError);
+});
+workshopOpenProjectButton.addEventListener("click", () => workshopProjectFile.click());
+workshopProjectFile.addEventListener("change", () => {
+  const file = workshopProjectFile.files?.[0];
+  if (file) void openStudioProject(file).catch(showError).finally(() => { workshopProjectFile.value = ""; });
+});
+workshopBackground.addEventListener("change", () => {
+  backdropSelect.value = workshopBackground.value;
+  void loadBackdrop().then(renderStripWorkshop).catch(showError);
+});
+workshopFont.addEventListener("change", () => {
+  comicFontId = parseComicFontId(workshopFont.value);
+  workshopFont.value = comicFontId;
+  balloonFontSelect.value = comicFontId;
+  const choice = comicFontOption(comicFontId);
+  workshopFont.style.fontFamily = choice.family;
+  balloonFontSelect.style.fontFamily = choice.family;
+  try {
+    localStorage.setItem("comic-chat-balloon-font", comicFontId);
+  } catch {}
+  setStatus(`Balloon font changed to ${choice.label}. Reflowing the Studio preview…`);
+  void renderStrip().then(() => {
+    renderStripWorkshop();
+    setStatus(`Balloon font: ${choice.label}.`);
+  }).catch(showError);
+});
 workshopAddCharacter.addEventListener("change", () => {
   workshopAddName.value = selectedWorkshopCharacterName();
 });
@@ -2775,6 +2967,20 @@ workshopAddSpeakingButton.addEventListener("click", () => {
 });
 workshopAddSilentButton.addEventListener("click", () => {
   void addWorkshopBeat(true).catch(showError);
+});
+stripWorkshopDialog.addEventListener("keydown", (event) => {
+  if (!(event.metaKey || event.ctrlKey) || event.altKey) return;
+  if (event.key.toLocaleLowerCase() === "s") {
+    event.preventDefault();
+    try {
+      saveStudioProject();
+    } catch (error) {
+      showError(error);
+    }
+  } else if (event.key.toLocaleLowerCase() === "o") {
+    event.preventDefault();
+    workshopProjectFile.click();
+  }
 });
 workshopAddMessage.addEventListener("keydown", (event) => {
   if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
