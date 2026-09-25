@@ -14,6 +14,10 @@
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
 .visually-hidden { position: absolute !important; width: 1px !important; height: 1px !important; padding: 0 !important; margin: -1px !important; overflow: hidden !important; clip: rect(0, 0, 0, 0) !important; white-space: nowrap !important; border: 0 !important; }
+.text-view { margin: 0; padding: 10px 14px 10px 44px; background: #fff; color: #000; font: 14px/1.5 "Courier New", monospace; overflow-wrap: anywhere; }
+.text-view li { padding: 1px 0; }
+.text-view li[data-mode="think"], .text-view li[data-mode="action"] { font-style: italic; }
+.text-view li[data-mode="whisper"] { color: #555; }
 body { margin: 0; min-width: 320px; min-height: 100vh; background: #3a6ea5; font-size: 12px; }
 button, select, textarea, input { font: inherit; }
 button, select, textarea, input { border-radius: 0; }

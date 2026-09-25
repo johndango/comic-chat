@@ -63,6 +63,7 @@ import { shouldFollowLatest } from "./scroll-follow";
 import { blockedLinkMessage, blockedMessageLink, displayMessageLinks } from "./message-links";
 import { censorComicText } from "./content-censor";
 import { parseSlashCommand, SLASH_HELP } from "./slash-commands";
+import { describePanel, transcriptLine } from "./panel-text";
 import {
   COMIC_FONT_OPTIONS,
   comicFontOption,
@@ -393,6 +394,7 @@ app.innerHTML = `
         <button type="button" role="menuitemcheckbox" data-command="hide-tonguetiedbot">Hide TongueTiedBot from comic &amp; saved PNGs</button>
         <button type="button" role="menuitemcheckbox" data-command="hide-n00bbot">Hide n00bBot from comic &amp; saved PNGs</button>
         <hr />
+        <button type="button" role="menuitemcheckbox" data-command="plain-text-view">Plain text view</button>
         <button type="button" role="menuitemcheckbox" data-command="censor-content">Censor mature &amp; sensitive text</button>
         <hr />
         <button type="button" data-command="auto-panels">Automatic panel wrapping</button>
@@ -500,7 +502,9 @@ app.innerHTML = `
             <button id="save-selected-panels" type="button" disabled>Save selected</button>
             <button id="finish-panel-selection" type="button">Done</button>
           </div>
-          <div id="strip" class="comic-strip" aria-live="polite"></div>
+          <div id="strip" class="comic-strip"></div>
+          <ol id="text-view" class="text-view" aria-label="Chat as plain text" hidden></ol>
+          <div id="chat-announcer" class="visually-hidden" role="log" aria-live="polite" aria-label="New chat lines"></div>
         </div>
 
         <aside class="controls">
@@ -820,6 +824,10 @@ const communityAvatarList = element<HTMLElement>("#community-avatar-list");
 const closeDialog = element<HTMLDialogElement>("#close-dialog");
 const workshopLiveWarningDialog = element<HTMLDialogElement>("#workshop-live-warning-dialog");
 const workshopLiveWarningDetail = element<HTMLElement>("#workshop-live-warning-detail");
+const textView = element<HTMLOListElement>("#text-view");
+const chatAnnouncer = element<HTMLDivElement>("#chat-announcer");
+const PLAIN_TEXT_KEY = "webcomicchat.plainText";
+let plainTextView = (() => { try { return window.localStorage.getItem(PLAIN_TEXT_KEY) === "1"; } catch { return false; } })();
 const liveConsole = element<HTMLElement>("#live-console");
 const liveStatus = element<HTMLElement>("#live-status");
 const connectionGuidance = element<HTMLElement>("#connection-guidance");
@@ -1806,6 +1814,7 @@ function appendConversationLine(line: ConversationLine, rolling = false): void {
     conversation.shift();
   }
   conversation.push(line);
+  announceLine(line);
   void renderStrip().catch(showError);
 }
 
@@ -2300,6 +2309,7 @@ function updateControls(): void {
       button.setAttribute("aria-checked", String(hiddenComicBots.has(normalizedComicNickname(botNickname))));
     }
     if (command === "censor-content") button.setAttribute("aria-checked", String(censorContent));
+    if (command === "plain-text-view") button.setAttribute("aria-checked", String(plainTextView));
     if (command === "select-panels") button.setAttribute("aria-checked", String(panelSelectionMode));
   }
   for (const button of document.querySelectorAll<HTMLButtonElement>("[data-room-bookmark-key]")) {
@@ -2452,6 +2462,7 @@ function createPanelCanvas(label: string): { card: HTMLElement; canvas: HTMLCanv
   const card = document.createElement("article");
   card.className = "panel-card authentic-panel";
   const canvas = document.createElement("canvas");
+  canvas.setAttribute("role", "img");
   canvas.setAttribute("aria-label", label);
   const ratio = Math.min(window.devicePixelRatio || 1, 2);
   canvas.width = Math.round(PANEL_PIXELS * ratio);
@@ -3410,8 +3421,7 @@ async function renderStrip(): Promise<void> {
 
   const panelKeyOccurrences = new Map<string, number>();
   page.layouts.forEach((layout, index) => {
-    const speakers = layout.bodies.filter((body) => !body.listener).map((body) => body.id);
-    const panel = createPanelCanvas(`Panel ${index + 1}: ${speakers.join(", ")}`);
+    const panel = createPanelCanvas(describePanel(index, layout.balloons, layout.bodies));
     drawPanel(panel.context, layout, {
       backdrop: backdropCanvas,
       body: (body) => images.get(String(body.poseRef)),
@@ -3434,6 +3444,7 @@ async function renderStrip(): Promise<void> {
   const stillFollowing = followLatest && shouldFollowLatest(stage);
   const previousScrollTop = stage.scrollTop;
   strip.replaceChildren(fragment);
+  renderTextView(renderedConversation);
   panelCanvases = nextCanvases;
   panelKeys = nextPanelKeys;
   workshopPanelSummaries = nextWorkshopPanelSummaries;
@@ -3442,6 +3453,31 @@ async function renderStrip(): Promise<void> {
   stripCount.textContent = `${count} ${count === 1 ? "panel" : "panels"} · ${renderedConversation.length} ${renderedConversation.length === 1 ? "beat" : "beats"}`;
   updateControls();
   if (stillFollowing) followNewestPanel(generation, previousScrollTop);
+}
+
+/** Plain text view: the same lines the comic draws, as an IRC client shows them. */
+function renderTextView(lines: readonly ConversationLine[]): void {
+  textView.hidden = !plainTextView;
+  strip.hidden = plainTextView;
+  if (!plainTextView) return;
+  const stillFollowing = shouldFollowLatest(stage);
+  textView.replaceChildren(...lines.map((line) => {
+    const item = document.createElement("li");
+    item.dataset.mode = line.mode;
+    item.textContent = transcriptLine({ ...line, message: line.displayMessage });
+    return item;
+  }));
+  if (stillFollowing) stage.scrollTop = stage.scrollHeight;
+}
+
+/** Screen readers hear each new line once, instead of the whole strip redrawing. */
+function announceLine(line: ConversationLine): void {
+  if (visibleComicLines([line], hiddenComicBots).length === 0) return;
+  const shown = displayLineWithCensor(line);
+  const item = document.createElement("p");
+  item.textContent = transcriptLine({ ...shown, message: shown.displayMessage });
+  chatAnnouncer.append(item);
+  while (chatAnnouncer.childElementCount > 20) chatAnnouncer.firstElementChild?.remove();
 }
 
 function addPanelLinkOverlays(card: HTMLElement, layout: import("./layout/page").PanelLayout): void {
@@ -4170,6 +4206,14 @@ function runMenuCommand(command: string): void {
     case "reset-zoom":
       panelSizeInput.value = "100";
       updatePanelView();
+      break;
+    case "plain-text-view":
+      plainTextView = !plainTextView;
+      try { window.localStorage.setItem(PLAIN_TEXT_KEY, plainTextView ? "1" : "0"); } catch { /* not remembered */ }
+      updateControls();
+      void renderStrip().then(() => {
+        setStatus(plainTextView ? "Plain text view: the chat is shown as text. Turn it off in the View menu to see the comic again." : "Comic view is back.");
+      }).catch(showError);
       break;
     case "censor-content":
       censorContent = !censorContent;
