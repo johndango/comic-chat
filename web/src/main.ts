@@ -62,6 +62,7 @@ import { reconcilePanelSelection, selectedPanelIndexes } from "./panel-selection
 import { shouldFollowLatest } from "./scroll-follow";
 import { blockedLinkMessage, blockedMessageLink, displayMessageLinks } from "./message-links";
 import { censorComicText } from "./content-censor";
+import { parseSlashCommand, SLASH_HELP } from "./slash-commands";
 import {
   COMIC_FONT_OPTIONS,
   comicFontOption,
@@ -3520,8 +3521,14 @@ async function updateCharacterPreview(): Promise<void> {
 }
 
 async function addPanel(): Promise<void> {
-  const message = messageInput.value.trim();
-  if (!message || isAdding) return;
+  const typed = messageInput.value.trim();
+  if (!typed || isAdding) return;
+  const command = parseSlashCommand(typed);
+  if (command && command.kind !== "line" && command.kind !== "whisper") {
+    runSlashCommand(command);
+    return;
+  }
+  const message = command ? command.text : typed;
   if (message === "<Brk>") {
     forceNextPanel = true;
     messageInput.value = "";
@@ -3552,8 +3559,8 @@ async function addPanel(): Promise<void> {
   updateControls();
   setStatus("Reading the line and choosing a pose…");
   try {
-    const mode = messageMode.value as BalloonMode;
-    const whisperTo = [...selectedAddressees];
+    const mode = command?.kind === "whisper" ? "whisper" : command?.kind === "line" ? command.mode : messageMode.value as BalloonMode;
+    const whisperTo = command?.kind === "whisper" ? whisperRecipients(command.to) : [...selectedAddressees];
     if (liveState === "joined" && mode === "whisper" && whisperTo.length === 0) {
       throw new Error("Select who to whisper to in the member list first");
     }
@@ -3580,6 +3587,44 @@ async function addPanel(): Promise<void> {
   } finally {
     isAdding = false;
     updateControls();
+  }
+}
+
+/** "/whisper anna hi": match typed names to the room's members, keeping their spelling. */
+function whisperRecipients(names: readonly string[]): string[] {
+  if (liveState !== "joined") return [...names];
+  return names.map((name) => {
+    const member = [...knownMembers].find((candidate) => candidate.toLocaleLowerCase() === name.toLocaleLowerCase());
+    if (!member) throw new Error(`${name} isn't in this room`);
+    return member;
+  });
+}
+
+function runSlashCommand(command: ReturnType<typeof parseSlashCommand>): void {
+  switch (command?.kind) {
+    case "join":
+      messageInput.value = "";
+      channelInput.value = command.channel;
+      updateControls();
+      connectButton.click();
+      break;
+    case "clear":
+      messageInput.value = "";
+      clearButton.click();
+      break;
+    case "quit":
+      messageInput.value = "";
+      if (liveClient.active) disconnectButton.click();
+      else setStatus("You're not connected.");
+      break;
+    case "help":
+      messageInput.value = "";
+      setStatus(SLASH_HELP);
+      break;
+    case "error":
+      // Keep what was typed so it can be fixed; nothing is sent.
+      showError(new Error(command.message));
+      break;
   }
 }
 
