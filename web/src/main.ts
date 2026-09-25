@@ -66,6 +66,7 @@ import {
   type StudioProject,
   type StudioProjectLine,
 } from "./studio-project";
+import { studioEntryNeedsDisconnect } from "./studio-entry";
 
 interface ArtChoice { file: string; label: string; announcementName?: string }
 
@@ -572,6 +573,19 @@ app.innerHTML = `
         <footer><button id="close-yes" value="yes">Yes</button><button id="close-no" value="cancel" autofocus>No</button></footer>
       </form>
     </dialog>
+    <dialog id="workshop-live-warning-dialog" class="classic-dialog workshop-live-warning-dialog" aria-labelledby="workshop-live-warning-title">
+      <form method="dialog">
+        <header><strong id="workshop-live-warning-title">Switch to Offline Comic Studio?</strong><button value="cancel" aria-label="Close">×</button></header>
+        <div class="dialog-body close-dialog-body">
+          <span aria-hidden="true">!</span>
+          <div>
+            <p><strong>Comic Studio cannot edit a live room transcript.</strong></p>
+            <p id="workshop-live-warning-detail">Continuing will disconnect from the room and clear the entire current comic before opening a blank Studio project.</p>
+          </div>
+        </div>
+        <footer><button value="continue">Disconnect &amp; open blank Studio</button><button value="cancel" autofocus>Stay in room</button></footer>
+      </form>
+    </dialog>
     <dialog id="avatar-rules-dialog" class="classic-dialog" aria-labelledby="avatar-rules-title">
       <form method="dialog">
         <header><strong id="avatar-rules-title">Avatar display rules</strong><button value="cancel" aria-label="Close">×</button></header>
@@ -734,6 +748,8 @@ const aboutDialog = element<HTMLDialogElement>("#about-dialog");
 const botTipsDialog = element<HTMLDialogElement>("#bot-tips-dialog");
 const botTipsPresence = element<HTMLElement>("#bot-tips-presence");
 const closeDialog = element<HTMLDialogElement>("#close-dialog");
+const workshopLiveWarningDialog = element<HTMLDialogElement>("#workshop-live-warning-dialog");
+const workshopLiveWarningDetail = element<HTMLElement>("#workshop-live-warning-detail");
 const liveConsole = element<HTMLElement>("#live-console");
 const liveStatus = element<HTMLElement>("#live-status");
 const connectionGuidance = element<HTMLElement>("#connection-guidance");
@@ -848,6 +864,7 @@ let activeWorkshopDraftRow: HTMLElement | undefined;
 let workshopPosePreviewGeneration = 0;
 let workshopPosePreviewTimer: ReturnType<typeof setTimeout> | undefined;
 let studioAutosaveQueued = false;
+let liveComicGeneration = 0;
 let remoteQueue = Promise.resolve();
 const pendingLiveLines: PendingLiveLine[] = [];
 const publicRooms = new Map<string, LiveRoomEvent>();
@@ -1569,8 +1586,8 @@ function playOriginalCredits(): void {
   });
 }
 
-async function addRemoteMessage(event: LiveMessageEvent): Promise<void> {
-  if (event.self) return;
+async function addRemoteMessage(event: LiveMessageEvent, generation: number): Promise<void> {
+  if (event.self || generation !== liveComicGeneration) return;
   const unsafeLink = blockedMessageLink(event.message);
   if (unsafeLink) throw new Error(blockedLinkMessage(unsafeLink));
   knownMembers.add(event.nickname);
@@ -1593,9 +1610,11 @@ async function addRemoteMessage(event: LiveMessageEvent): Promise<void> {
         hostedError = error;
       }
     }
+    if (generation !== liveComicGeneration) return;
     renderMembers();
     renderAvatarRules();
     await refreshMemberAvatars(new Set([event.nickname]));
+    if (generation !== liveComicGeneration) return;
     const isOfficial = announcedOfficialFile(event.nickname) !== undefined;
     setStatus(isOfficial
       ? `${event.nickname} is now appearing as ${announcement.name}.`
@@ -1622,6 +1641,7 @@ async function addRemoteMessage(event: LiveMessageEvent): Promise<void> {
   const whisperTarget = typeof event.to === "string" ? [event.to] : [];
   const faceToward = event.whisper ? whisperTarget : addressed.to;
   const line = await createConversationLine(characterFile, text, event.nickname, mode, faceToward, !event.whisper);
+  if (generation !== liveComicGeneration) return;
   appendConversationLine(line, true);
   setStatus(`${event.nickname}${event.whisper ? " whispered to you" : ""}: ${line.expression} · live IRC`);
 }
@@ -1865,7 +1885,8 @@ function handleLiveEvent(event: LiveEvent): void {
     setStatus(`${pending.line.characterName}: ${pending.line.expression} · ${pending.line.mode} balloon${pending.sentNote}`);
     return;
   }
-  remoteQueue = remoteQueue.then(() => addRemoteMessage(event)).catch(showError);
+  const generation = liveComicGeneration;
+  remoteQueue = remoteQueue.then(() => addRemoteMessage(event, generation)).catch(showError);
 }
 
 const liveClient = new IrcWebClient(handleLiveEvent);
@@ -2809,7 +2830,7 @@ function renderStripWorkshop(): void {
   });
 }
 
-function openStripWorkshop(): void {
+function showStripWorkshop(): void {
   prepareWorkshopAddForm(true);
   workshopBackground.value = backdropSelect.value;
   workshopFont.value = comicFontId;
@@ -2818,6 +2839,41 @@ function openStripWorkshop(): void {
   refreshStudioAutosaveButton();
   renderStripWorkshop();
   stripWorkshopDialog.showModal();
+}
+
+async function disconnectAndOpenBlankStudio(): Promise<void> {
+  // Invalidate remote avatar/message work before disconnecting so a slow
+  // decode from the old room cannot repopulate the newly blank Studio comic.
+  liveComicGeneration++;
+  liveClient.disconnect();
+  pendingLiveLines.length = 0;
+  knownMembers.clear();
+  selectedAddressees.clear();
+  announcedAvatars.clear();
+  publicRooms.clear();
+  totalPublicRooms = 0;
+  roomDirectoryLoaded = false;
+  conversation.length = 0;
+  comicTitleOverride = "";
+  forceNextPanel = false;
+  panelSelectionMode = false;
+  selectedPanelKeys.clear();
+  renderMembers();
+  renderAvatarRules();
+  await renderStrip();
+  showStripWorkshop();
+  setStatus("Disconnected from live chat. Offline Comic Studio opened with a blank project.");
+}
+
+function openStripWorkshop(): void {
+  if (!studioEntryNeedsDisconnect(liveState)) {
+    showStripWorkshop();
+    return;
+  }
+  const room = joinedChannel || channelInput.value || "the current IRC session";
+  workshopLiveWarningDetail.textContent = `Continuing will disconnect from ${room}, clear the entire current comic (including all live panels), and open a blank Studio project. Cancel keeps the room and comic exactly as they are.`;
+  workshopLiveWarningDialog.returnValue = "";
+  workshopLiveWarningDialog.showModal();
 }
 
 function followNewestPanel(generation: number, previousScrollTop: number): void {
@@ -3327,6 +3383,11 @@ clearButton.addEventListener("click", () => {
   setStatus("Strip cleared. Write a line to begin again.");
 });
 openStripWorkshopButton.addEventListener("click", openStripWorkshop);
+workshopLiveWarningDialog.addEventListener("close", () => {
+  if (workshopLiveWarningDialog.returnValue === "continue") {
+    void disconnectAndOpenBlankStudio().catch(showError);
+  }
+});
 workshopApplyTitleButton.addEventListener("click", () => {
   const nextTitle = workshopComicTitle.value.trim();
   if (nextTitle !== comicTitleOverride) recordStudioEdit();
@@ -3783,6 +3844,7 @@ connectButton.addEventListener("click", () => {
   knownMembers.clear();
   renderMembers();
   try {
+    liveComicGeneration++;
     liveClient.connect({
       network: room.network,
       nickname,
@@ -3812,6 +3874,7 @@ browseRoomsButton.addEventListener("click", () => {
   knownMembers.clear();
   renderMembers();
   try {
+    liveComicGeneration++;
     liveClient.connect({
       network: networkSelect.value === "oftc" ? "oftc" : "libera",
       nickname,

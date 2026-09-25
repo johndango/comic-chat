@@ -84,6 +84,10 @@ export class IrcWebClient {
 
     socket.addEventListener("open", () => socket.send(JSON.stringify({ type: "connect", ...connection })));
     socket.addEventListener("message", (message) => {
+      // A disconnect or replacement connection invalidates every event still
+      // queued by the old WebSocket. Never leak a late room message into the
+      // offline comic or a newer IRC session.
+      if (this.socket !== socket) return;
       try {
         const event = JSON.parse(String(message.data)) as LiveEvent;
         if (event.type === "status" && event.state === "offline" && this.state === "connecting") return;

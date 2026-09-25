@@ -104,4 +104,22 @@ describe("browser IRC client", () => {
     client.whisper(["Dan"], "psst");
     expect(JSON.parse(socket.sent.at(-1)!)).toEqual({ type: "whisper", to: ["Dan"], message: "psst" });
   });
+
+  it("ignores messages still queued by a socket after disconnect", () => {
+    vi.stubGlobal("window", { location: { protocol: "https:", host: "webcomicchat.com" } });
+    vi.stubGlobal("WebSocket", FakeWebSocket);
+    const events: LiveEvent[] = [];
+    const client = new IrcWebClient((event) => events.push(event));
+    client.connect({ network: "libera", nickname: "StudioFan", channel: "#comics" });
+    const socket = FakeWebSocket.instances.at(-1)!;
+    socket.open();
+    socket.receive({ type: "status", state: "joined", message: "Live in #comics", channel: "#comics" });
+
+    client.disconnect();
+    const eventCount = events.length;
+    socket.receive({ type: "message", nickname: "LateUser", message: "too late", self: false, timestamp: 1 });
+
+    expect(events).toHaveLength(eventCount);
+    expect(events.at(-1)).toMatchObject({ type: "status", state: "disconnected" });
+  });
 });

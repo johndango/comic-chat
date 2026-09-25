@@ -378,9 +378,12 @@ button:disabled { color: #808080; text-shadow: 1px 1px #fff; cursor: not-allowed
 .strip-workshop-dialog form > footer > span { align-self: center; margin-right: auto; color: #444; }
 #workshop-export-comic { color: #fff; background: #000080; font-weight: 700; }
 .close-dialog { width: min(390px, calc(100vw - 24px)); }
+.workshop-live-warning-dialog { width: min(540px, calc(100vw - 24px)); }
 .close-dialog-body { min-height: 92px; display: flex; align-items: center; gap: 16px; font-size: 14px; }
 .close-dialog-body > span { width: 42px; height: 42px; flex: 0 0 auto; display: grid; place-items: center; color: #fff; background: #000080; border-radius: 50%; font: 700 30px Georgia, serif; }
 .close-dialog-body p { margin: 0; }
+.workshop-live-warning-dialog .close-dialog-body > div { display: grid; gap: 8px; line-height: 1.35; }
+.workshop-live-warning-dialog form > footer button:first-child { margin-left: auto; color: #fff; background: #000080; font-weight: 700; }
 .close-dialog form > footer button:first-child { margin-left: auto; margin-right: 0; }
 .comic-taskbar-button { position: fixed; z-index: 100; left: 8px; bottom: 5px; min-width: 215px; min-height: 31px; display: flex; align-items: center; gap: 7px; font-weight: 700; }
 .comic-taskbar-button[hidden] { display: none; }

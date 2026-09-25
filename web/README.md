@@ -39,6 +39,10 @@ the Studio highlights it and temporarily locks the other editing commands until
 **Apply changes** is chosen, so an unfinished line cannot be silently discarded.
 The finished PNG can be exported directly from the Studio dialog, and keyboard
 Undo/Redo leaves ordinary typing history alone while the cursor is in a text field.
+Studio never edits a live room transcript: opening it during an IRC session
+requires confirmation, disconnects from that session, invalidates queued room
+messages, and starts with a blank local comic. Cancelling leaves the connection
+and its panels untouched.
 
 The member list and character controls have independent, clipped scroll areas,
 so a long room roster cannot overlap the character preview. **Enlarge** widens
