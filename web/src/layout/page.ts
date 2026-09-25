@@ -23,6 +23,8 @@ export interface ComicLine {
   mode?: BalloonMode;
   /** Force this line to begin a fresh panel (the original hidden <Brk> command). */
   breakBefore?: boolean;
+  /** Studio override: try this beat in the current panel before falling back to a new one. */
+  stayInPanel?: boolean;
   /** Add the character without a balloon (the original hidden <Chr> command). */
   reaction?: boolean;
   /** The pose the speaker strikes for this line (see emotion.ts selectPose). */
@@ -171,18 +173,19 @@ export class ComicPage {
   addLine(line: ComicLine): void {
     if (line.breakBefore) this.startNewPanel();
     if (line.reaction) {
-      this.addReaction(line, 0);
+      this.addReaction(line, 0, true);
       return;
     }
-    this.addLineAux(line, line.text, line.links ?? [], 0);
+    this.addLineAux(line, line.text, line.links ?? [], 0, true);
   }
 
   /** CUnitPanelPage::AddReaction — place a character without a balloon. */
-  private addReaction(line: ComicLine, depth: number): void {
+  private addReaction(line: ComicLine, depth: number, allowStayInPanel: boolean): void {
     const old = this.panels[this.panels.length - 1];
     let panel: Panel;
     let replaceLast: boolean;
-    if (this.newPanel || !old || old.bodies.length >= MAXBODIES || this.panels.length < 2) {
+    const stayInPanel = allowStayInPanel && line.stayInPanel && old && old.bodies.length < MAXBODIES;
+    if (!stayInPanel && (this.newPanel || !old || old.bodies.length >= MAXBODIES || this.panels.length < 2)) {
       panel = new Panel(this.rng.rand());
       this.newPanel = false;
       replaceLast = false;
@@ -211,7 +214,7 @@ export class ComicPage {
     const result = this.layoutBalloons(panel);
     if (!result.ok && depth < 8) {
       this.startNewPanel();
-      this.addReaction(line, depth + 1);
+      this.addReaction(line, depth + 1, false);
       return;
     }
     panel.layout = this.snapshot(panel, establishing, listeners);
@@ -219,14 +222,15 @@ export class ComicPage {
     else this.panels.push(panel);
   }
 
-  private addLineAux(line: ComicLine, text: string, links: readonly BalloonLink[], depth: number): void {
+  private addLineAux(line: ComicLine, text: string, links: readonly BalloonLink[], depth: number, allowStayInPanel: boolean): void {
     const mode = line.mode ?? "say";
     if (mode === "action") this.startNewPanel();
 
     const old = this.panels[this.panels.length - 1];
     let panel: Panel;
     let replaceLast: boolean;
-    if (this.newPanel || !old || old.balloons.length >= MAXBALLOONS || old.hasAvatar(line.speakerId)) {
+    const stayInPanel = allowStayInPanel && line.stayInPanel && old && old.balloons.length < MAXBALLOONS;
+    if (!stayInPanel && (this.newPanel || !old || old.balloons.length >= MAXBALLOONS || old.hasAvatar(line.speakerId))) {
       panel = new Panel(this.rng.rand());
       this.newPanel = false;
       replaceLast = false;
@@ -257,14 +261,14 @@ export class ComicPage {
 
     if (!result.ok && depth < 8) {
       this.startNewPanel();
-      this.addLineAux(line, text, links, depth + 1);
+      this.addLineAux(line, text, links, depth + 1, false);
       return;
     }
     panel.layout = this.snapshot(panel, establishing, listeners);
     if (replaceLast) this.panels[this.panels.length - 1] = panel;
     else this.panels.push(panel);
     // Spilled text always shrinks, so this chain terminates without the retry cap.
-    if (result.rest) this.addLineAux(line, result.rest.text, result.rest.links, 0);
+    if (result.rest) this.addLineAux(line, result.rest.text, result.rest.links, 0, false);
   }
 
   // -------------------------------------------------------------------------

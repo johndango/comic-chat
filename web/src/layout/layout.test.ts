@@ -159,6 +159,14 @@ describe("ComicPage", () => {
     expect(page.layouts).toHaveLength(2);
   });
 
+  it("lets the Studio explicitly keep another beat in the current panel", () => {
+    const page = new ComicPage({ fonts, seed: 5 });
+    page.addLine({ speakerId: "anna", text: "One", pose });
+    page.addLine({ speakerId: "anna", text: "Two", pose, stayInPanel: true });
+    expect(page.layouts).toHaveLength(1);
+    expect(page.layouts[0].balloons.map((balloon) => balloon.text)).toEqual(["ONE", "TWO"]);
+  });
+
   it("honors the original hidden break command on the next line", () => {
     const page = new ComicPage({ fonts, seed: 5 });
     page.addLine({ speakerId: "anna", text: "One", pose });
@@ -174,6 +182,15 @@ describe("ComicPage", () => {
     const reactionPanel = page.layouts.at(-1)!;
     expect(reactionPanel.bodies.some((body) => body.id === "dan")).toBe(true);
     expect(reactionPanel.balloons).toHaveLength(0);
+  });
+
+  it("lets the Studio add a silent character to the current panel", () => {
+    const page = new ComicPage({ fonts, seed: 5 });
+    page.addLine({ speakerId: "anna", text: "One", pose });
+    page.addLine({ speakerId: "dan", text: "", pose, reaction: true, stayInPanel: true });
+    expect(page.layouts).toHaveLength(1);
+    expect(page.layouts[0].bodies.map((body) => body.id)).toEqual(expect.arrayContaining(["anna", "dan"]));
+    expect(page.layouts[0].balloons).toHaveLength(1);
   });
 
   it("never zooms the establishing panel but may zoom later ones", () => {

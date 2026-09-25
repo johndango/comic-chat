@@ -221,11 +221,18 @@ interface ConversationLine {
   talkTo: string[];
   linkable: boolean;
   breakBefore?: boolean;
+  stayInPanel?: boolean;
   reaction?: boolean;
   studioPose?: StudioPoseId;
 }
 
 type StudioPoseId = "auto" | "neutral" | "happy" | "coy" | "bored" | "scared" | "sad" | "angry" | "shout" | "laugh" | "wave" | "point-other" | "point-self" | "shrug";
+type StudioPlacement = "new" | "current" | "auto";
+
+interface WorkshopPanelSummary {
+  characters: Array<{ name: string; silent: boolean }>;
+  balloons: Array<{ speaker: string; text: string }>;
+}
 
 const STUDIO_POSES: ReadonlyArray<{ id: StudioPoseId; label: string }> = [
   { id: "auto", label: "Automatic (from words)" },
@@ -565,25 +572,29 @@ app.innerHTML = `
           <details class="workshop-help">
             <summary>How to build an offline comic</summary>
             <ol>
-              <li>Choose a character under <strong>Add a new beat</strong>. Pick a different character for each new line to build your cast.</li>
+              <li>Each beat adds one character appearance. Reuse a character or choose another to build the cast.</li>
               <li>Choose <strong>Automatic</strong> to let words and emoticons choose the pose, or select an exact expression or gesture.</li>
-              <li>Use <strong>Add speaking line</strong> for dialogue. Use <strong>Add silent panel</strong> to create a new panel with a posed character and no text.</li>
-              <li><strong>Start a new panel</strong> begins a fresh shot. Leave it off when you want the engine to try placing another character in the current shot.</li>
+              <li>Choose exactly where the new beat belongs: <strong>new panel</strong>, <strong>current panel</strong>, or <strong>automatic</strong> original Comic Chat placement.</li>
+              <li>Use <strong>Add speaking character</strong> for dialogue or <strong>Add silent character</strong> to place a posed character without a balloon.</li>
               <li>Edit, recast, pose, reorder, or remove existing beats below, then use <strong>Save Comic</strong> in the main window to export the PNG.</li>
             </ol>
             <p>Studio changes stay in this browser and are never sent to IRC. Comic Chat may start a new panel automatically when a character speaks twice or a shot becomes full.</p>
           </details>
           <section class="workshop-add" aria-labelledby="workshop-add-title">
-            <header><strong id="workshop-add-title">Add a new beat</strong><span>Choose a new character here to add them to the cast.</span></header>
+            <header><strong id="workshop-add-title">Add a character beat</strong><span>One click adds one character appearance. Choose its panel below.</span></header>
             <div class="workshop-add-fields">
               <label>Character<select id="workshop-add-character"></select></label>
               <label>Display name<input id="workshop-add-name" maxlength="32" placeholder="Character name" /></label>
               <label>Pose<select id="workshop-add-pose"></select></label>
               <label>Balloon<select id="workshop-add-mode"><option value="say">Say</option><option value="think">Think</option><option value="whisper">Whisper</option><option value="action">Action / narration</option></select></label>
-              <label class="workshop-add-dialogue">Dialogue<textarea id="workshop-add-message" maxlength="180" rows="2" placeholder="Type a line, or use Add silent panel without one"></textarea></label>
-              <label class="workshop-add-break"><input id="workshop-add-break" type="checkbox" /> Start a new panel</label>
-              <div class="workshop-add-actions"><button id="workshop-add-speaking" type="button">Add speaking line</button><button id="workshop-add-silent" type="button">Add silent panel</button></div>
+              <label class="workshop-add-dialogue">Dialogue<textarea id="workshop-add-message" maxlength="180" rows="2" placeholder="Type a line, or use Add silent character without one"></textarea></label>
+              <label class="workshop-add-placement">Panel placement<select id="workshop-add-placement"><option value="new">Start a new panel (guaranteed)</option><option value="current">Add to the current panel (if it fits)</option><option value="auto">Automatic Comic Chat placement</option></select></label>
+              <div class="workshop-add-actions"><button id="workshop-add-speaking" type="button">Add speaking character to new panel</button><button id="workshop-add-silent" type="button">Add silent character to new panel</button></div>
             </div>
+          </section>
+          <section class="workshop-panel-plan" aria-labelledby="workshop-panel-plan-title">
+            <header><strong id="workshop-panel-plan-title">What is in each panel</strong><span>The title card is separate.</span></header>
+            <div id="workshop-panel-map" class="workshop-panel-map"></div>
           </section>
           <div class="workshop-key" aria-hidden="true"><span>Sequence</span><span>Script &amp; staging</span><span>Line tools</span></div>
           <div id="workshop-lines" class="workshop-lines"></div>
@@ -710,9 +721,10 @@ const workshopAddName = element<HTMLInputElement>("#workshop-add-name");
 const workshopAddPose = element<HTMLSelectElement>("#workshop-add-pose");
 const workshopAddMode = element<HTMLSelectElement>("#workshop-add-mode");
 const workshopAddMessage = element<HTMLTextAreaElement>("#workshop-add-message");
-const workshopAddBreak = element<HTMLInputElement>("#workshop-add-break");
+const workshopAddPlacement = element<HTMLSelectElement>("#workshop-add-placement");
 const workshopAddSpeakingButton = element<HTMLButtonElement>("#workshop-add-speaking");
 const workshopAddSilentButton = element<HTMLButtonElement>("#workshop-add-silent");
+const workshopPanelMap = element<HTMLElement>("#workshop-panel-map");
 const workshopLines = element<HTMLElement>("#workshop-lines");
 const roomTabLabel = element<HTMLElement>("#room-tab-label");
 const windowRoom = element<HTMLElement>("#window-room");
@@ -763,6 +775,7 @@ let comicFontId: ComicFontId = "comic-sans-ms";
 let hiddenComicBots = new Set<string>();
 let censorContent = false;
 let comicTitleOverride = "";
+let workshopPanelSummaries: WorkshopPanelSummary[] = [];
 let remoteQueue = Promise.resolve();
 const pendingLiveLines: PendingLiveLine[] = [];
 const publicRooms = new Map<string, LiveRoomEvent>();
@@ -1296,7 +1309,7 @@ async function refreshMemberAvatars(nicknames?: ReadonlySet<string>): Promise<vo
     const nextFile = characterForNickname(member);
     if (line.characterFile === nextFile) return line;
     const replacement = await createConversationLine(nextFile, line.message, line.characterName, line.mode, line.talkTo, line.linkable, line.studioPose);
-    return { ...replacement, breakBefore: line.breakBefore, reaction: line.reaction };
+    return { ...replacement, breakBefore: line.breakBefore, stayInPanel: line.stayInPanel, reaction: line.reaction };
   }));
   if (generation !== avatarRemapGeneration) return;
   conversation.splice(0, conversation.length, ...replacements);
@@ -1310,7 +1323,7 @@ async function refreshAvatarArtPreference(): Promise<void> {
     const nextFile = member ? characterForNickname(member) : preferredAvatarFile(line.characterFile);
     if (line.characterFile === nextFile) return line;
     const replacement = await createConversationLine(nextFile, line.message, line.characterName, line.mode, line.talkTo, line.linkable, line.studioPose);
-    return { ...replacement, breakBefore: line.breakBefore, reaction: line.reaction };
+    return { ...replacement, breakBefore: line.breakBefore, stayInPanel: line.stayInPanel, reaction: line.reaction };
   }));
   if (generation !== avatarRemapGeneration) return;
   conversation.splice(0, conversation.length, ...replacements);
@@ -1969,6 +1982,34 @@ function selectedWorkshopCharacterName(): string {
   return workshopAddCharacter.selectedOptions[0]?.textContent?.split(" —")[0].trim() || "Character";
 }
 
+function linePlacement(line: ConversationLine): StudioPlacement {
+  if (line.breakBefore) return "new";
+  if (line.stayInPanel) return "current";
+  return "auto";
+}
+
+function applyLinePlacement(line: ConversationLine, placement: StudioPlacement): void {
+  line.breakBefore = placement === "new";
+  line.stayInPanel = placement === "current";
+}
+
+function updateWorkshopAddActions(): void {
+  const currentPanelNumber = workshopPanelSummaries.length;
+  const currentOption = workshopAddPlacement.querySelector<HTMLOptionElement>('option[value="current"]');
+  if (currentOption) {
+    currentOption.textContent = currentPanelNumber > 0
+      ? `Add to current Panel ${currentPanelNumber} (if it fits)`
+      : "No current panel yet (creates Panel 1)";
+  }
+  const destination = workshopAddPlacement.value === "new"
+    ? "new panel"
+    : workshopAddPlacement.value === "current"
+      ? currentPanelNumber > 0 ? `current Panel ${currentPanelNumber}` : "create Panel 1"
+      : "automatic placement";
+  workshopAddSpeakingButton.textContent = `Add speaking character → ${destination}`;
+  workshopAddSilentButton.textContent = `Add silent character → ${destination}`;
+}
+
 function prepareWorkshopAddForm(resetCharacter = false): void {
   const previous = resetCharacter ? characterSelect.value : workshopAddCharacter.value;
   workshopAddCharacter.replaceChildren(...[...characterSelect.children].map((child) => child.cloneNode(true)));
@@ -1976,11 +2017,12 @@ function prepareWorkshopAddForm(resetCharacter = false): void {
   if (!workshopAddCharacter.value) workshopAddCharacter.selectedIndex = 0;
   if (resetCharacter || !workshopAddName.value.trim()) workshopAddName.value = selectedWorkshopCharacterName();
   if (workshopAddPose.options.length === 0) appendStudioPoseOptions(workshopAddPose);
+  updateWorkshopAddActions();
 }
 
 async function addWorkshopBeat(silent: boolean): Promise<void> {
   const message = silent ? "" : workshopAddMessage.value.trim();
-  if (!silent && !message) throw new Error("Type some dialogue, or choose Add silent panel");
+  if (!silent && !message) throw new Error("Type some dialogue, or choose Add silent character");
   const mode = workshopAddMode.value as BalloonMode;
   const unsafeLink = blockedMessageLink(message);
   if (unsafeLink && mode !== "whisper") throw new Error(blockedLinkMessage(unsafeLink));
@@ -1995,16 +2037,15 @@ async function addWorkshopBeat(silent: boolean): Promise<void> {
       mode !== "whisper",
       workshopAddPose.value as StudioPoseId,
     );
-    line.breakBefore = silent || workshopAddBreak.checked;
+    applyLinePlacement(line, workshopAddPlacement.value as StudioPlacement);
     line.reaction = silent;
     conversation.push(line);
     await renderStrip();
     workshopAddMessage.value = "";
-    workshopAddBreak.checked = false;
     renderStripWorkshop();
     setStatus(silent
-      ? `${line.characterName} was added in a new silent panel using the ${line.expression} pose.`
-      : `${line.characterName}'s line was added locally using the ${line.expression} pose.`);
+      ? `${line.characterName} was added silently. Check “What is in each panel” to see the final placement.`
+      : `${line.characterName}'s line was added. Check “What is in each panel” to see the final placement.`);
   } finally {
     setWorkshopBusy(false);
   }
@@ -2025,7 +2066,7 @@ async function applyWorkshopLine(
   mode: HTMLSelectElement,
   pose: HTMLSelectElement,
   message: HTMLTextAreaElement,
-  breakBefore: HTMLInputElement,
+  placement: HTMLSelectElement,
   reaction: HTMLInputElement,
 ): Promise<void> {
   const current = conversation[index];
@@ -2046,7 +2087,7 @@ async function applyWorkshopLine(
       mode.value !== "whisper",
       pose.value as StudioPoseId,
     );
-    next.breakBefore = breakBefore.checked;
+    applyLinePlacement(next, placement.value as StudioPlacement);
     next.reaction = reaction.checked;
     conversation[index] = next;
     await renderStrip();
@@ -2059,13 +2100,54 @@ async function applyWorkshopLine(
 
 function renderStripWorkshop(): void {
   workshopComicTitle.value = comicTitleOverride;
+  updateWorkshopAddActions();
   const comicPanels = Math.max(0, panelCanvases.length - 1);
   workshopSummary.value = `${conversation.length} ${conversation.length === 1 ? "line" : "lines"} · ${comicPanels} ${comicPanels === 1 ? "comic panel" : "comic panels"}`;
+  workshopPanelMap.replaceChildren();
+  if (workshopPanelSummaries.length === 0) {
+    const emptyPlan = document.createElement("p");
+    emptyPlan.className = "workshop-panel-map-empty";
+    emptyPlan.textContent = "No comic panels yet. Add a character above to create the first one.";
+    workshopPanelMap.append(emptyPlan);
+  } else {
+    workshopPanelSummaries.forEach((panel, index) => {
+      const card = document.createElement("article");
+      card.className = "workshop-panel-summary";
+      if (index === workshopPanelSummaries.length - 1) card.classList.add("current-panel");
+      const heading = document.createElement("header");
+      const title = document.createElement("strong");
+      title.textContent = `Panel ${index + 1}`;
+      const current = document.createElement("span");
+      current.textContent = index === workshopPanelSummaries.length - 1 ? "CURRENT PANEL" : "";
+      heading.append(title, current);
+      const cast = document.createElement("p");
+      cast.className = "workshop-panel-cast";
+      cast.textContent = panel.characters.length
+        ? `Characters: ${panel.characters.map(({ name, silent }) => `${name}${silent ? " (silent)" : ""}`).join(", ")}`
+        : "Characters: none";
+      const dialogue = document.createElement("ul");
+      for (const balloon of panel.balloons) {
+        const line = document.createElement("li");
+        const text = balloon.text.length > 80 ? `${balloon.text.slice(0, 79)}…` : balloon.text;
+        line.textContent = `${balloon.speaker}: “${text}”`;
+        dialogue.append(line);
+      }
+      if (dialogue.childElementCount === 0) {
+        const silent = document.createElement("p");
+        silent.className = "workshop-panel-silent";
+        silent.textContent = "No balloons—posed characters only.";
+        card.append(heading, cast, silent);
+      } else {
+        card.append(heading, cast, dialogue);
+      }
+      workshopPanelMap.append(card);
+    });
+  }
   workshopLines.replaceChildren();
   if (conversation.length === 0) {
     const empty = document.createElement("div");
     empty.className = "workshop-empty";
-    empty.innerHTML = "<strong>The script track is empty.</strong><span>Use Add a new beat above to introduce the first character.</span>";
+    empty.innerHTML = "<strong>The script track is empty.</strong><span>Use Add a character beat above to place the first character in Panel 1.</span>";
     workshopLines.append(empty);
     return;
   }
@@ -2074,13 +2156,14 @@ function renderStripWorkshop(): void {
     const row = document.createElement("article");
     row.className = "workshop-line";
     if (line.breakBefore) row.classList.add("starts-panel");
+    else if (line.stayInPanel) row.classList.add("joins-panel");
 
     const sequence = document.createElement("div");
     sequence.className = "workshop-sequence";
     const number = document.createElement("strong");
     number.textContent = String(index + 1).padStart(2, "0");
     const beat = document.createElement("span");
-    beat.textContent = line.breakBefore ? "NEW PANEL" : "NEXT BEAT";
+    beat.textContent = line.breakBefore ? "NEW PANEL" : line.stayInPanel ? "CURRENT" : "AUTO";
     sequence.append(number, beat);
 
     const script = document.createElement("div");
@@ -2102,11 +2185,17 @@ function renderStripWorkshop(): void {
     message.setAttribute("aria-label", `Text for line ${index + 1}`);
     const staging = document.createElement("div");
     staging.className = "workshop-staging";
-    const breakLabel = document.createElement("label");
-    const breakBefore = document.createElement("input");
-    breakBefore.type = "checkbox";
-    breakBefore.checked = Boolean(line.breakBefore);
-    breakLabel.append(breakBefore, " Start a new panel");
+    const placementLabel = document.createElement("label");
+    placementLabel.append("Placement ");
+    const placement = document.createElement("select");
+    placement.setAttribute("aria-label", `Panel placement for line ${index + 1}`);
+    placement.append(
+      new Option("New panel", "new"),
+      new Option("Current panel if it fits", "current"),
+      new Option("Automatic", "auto"),
+    );
+    placement.value = linePlacement(line);
+    placementLabel.append(placement);
     const reactionLabel = document.createElement("label");
     const reaction = document.createElement("input");
     reaction.type = "checkbox";
@@ -2117,7 +2206,7 @@ function renderStripWorkshop(): void {
       message.placeholder = reaction.checked ? "Character appears without a balloon" : "Dialogue";
     });
     message.disabled = reaction.checked;
-    staging.append(breakLabel, reactionLabel);
+    staging.append(placementLabel, reactionLabel);
     script.append(cast, name, mode, pose, message, staging);
 
     const tools = document.createElement("div");
@@ -2127,7 +2216,7 @@ function renderStripWorkshop(): void {
     apply.className = "workshop-apply";
     apply.textContent = "Apply";
     apply.addEventListener("click", () => {
-      void applyWorkshopLine(index, row, cast, name, mode, pose, message, breakBefore, reaction).catch(showError);
+      void applyWorkshopLine(index, row, cast, name, mode, pose, message, placement, reaction).catch(showError);
     });
     const earlier = document.createElement("button");
     earlier.type = "button";
@@ -2204,6 +2293,7 @@ async function renderStrip(): Promise<void> {
     strip.replaceChildren(fragment);
     panelCanvases = [];
     panelKeys = [];
+    workshopPanelSummaries = [];
     selectedPanelKeys = reconcilePanelSelection(selectedPanelKeys, panelKeys);
     stripCount.textContent = "0 panels";
     updateControls();
@@ -2257,6 +2347,7 @@ async function renderStrip(): Promise<void> {
       text: line.displayMessage,
       mode: line.mode,
       breakBefore: line.breakBefore,
+      stayInPanel: line.stayInPanel,
       reaction: line.reaction,
       pose: { width: image.width, height: image.height, faceX: line.body.faceX },
       poseRef: line.poseRef,
@@ -2264,6 +2355,18 @@ async function renderStrip(): Promise<void> {
     };
     page.addLine(comicLine);
   }
+
+  const nextWorkshopPanelSummaries: WorkshopPanelSummary[] = page.layouts.map((layout) => {
+    const speaking = new Set(layout.balloons.map((balloon) => balloon.speakerId));
+    const characters = [...new Set(layout.bodies.map((body) => body.id))].map((name) => ({
+      name,
+      silent: !speaking.has(name),
+    }));
+    return {
+      characters,
+      balloons: layout.balloons.map((balloon) => ({ speaker: balloon.speakerId, text: balloon.text })),
+    };
+  });
 
   const uniqueCast = [...castFiles].map(([id, file], index) => ({
     id,
@@ -2313,6 +2416,7 @@ async function renderStrip(): Promise<void> {
   strip.replaceChildren(fragment);
   panelCanvases = nextCanvases;
   panelKeys = nextPanelKeys;
+  workshopPanelSummaries = nextWorkshopPanelSummaries;
   selectedPanelKeys = reconcilePanelSelection(selectedPanelKeys, panelKeys);
   const count = page.layouts.length + 1;
   stripCount.textContent = `${count} ${count === 1 ? "panel" : "panels"} · ${renderedConversation.length} ${renderedConversation.length === 1 ? "line" : "lines"}`;
@@ -2665,6 +2769,7 @@ workshopApplyTitleButton.addEventListener("click", () => {
 workshopAddCharacter.addEventListener("change", () => {
   workshopAddName.value = selectedWorkshopCharacterName();
 });
+workshopAddPlacement.addEventListener("change", updateWorkshopAddActions);
 workshopAddSpeakingButton.addEventListener("click", () => {
   void addWorkshopBeat(false).catch(showError);
 });
