@@ -618,7 +618,8 @@ app.innerHTML = `
               <li>Choose <strong>Automatic</strong> to let words and emoticons choose the pose, or select an exact expression or gesture.</li>
               <li>Choose exactly where the new beat belongs: <strong>new panel</strong>, <strong>current panel</strong>, or <strong>automatic</strong> original Comic Chat placement.</li>
               <li>Use <strong>Add speaking character</strong> for dialogue, <strong>Add silent character</strong> for a posed character without a balloon, or <strong>Add empty panel</strong> for a backdrop-only pacing shot.</li>
-              <li>Edit, recast, pose, reorder, duplicate, or remove existing beats below. <strong>Undo edit</strong> and <strong>Redo</strong> cover the current Studio session.</li>
+              <li>Edit, recast, or pose an existing beat below, then choose its highlighted <strong>Apply changes</strong> button. Reorder, duplicate, and remove are immediate.</li>
+              <li><strong>Undo edit</strong> and <strong>Redo</strong> cover the current Studio session.</li>
               <li>Use <strong>Save project</strong> to keep an editable copy, then <strong>Save Comic</strong> in the main window to export the PNG.</li>
             </ol>
             <p>Studio changes stay in this browser and are never sent to IRC. Comic Chat may start a new panel automatically when a character speaks twice or a shot becomes full. Press Ctrl/⌘+S to save the editable project.</p>
@@ -830,6 +831,7 @@ let comicTitleOverride = "";
 let workshopPanelSummaries: WorkshopPanelSummary[] = [];
 const studioUndoHistory: StudioSnapshot[] = [];
 const studioRedoHistory: StudioSnapshot[] = [];
+let activeWorkshopDraftRow: HTMLElement | undefined;
 let remoteQueue = Promise.resolve();
 const pendingLiveLines: PendingLiveLine[] = [];
 const publicRooms = new Map<string, LiveRoomEvent>();
@@ -2090,8 +2092,8 @@ function captureStudioSnapshot(): StudioSnapshot {
 }
 
 function updateStudioHistoryControls(): void {
-  workshopUndoButton.disabled = studioUndoHistory.length === 0;
-  workshopRedoButton.disabled = studioRedoHistory.length === 0;
+  workshopUndoButton.disabled = Boolean(activeWorkshopDraftRow) || studioUndoHistory.length === 0;
+  workshopRedoButton.disabled = Boolean(activeWorkshopDraftRow) || studioRedoHistory.length === 0;
   workshopUndoButton.title = studioUndoHistory.length ? `Undo (${studioUndoHistory.length} available)` : "Nothing to undo";
   workshopRedoButton.title = studioRedoHistory.length ? `Redo (${studioRedoHistory.length} available)` : "Nothing to redo";
 }
@@ -2344,6 +2346,32 @@ function setWorkshopBusy(busy: boolean): void {
   }
 }
 
+function markWorkshopLineDraft(row: HTMLElement, applyButton: HTMLButtonElement, index: number): void {
+  if (activeWorkshopDraftRow === row) return;
+  activeWorkshopDraftRow = row;
+  row.classList.add("workshop-line-dirty");
+  applyButton.textContent = "Apply changes";
+  applyButton.title = `Apply the draft changes to beat ${index + 1}`;
+  const sequenceLabel = row.querySelector<HTMLElement>(".workshop-sequence span");
+  if (sequenceLabel) sequenceLabel.textContent = "UNAPPLIED";
+  for (const control of stripWorkshopDialog.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement | HTMLButtonElement>("input, select, textarea, button")) {
+    if (control.value === "cancel" || (row.contains(control) && (!(control instanceof HTMLButtonElement) || control === applyButton))) continue;
+    if (!control.disabled) {
+      control.disabled = true;
+      control.dataset.workshopDraftDisabled = "1";
+    }
+  }
+  setStatus(`Beat ${index + 1} has unapplied edits. Choose Apply changes before continuing elsewhere.`);
+}
+
+function clearWorkshopDraftLock(): void {
+  activeWorkshopDraftRow = undefined;
+  for (const control of stripWorkshopDialog.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement | HTMLButtonElement>("[data-workshop-draft-disabled='1']")) {
+    control.disabled = false;
+    delete control.dataset.workshopDraftDisabled;
+  }
+}
+
 async function applyWorkshopLine(
   index: number,
   row: HTMLElement,
@@ -2386,6 +2414,7 @@ async function applyWorkshopLine(
 }
 
 function renderStripWorkshop(): void {
+  clearWorkshopDraftLock();
   workshopComicTitle.value = comicTitleOverride;
   updateWorkshopAddActions();
   updateStudioHistoryControls();
@@ -2577,6 +2606,12 @@ function renderStripWorkshop(): void {
     apply.addEventListener("click", () => {
       void applyWorkshopLine(index, row, cast, name, mode, pose, message, placement, reaction).catch(showError);
     });
+    for (const control of [cast, mode, pose, placement, reaction]) {
+      control.addEventListener("change", () => markWorkshopLineDraft(row, apply, index));
+    }
+    for (const control of [name, message]) {
+      control.addEventListener("input", () => markWorkshopLineDraft(row, apply, index));
+    }
     const earlier = document.createElement("button");
     earlier.type = "button";
     earlier.textContent = "↑ Earlier";
@@ -3202,6 +3237,17 @@ workshopAddSilentButton.addEventListener("click", () => {
 workshopAddEmptyButton.addEventListener("click", () => {
   void addWorkshopBlankPanel().catch(showError);
 });
+stripWorkshopDialog.addEventListener("click", (event) => {
+  const button = (event.target as Element).closest<HTMLButtonElement>('button[value="cancel"]');
+  if (!button || !activeWorkshopDraftRow) return;
+  if (!window.confirm("Discard the highlighted line edits and close the Studio?")) event.preventDefault();
+});
+stripWorkshopDialog.addEventListener("cancel", (event) => {
+  if (activeWorkshopDraftRow && !window.confirm("Discard the highlighted line edits and close the Studio?")) {
+    event.preventDefault();
+  }
+});
+stripWorkshopDialog.addEventListener("close", clearWorkshopDraftLock);
 stripWorkshopDialog.addEventListener("keydown", (event) => {
   if (!(event.metaKey || event.ctrlKey) || event.altKey) return;
   if (event.key.toLocaleLowerCase() === "s") {

@@ -30,7 +30,9 @@ font, cast, dialogue, poses and panel choices across browser sessions; the
 Studio validates project files before replacing the current comic. Ctrl/⌘+S
 saves the editable project. A bounded Undo/Redo history covers additions,
 rewrites, reordering, duplication, removal, title changes, scenes and fonts
-during the current Studio session.
+during the current Studio session. When an existing beat is being rewritten,
+the Studio highlights it and temporarily locks the other editing commands until
+**Apply changes** is chosen, so an unfinished line cannot be silently discarded.
 
 The member list and character controls have independent, clipped scroll areas,
 so a long room roster cannot overlap the character preview. **Enlarge** widens
