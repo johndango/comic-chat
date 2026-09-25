@@ -295,7 +295,7 @@ button:disabled { color: #808080; text-shadow: 1px 1px #fff; cursor: not-allowed
 .workshop-project-tools > label { display: grid; gap: 2px; font-size: 10px; font-weight: 700; }
 .workshop-project-tools > label select { max-width: 155px; font-size: 11px; }
 .workshop-project-tools button { white-space: nowrap; }
-.workshop-project-actions { display: flex; gap: 5px; }
+.workshop-project-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 5px; }
 .workshop-help { margin-top: 7px; padding: 5px 8px; background: #ffffdf; border: 1px solid #9a9a70; }
 .workshop-help summary { cursor: pointer; font-weight: 700; }
 .workshop-help ol { margin: 8px 0 6px; padding-left: 24px; }

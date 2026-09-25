@@ -63,6 +63,7 @@ import {
   createStudioProject,
   parseStudioProject,
   studioProjectJson,
+  type StudioProject,
   type StudioProjectLine,
 } from "./studio-project";
 
@@ -225,6 +226,8 @@ const PANEL_SCALE = 1 / 15;
 const PANEL_PIXELS = PANEL_TWIPS * PANEL_SCALE;
 const MAX_LIVE_LINES = 48;
 const MAX_SESSION_CUSTOM_AVATARS = 24;
+const STUDIO_AUTOSAVE_KEY = "webcomicchat-studio-autosave-v1";
+const STUDIO_AUTOSAVE_TIME_KEY = "webcomicchat-studio-autosave-time-v1";
 
 interface LoadedAvatar {
   buffer: ArrayBuffer;
@@ -605,10 +608,10 @@ app.innerHTML = `
             <button id="workshop-apply-title" type="button">Apply title</button>
           </div>
           <div class="workshop-project-tools">
-            <div class="workshop-project-description"><strong>Editable project</strong><span>Save the script, cast, poses, and panel choices so you can continue later.</span></div>
+            <div class="workshop-project-description"><strong>Editable project</strong><span>Download a project, or recover the latest compatible Studio edit kept in this browser.</span></div>
             <label>Scene<select id="workshop-background">${backdrops.map(({ file, label }) => `<option value="${file}">${label}</option>`).join("")}</select></label>
             <label>Font<select id="workshop-font">${comicFontOptionsMarkup}</select></label>
-            <div class="workshop-project-actions"><button id="workshop-new-project" type="button">New blank</button><button id="workshop-open-project" type="button">Open project…</button><button id="workshop-save-project" type="button">Save project</button></div>
+            <div class="workshop-project-actions"><button id="workshop-new-project" type="button">New blank</button><button id="workshop-recover-project" type="button" disabled>Recover draft</button><button id="workshop-open-project" type="button">Open project…</button><button id="workshop-save-project" type="button">Save project</button></div>
             <input id="workshop-project-file" class="visually-hidden" type="file" accept=".json,.wcc.json,application/json" />
           </div>
           <details class="workshop-help">
@@ -620,7 +623,8 @@ app.innerHTML = `
               <li>Use <strong>Add speaking character</strong> for dialogue, <strong>Add silent character</strong> for a posed character without a balloon, or <strong>Add empty panel</strong> for a backdrop-only pacing shot.</li>
               <li>Edit, recast, or pose an existing beat below, then choose its highlighted <strong>Apply changes</strong> button. Reorder, duplicate, and remove are immediate.</li>
               <li><strong>Undo edit</strong> and <strong>Redo</strong> cover the current Studio session.</li>
-              <li>Use <strong>Save project</strong> to keep an editable copy, then <strong>Save Comic</strong> in the main window to export the PNG.</li>
+              <li>Use <strong>Save project</strong> to download an editable copy. <strong>Recover draft</strong> restores the latest compatible edit saved only in this browser.</li>
+              <li>Use <strong>Save Comic</strong> in the main window to export the finished PNG.</li>
             </ol>
             <p>Studio changes stay in this browser and are never sent to IRC. Comic Chat may start a new panel automatically when a character speaks twice or a shot becomes full. Press Ctrl/⌘+S to save the editable project.</p>
           </details>
@@ -765,6 +769,7 @@ const workshopSummary = element<HTMLOutputElement>("#workshop-summary");
 const workshopComicTitle = element<HTMLInputElement>("#workshop-comic-title");
 const workshopApplyTitleButton = element<HTMLButtonElement>("#workshop-apply-title");
 const workshopNewProjectButton = element<HTMLButtonElement>("#workshop-new-project");
+const workshopRecoverProjectButton = element<HTMLButtonElement>("#workshop-recover-project");
 const workshopOpenProjectButton = element<HTMLButtonElement>("#workshop-open-project");
 const workshopSaveProjectButton = element<HTMLButtonElement>("#workshop-save-project");
 const workshopProjectFile = element<HTMLInputElement>("#workshop-project-file");
@@ -840,6 +845,7 @@ const studioRedoHistory: StudioSnapshot[] = [];
 let activeWorkshopDraftRow: HTMLElement | undefined;
 let workshopPosePreviewGeneration = 0;
 let workshopPosePreviewTimer: ReturnType<typeof setTimeout> | undefined;
+let studioAutosaveQueued = false;
 let remoteQueue = Promise.resolve();
 const pendingLiveLines: PendingLiveLine[] = [];
 const publicRooms = new Map<string, LiveRoomEvent>();
@@ -2153,6 +2159,7 @@ function recordStudioEdit(): void {
   if (studioUndoHistory.length > 50) studioUndoHistory.shift();
   studioRedoHistory.length = 0;
   updateStudioHistoryControls();
+  queueStudioAutosave();
 }
 
 function resetStudioHistory(): void {
@@ -2182,6 +2189,7 @@ async function restoreStudioSnapshot(snapshot: StudioSnapshot, message: string):
     else await renderStrip();
     prepareWorkshopAddForm(true);
     renderStripWorkshop();
+    persistStudioAutosave();
     setStatus(message);
   } finally {
     setWorkshopBusy(false);
@@ -2222,6 +2230,76 @@ function downloadableStudioLine(line: ConversationLine): StudioProjectLine {
   };
 }
 
+function currentStudioProject(): StudioProject {
+  const backgroundId = studioBackdropIdByFile.get(backdropSelect.value);
+  if (!backgroundId) throw new Error("Choose a built-in Studio scene before saving an editable project");
+  return createStudioProject(
+    comicTitleOverride,
+    backgroundId,
+    comicFontId,
+    conversation.map(downloadableStudioLine),
+  );
+}
+
+function readStudioAutosave(): StudioProject | undefined {
+  try {
+    const source = localStorage.getItem(STUDIO_AUTOSAVE_KEY);
+    return source ? parseStudioProject(source) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function refreshStudioAutosaveButton(): void {
+  const project = readStudioAutosave();
+  workshopRecoverProjectButton.disabled = !project || project.lines.length === 0;
+  if (!project || project.lines.length === 0) {
+    workshopRecoverProjectButton.title = "No browser recovery draft is available";
+    return;
+  }
+  let saved = "an earlier session";
+  try {
+    const value = localStorage.getItem(STUDIO_AUTOSAVE_TIME_KEY);
+    const date = value ? new Date(value) : undefined;
+    if (date && !Number.isNaN(date.valueOf())) saved = date.toLocaleString();
+  } catch {}
+  workshopRecoverProjectButton.title = `Recover ${project.lines.length} ${project.lines.length === 1 ? "beat" : "beats"} saved ${saved}`;
+}
+
+function clearStudioAutosave(): void {
+  try {
+    localStorage.removeItem(STUDIO_AUTOSAVE_KEY);
+    localStorage.removeItem(STUDIO_AUTOSAVE_TIME_KEY);
+  } catch {}
+  refreshStudioAutosaveButton();
+}
+
+function persistStudioAutosave(): void {
+  if (conversation.length === 0) {
+    clearStudioAutosave();
+    return;
+  }
+  try {
+    localStorage.setItem(STUDIO_AUTOSAVE_KEY, studioProjectJson(currentStudioProject()));
+    localStorage.setItem(STUDIO_AUTOSAVE_TIME_KEY, new Date().toISOString());
+    refreshStudioAutosaveButton();
+  } catch {
+    // Temporary and hosted characters cannot be represented by the portable
+    // project format. Keep the last recoverable draft instead of erasing it.
+    refreshStudioAutosaveButton();
+    workshopRecoverProjectButton.title += ". Current changes use a non-portable character, so browser recovery is paused";
+  }
+}
+
+function queueStudioAutosave(): void {
+  if (studioAutosaveQueued) return;
+  studioAutosaveQueued = true;
+  queueMicrotask(() => {
+    studioAutosaveQueued = false;
+    persistStudioAutosave();
+  });
+}
+
 function studioProjectFilename(title: string): string {
   const slug = title.trim().toLocaleLowerCase()
     .normalize("NFKD")
@@ -2241,18 +2319,12 @@ async function newStudioProject(): Promise<void> {
   prepareWorkshopAddForm(true);
   renderStripWorkshop();
   resetStudioHistory();
+  clearStudioAutosave();
   setStatus("New blank Studio project ready. Scene and font choices were kept.");
 }
 
 function saveStudioProject(): void {
-  const backgroundId = studioBackdropIdByFile.get(backdropSelect.value);
-  if (!backgroundId) throw new Error("Choose a built-in Studio scene before saving an editable project");
-  const project = createStudioProject(
-    comicTitleOverride,
-    backgroundId,
-    comicFontId,
-    conversation.map(downloadableStudioLine),
-  );
+  const project = currentStudioProject();
   const url = URL.createObjectURL(new Blob([studioProjectJson(project)], { type: "application/json" }));
   const link = document.createElement("a");
   link.href = url;
@@ -2262,10 +2334,10 @@ function saveStudioProject(): void {
   setStatus(`Editable Studio project saved with ${project.lines.length} ${project.lines.length === 1 ? "beat" : "beats"}.`);
 }
 
-async function openStudioProject(file: File): Promise<void> {
+async function openStudioProject(file: File): Promise<boolean> {
   if (file.size > 512 * 1024) throw new Error("Studio project files must be 512 KB or smaller");
   const project = parseStudioProject(await file.text());
-  if (conversation.length > 0 && !window.confirm("Replace the current comic with this Studio project?")) return;
+  if (conversation.length > 0 && !window.confirm("Replace the current comic with this Studio project?")) return false;
   setWorkshopBusy(true);
   try {
     const backgroundFile = studioBackdropFileById.get(project.backgroundId);
@@ -2313,10 +2385,22 @@ async function openStudioProject(file: File): Promise<void> {
     prepareWorkshopAddForm(true);
     renderStripWorkshop();
     resetStudioHistory();
+    persistStudioAutosave();
     setStatus(`Opened ${file.name}: ${project.lines.length} editable ${project.lines.length === 1 ? "beat" : "beats"}.`);
+    return true;
   } finally {
     setWorkshopBusy(false);
   }
+}
+
+async function recoverStudioAutosave(): Promise<void> {
+  let source: string | null = null;
+  try {
+    source = localStorage.getItem(STUDIO_AUTOSAVE_KEY);
+  } catch {}
+  if (!source) throw new Error("No browser recovery draft is available");
+  const recovered = await openStudioProject(new File([source], "browser recovery draft.wcc.json", { type: "application/json" }));
+  if (recovered) setStatus("Recovered the browser-local Studio draft. It has not been sent anywhere.");
 }
 
 function prepareWorkshopAddForm(resetCharacter = false): void {
@@ -2712,6 +2796,7 @@ function openStripWorkshop(): void {
   workshopFont.value = comicFontId;
   workshopFont.style.fontFamily = comicFontOption(comicFontId).family;
   resetStudioHistory();
+  refreshStudioAutosaveButton();
   renderStripWorkshop();
   stripWorkshopDialog.showModal();
 }
@@ -3241,6 +3326,9 @@ workshopSaveProjectButton.addEventListener("click", () => {
 });
 workshopNewProjectButton.addEventListener("click", () => {
   void newStudioProject().catch(showError);
+});
+workshopRecoverProjectButton.addEventListener("click", () => {
+  void recoverStudioAutosave().catch(showError);
 });
 workshopUndoButton.addEventListener("click", () => {
   void undoStudioEdit().catch(showError);
