@@ -464,3 +464,56 @@ describe("gremlin persona (n00bBot)", () => {
     expect(sent).toHaveLength(0);
   });
 });
+
+describe("people's shorthand for the AI bots", () => {
+  const T = 1_800_000_000_000;
+  function brainFor(nick: string, persona?: "gremlin") {
+    const sent: string[] = [];
+    const brain = new CamBrain({ ...config, nick, persona }, async (_s, c) => (sent.push(c), { text: "hi :)", refused: false, costUsd: 0 }));
+    brain.names("#c", ["@johndango", "Anna", nick]);
+    let t = T;
+    const heard = async (text: string) => {
+      const before = sent.length;
+      await brain.message("#c", "Anna", text, (t += 60_000));
+      return sent.length > before;
+    };
+    return { heard, sent };
+  }
+
+  it("answers TongueTiedBot's nicknames when they open the line", async () => {
+    const { heard } = brainFor("TongueTiedBot");
+    for (const line of ["TTB: what's up?", "ttb what year is it", "tongue tied, hi", "Tongue-Tied hello there", "tongue tied bot: yo", "tongue, are you there?", "Tongue!", "hey tongue what's new", "tonguetied is my favourite", "@TTB hi", "what do you think, TTB?", "thanks tongue tied"]) {
+      expect(await heard(line), line).toBe(true);
+    }
+  });
+
+  it("ignores those words used normally", async () => {
+    const { heard } = brainFor("TongueTiedBot");
+    for (const line of ["I'm totally tongue tied today", "tongue twisters are hard", "my tongue hurts", "the TTB thing again", "ttbar is not a word"]) {
+      expect(await heard(line), line).toBe(false);
+    }
+  });
+
+  it("answers n00bBot as noob or n00b", async () => {
+    const { heard } = brainFor("n00bBot", "gremlin");
+    for (const line of ["noob: what year is it", "n00b what's a modem", "noob!", "hey noob, you there?", "noob bot tell me a joke", "noobbot is weird", "good one, noob", "bye noob"]) {
+      expect(await heard(line), line).toBe(true);
+    }
+    for (const line of ["noob mistake lol", "such a noob move", "I'm a noob at this", "you're such a noob"]) {
+      expect(await heard(line), line).toBe(false);
+    }
+  });
+
+  it("passes on what was actually said, without the nickname", async () => {
+    const { heard, sent } = brainFor("TongueTiedBot");
+    await heard("TTB, what's your favourite comic?");
+    expect(sent.at(-1)).toContain("what's your favourite comic?");
+    expect(sent.at(-1)).not.toMatch(/"text":"TTB/);
+  });
+
+  it("lets shorthand send a bot away", async () => {
+    const { heard } = brainFor("n00bBot", "gremlin");
+    expect(await heard("noob, go away")).toBe(false); // canned reply, no model call
+    expect(await heard("noob: hi")).toBe(false); // muted
+  });
+});

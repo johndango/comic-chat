@@ -48,6 +48,9 @@ const PER_PERSON_PER_MINUTE = 3;
 const PER_HOUR = 40;
 
 const fold = (s: string) => s.toLowerCase();
+const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\-]/g, "\\$&");
+/** n00b ↔ noob: people type the bot's name either way. */
+const leet = (s: string) => (/0/.test(s) ? s.replace(/0/g, "o") : s);
 const looksLikeBot = (nick: string, ignore: Set<string>) =>
   ignore.has(fold(nick)) || /(bot|serv)[_\d]*$/i.test(nick) || /^(chanserv|nickserv)$/i.test(nick);
 
@@ -198,40 +201,107 @@ export class CamBrain {
   /** "go away n00bBot!" / "TongueTiedBot please stop" → "go away" / "stop". */
   private commandWords(request: string): string {
     let words = ` ${request.toLowerCase()} `;
-    for (const name of this.aliases()) words = words.split(name).join(" ");
+    const names = [...this.aliases(), ...this.shorthands().map(({ name }) => name)].sort((a, b) => b.length - a.length);
+    for (const name of names) words = words.replace(new RegExp(`(^|[^a-z0-9_])@?${escapeRegExp(name)}(?=$|[^a-z0-9_])`, "g"), " ");
     return words.replace(/[^a-z\s]/g, " ").replace(/\b(please|pls|plz|now|ok|okay)\b/g, " ").replace(/\s+/g, " ").trim();
   }
 
+  /** Names that address the bot anywhere in a line: distinctive enough not to be ordinary words. */
   private aliases(): string[] {
-    const nick = this.config.nick;
+    const nick = this.config.nick.toLowerCase();
     const base = nick.replace(/bot[_\d]*$/i, "");
-    const names = new Set([nick.toLowerCase()]);
-    // Short bases ("Cam") would match ordinary words, so only longer ones count.
+    const names = new Set([nick, leet(nick)]);
+    // Short bases ("Cam", "n00b") would match ordinary words, so only longer ones count here.
     if (base.length >= 5) {
-      names.add(base.toLowerCase());
-      const words = base.replace(/([a-z])([A-Z])/g, "$1 $2").toLowerCase();
-      names.add(words);
-      names.add(words.replace(/ /g, "-"));
+      names.add(base);
+      names.add(leet(base));
     }
     return [...names];
   }
 
   /**
+   * Nicknames people use at the start of a line to talk to the bot: "TTB: hi",
+   * "tongue tied, what's up", "n00b you're wrong". `loose` ones are ordinary
+   * words ("tongue", "noob"), so they only count with punctuation after them,
+   * on their own, or after a greeting ("hey noob"): "noob mistake lol" doesn't.
+   */
+  private shorthands(): Array<{ name: string; loose: boolean }> {
+    const base = this.config.nick.replace(/bot[_\d]*$/i, "");
+    const words = base.replace(/([a-z])([A-Z])/g, "$1 $2").toLowerCase().split(/\s+/).filter(Boolean);
+    const out = new Map<string, boolean>();
+    const add = (name: string, loose = false) => {
+      if (name.length >= 3 && !out.has(name)) out.set(name, loose);
+    };
+    const lower = base.toLowerCase();
+    add(lower, /^[a-z]+$/.test(lower) && lower.length < 6);
+    add(leet(lower), /^[a-z]+$/.test(leet(lower)) && lower.length < 6);
+    if (words.length > 1) {
+      for (const joined of [words.join(" "), words.join("-")]) {
+        add(joined);
+        add(`${joined} bot`);
+        add(`${joined}-bot`);
+      }
+      add(`${words.map((word) => word[0]).join("")}b`);
+      if (words[0].length >= 4) add(words[0], true);
+    } else {
+      for (const single of new Set([lower, leet(lower)])) add(`${single} bot`);
+    }
+    return [...out].map(([name, loose]) => ({ name, loose })).sort((a, b) => b.name.length - a.name.length);
+  }
+
+  /** "hey noob, what year is it?" → "what year is it?" if a shorthand opens the line. */
+  private shorthandRequest(text: string): string | null {
+    const match = text.match(/^\s*(?:(hey|hi|hello|yo|oi|ok|okay)[\s,]+)?@?([\s\S]*)$/iu);
+    if (!match) return null;
+    const greeted = Boolean(match[1]);
+    const rest = match[2];
+    const lower = rest.toLowerCase();
+    for (const { name, loose } of this.shorthands()) {
+      if (!lower.startsWith(name)) continue;
+      const after = rest.slice(name.length);
+      if (/^[a-z0-9_]/i.test(after)) continue;
+      const punctuated = /^\s*[:,!?.]/.test(after) || after.trim() === "";
+      if (loose && !punctuated && !greeted) continue;
+      const request = after.replace(/^[\s:,!?.]+/, "").trim();
+      return request || text.trim();
+    }
+    return null;
+  }
+
+  /** "what do you think, TTB?" / "thanks tongue-tied!": a nickname closing the line, after a comma or a thanks/bye. */
+  private shorthandAtEnd(text: string): string | null {
+    const lower = text.toLowerCase().replace(/[\s!?.:)(]+$/u, "");
+    for (const { name } of this.shorthands()) {
+      if (!lower.endsWith(name)) continue;
+      const before = lower.slice(0, -name.length);
+      if (/[a-z0-9_@]$/.test(before)) continue;
+      if (/,\s*@?$/.test(before) || /(^|\s)(thanks|thank you|thx|ty|bye|cya|later|night|gn|hi|hey|hello|yo)\s+@?$/.test(before)) return text.trim();
+    }
+    return null;
+  }
+
+  /**
    * The request if this line is addressed to the bot, else null. Counts:
    * "Name: hi" / "@Name hi" / "Anna, Name: hi" (what the site sends when you
-   * pick people in the member list), or the name anywhere in the line.
+   * pick people in the member list), the name anywhere in the line, or a
+   * shorthand ("TTB", "noob") opening the line.
    */
   /** `prefixOnly`: only "Name: ..." counts, not the name anywhere in the line. */
   private addressed(text: string, prefixOnly = false): string | null {
     const names = this.aliases();
+    const known = new Set([...names, ...this.shorthands().map(({ name }) => name)]);
     // "Anna, Name: hi" (a list needs the colon) or "Name, hi" (one name, comma).
     const prefix = text.match(/^\s*@?([^:]{1,120}?)\s*:\s+(\S[\s\S]*)$/u) ?? text.match(/^\s*@?([^\s,:]{1,32}),\s+(\S[\s\S]*)$/u);
     if (prefix) {
       const listed = prefix[1].split(/\s*,\s*|\s+and\s+/u).map((name) => name.replace(/^@/, "").toLowerCase());
-      if (listed.some((name) => names.includes(name))) return prefix[2].trim();
+      // The daily starter (another bot) must use the full name; people can use shorthands.
+      const pool = prefixOnly ? new Set(names) : known;
+      if (listed.some((name) => pool.has(name))) return prefix[2].trim();
     }
     if (prefixOnly) return null;
-    const anywhere = new RegExp(`(^|[^a-z0-9_])@?(${names.map((n) => n.replace(/[.*+?^${}()|[\]\\-]/g, "\\$&")).join("|")})(?=$|[^a-z0-9_])`, "i");
+    const shorthand = this.shorthandRequest(text) ?? this.shorthandAtEnd(text);
+    if (shorthand !== null) return shorthand;
+    const anywhere = new RegExp(`(^|[^a-z0-9_])@?(${names.map(escapeRegExp).join("|")})(?=$|[^a-z0-9_])`, "i");
     return anywhere.test(text) ? text.trim() : null;
   }
 
