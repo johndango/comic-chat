@@ -703,7 +703,7 @@ app.innerHTML = `
     </dialog>
     <dialog id="community-avatar-upload-dialog" class="classic-dialog community-avatar-upload-dialog" aria-labelledby="community-avatar-upload-title">
       <form method="dialog">
-        <header><strong id="community-avatar-upload-title">Upload a Community Avatar</strong><button value="cancel" formnovalidate aria-label="Close">×</button></header>
+        <header><strong id="community-avatar-upload-title">Upload a Community Avatar</strong><button type="button" data-community-upload-close aria-label="Close">×</button></header>
         <div class="dialog-body community-avatar-form">
           <p>Your avatar becomes public immediately after automatic technical validation. This check cannot determine whether artwork is appropriate or whether you own it.</p>
           <label>.avb file<input id="community-avatar-upload-file" type="file" accept=".avb,application/octet-stream" required /></label>
@@ -715,12 +715,12 @@ app.innerHTML = `
           <label class="community-avatar-confirm"><input id="community-avatar-upload-rules" type="checkbox" /> This upload follows the community rules: no sexual, exploitative, hateful, harassing, graphic, illegal, privacy-invasive, or stolen content.</label>
           <p id="community-avatar-upload-status" role="status"></p>
         </div>
-        <footer><button id="community-avatar-upload-submit" type="button">Validate &amp; publish</button><button value="cancel" formnovalidate>Cancel</button></footer>
+        <footer><button id="community-avatar-upload-submit" type="button">Validate &amp; publish</button><button type="button" data-community-upload-close>Cancel</button></footer>
       </form>
     </dialog>
     <dialog id="community-avatar-report-dialog" class="classic-dialog community-avatar-report-dialog" aria-labelledby="community-avatar-report-title">
       <form method="dialog">
-        <header><strong id="community-avatar-report-title">Report Community Avatar</strong><button value="cancel" formnovalidate aria-label="Close">×</button></header>
+        <header><strong id="community-avatar-report-title">Report Community Avatar</strong><button type="button" data-community-report-close aria-label="Close">×</button></header>
         <div class="dialog-body community-avatar-form">
           <p id="community-avatar-report-name"></p>
           <label>Reason<select id="community-avatar-report-reason">
@@ -737,7 +737,7 @@ app.innerHTML = `
           <label>Details<textarea id="community-avatar-report-details" maxlength="500" rows="4" placeholder="Briefly explain the problem (optional)"></textarea></label>
           <p id="community-avatar-report-status" role="status"></p>
         </div>
-        <footer><button id="community-avatar-report-submit" type="button">Send report</button><button value="cancel" formnovalidate>Cancel</button></footer>
+        <footer><button id="community-avatar-report-submit" type="button">Send report</button><button type="button" data-community-report-close>Cancel</button></footer>
       </form>
     </dialog>
     <dialog id="generator-dialog" class="classic-dialog generator-dialog" aria-labelledby="generator-title">
@@ -998,6 +998,7 @@ const communityAvatarList = element<HTMLElement>("#community-avatar-list");
 const communityAvatarCatalogStatus = element<HTMLElement>("#community-avatar-catalog-status");
 const communityAvatarUploadOpen = element<HTMLButtonElement>("#community-avatar-upload-open");
 const communityAvatarUploadDialog = element<HTMLDialogElement>("#community-avatar-upload-dialog");
+const communityAvatarUploadCloseButtons = [...communityAvatarUploadDialog.querySelectorAll<HTMLButtonElement>("[data-community-upload-close]")];
 const communityAvatarUploadFile = element<HTMLInputElement>("#community-avatar-upload-file");
 const communityAvatarUploadName = element<HTMLInputElement>("#community-avatar-upload-name");
 const communityAvatarUploadCreator = element<HTMLInputElement>("#community-avatar-upload-creator");
@@ -1008,6 +1009,7 @@ const communityAvatarUploadRules = element<HTMLInputElement>("#community-avatar-
 const communityAvatarUploadStatus = element<HTMLElement>("#community-avatar-upload-status");
 const communityAvatarUploadSubmit = element<HTMLButtonElement>("#community-avatar-upload-submit");
 const communityAvatarReportDialog = element<HTMLDialogElement>("#community-avatar-report-dialog");
+const communityAvatarReportCloseButtons = [...communityAvatarReportDialog.querySelectorAll<HTMLButtonElement>("[data-community-report-close]")];
 const communityAvatarReportName = element<HTMLElement>("#community-avatar-report-name");
 const communityAvatarReportReason = element<HTMLSelectElement>("#community-avatar-report-reason");
 const communityAvatarReportDetails = element<HTMLTextAreaElement>("#community-avatar-report-details");
@@ -4679,6 +4681,13 @@ communityAvatarUploadOpen.addEventListener("click", () => {
   communityAvatarUploadStatus.textContent = "";
   communityAvatarUploadDialog.showModal();
 });
+for (const button of communityAvatarUploadCloseButtons) {
+  button.addEventListener("click", () => {
+    communityAvatarUploadDialog.close("cancel");
+    communityAvatarUploadDialog.querySelector("form")?.reset();
+    communityAvatarUploadStatus.textContent = "";
+  });
+}
 communityAvatarUploadSubmit.addEventListener("click", () => {
   void publishCommunityAvatar().catch((error) => {
     communityAvatarUploadStatus.textContent = error instanceof Error ? error.message : "Upload failed";
@@ -4689,6 +4698,12 @@ communityAvatarReportSubmit.addEventListener("click", () => {
     communityAvatarReportStatus.textContent = error instanceof Error ? error.message : "Could not send report";
   });
 });
+for (const button of communityAvatarReportCloseButtons) {
+  button.addEventListener("click", () => {
+    communityAvatarReportDialog.close("cancel");
+    communityAvatarReportStatus.textContent = "";
+  });
+}
 importAvatarButton.addEventListener("click", () => avatarFileInput.click());
 avatarFileInput.addEventListener("change", () => {
   const file = avatarFileInput.files?.[0];
