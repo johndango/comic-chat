@@ -32,7 +32,7 @@ export interface CreatorOptions {
   poses: CreatorPose[];
 }
 
-const MAX_POSES = 16;
+const MAX_POSES = 24;
 const MAX_DIMENSION = 512;
 const MAX_SOURCE_DIMENSION = 2048;
 

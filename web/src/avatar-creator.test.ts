@@ -24,6 +24,16 @@ describe("avatar creator", () => {
     expect(avatar.bodies).toHaveLength(1);
   });
 
+  it("supports a full expressive set with repeated emotions", async () => {
+    const poses = Array.from({ length: 24 }, (_, index) => ({
+      art: pose(),
+      emotion: index % 2 ? Emotion.Happy : Emotion.Neutral,
+      intensity: index % 2 ? index / 24 : 0,
+    }));
+    const avatar = parseAvatar(await buildSimpleAvatar({ name: "Expressive", style: "mono", aura: 3, poses }));
+    expect(avatar.bodies).toHaveLength(24);
+  });
+
   it("makes safe filenames and rejects oversized art", () => {
     expect(avatarDownloadName("  Dr. Åwesome!  ")).toBe("dr-awesome.avb");
     expect(() => validateCreatorArt({ width: 513, height: 20, pixels: new Uint8Array(513 * 20 * 4) }))

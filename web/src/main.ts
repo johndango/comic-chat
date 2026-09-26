@@ -876,8 +876,8 @@ app.innerHTML = `
           <p>Build a character from transparent full-body art. It stays local unless you choose to publish the downloaded .avb later.</p>
           <fieldset class="builder-mode-picker">
             <legend>How much do you want to customize?</legend>
-            <label><input type="radio" name="builder-mode" value="quick" checked /><span><strong>Quick character</strong><small>One picture. Comic Chat uses it as a neutral pose.</small></span></label>
-            <label><input type="radio" name="builder-mode" value="advanced" /><span><strong>Expressive character</strong><small>Up to 16 poses with emotions and strength settings.</small></span></label>
+            <label><input type="radio" name="builder-mode" value="quick" checked /><span><strong>Core character</strong><small>One guided pose for every expression and gesture.</small></span></label>
+            <label><input type="radio" name="builder-mode" value="advanced" /><span><strong>Expressive character</strong><small>Up to 24 poses, including gestures and variations.</small></span></label>
           </fieldset>
           <div class="builder-fields">
             <label>Name <input id="builder-name" maxlength="60" placeholder="Character name" /></label>
@@ -888,10 +888,10 @@ app.innerHTML = `
           <div class="builder-add-row">
             <button id="builder-add-poses" type="button">Add pose images…</button>
             <input id="builder-files" class="visually-hidden" type="file" accept="image/png,image/webp,image/jpeg" multiple />
-            <small id="builder-image-help">Choose one transparent full-body image. Source art up to 2048 px is reduced to fit 512 px.</small>
+            <small id="builder-image-help">Add 14 full-body images in the guided order shown below.</small>
           </div>
           <p class="builder-art-guide"><strong>For the classic look:</strong> use transparent PNGs with the full character visible, consistent scale and foot position, bold black outlines, and simple shading. Original whole-body art is usually about 150–300 px wide and 300–470 px tall.</p>
-          <p class="builder-art-guide builder-advanced"><strong>Emotion and intensity:</strong> assign what each pose conveys. Intensity tells Comic Chat how strongly it conveys it, so a slight smile might be <em>Happy · subtle</em> while a huge grin is <em>Happy · strong</em>. This helps the automatic pose picker match the tone of a message. Keep Neutral at 0%.</p>
+          <p class="builder-art-guide builder-advanced"><strong>Emotion and intensity:</strong> assign what each pose conveys. Intensity tells Comic Chat how strongly it conveys it, so a slight smile might be <em>Happy · subtle</em> while a huge grin is <em>Happy · strong</em>. Multiple poses may share an emotion at different strengths; Neutral poses rotate. Keep Neutral at 0%.</p>
           <div id="builder-pose-list" class="builder-pose-list"></div>
           <p id="builder-status" class="builder-status" role="status">Add at least one neutral pose.</p>
         </div>
@@ -1156,6 +1156,8 @@ let suppressWheelChange = false;
 let importedAvatarSequence = 0;
 let importedBackdropSequence = 0;
 const builderPoses: Array<CreatorPose & { filename: string }> = [];
+const QUICK_BUILDER_EMOTIONS = BUILDER_EMOTIONS.map(([emotion]) => emotion);
+const BUILDER_EMOTION_NAMES = new Map<number, string>(BUILDER_EMOTIONS);
 let builderBusy = false;
 let forceNextPanel = false;
 let minimizeSurpriseShown = false;
@@ -1368,35 +1370,44 @@ function builderMode(): "quick" | "advanced" {
   return builderModeInputs.find((input) => input.checked)?.value === "advanced" ? "advanced" : "quick";
 }
 
+function quickBuilderStatus(): string {
+  const missing = QUICK_BUILDER_EMOTIONS.find((emotion) => !builderPoses.some((pose) => pose.emotion === emotion));
+  if (missing === undefined) return "All 14 core poses are ready. Add a name, then build your character.";
+  return `${builderPoses.length} / 14 core poses ready. Next: ${BUILDER_EMOTION_NAMES.get(missing) ?? "pose"}.`;
+}
+
 function applyBuilderMode(): void {
   const mode = builderMode();
-  if (mode === "quick" && builderPoses.length > 1) {
+  if (mode === "quick" && builderPoses.length > QUICK_BUILDER_EMOTIONS.length) {
     const advanced = builderModeInputs.find((input) => input.value === "advanced");
     if (advanced) advanced.checked = true;
     avatarBuilderDialog.dataset.mode = "advanced";
-    setBuilderStatus("This character already has several poses. Remove all but one before switching to Quick character.", true);
+    setBuilderStatus("Core character uses 14 poses. Remove extras before switching from Expressive character.", true);
     return;
   }
   avatarBuilderDialog.dataset.mode = mode;
-  builderFilesInput.multiple = mode === "advanced";
-  builderAddPosesButton.textContent = mode === "advanced" ? "Add pose images…" : "Choose character image…";
+  builderFilesInput.multiple = true;
+  builderAddPosesButton.textContent = mode === "advanced" ? "Add pose images…" : "Add core pose images…";
   builderImageHelp.textContent = mode === "advanced"
-    ? "Add up to 16 transparent full-body poses. Source art up to 2048 px is reduced to fit 512 px."
-    : "Choose one transparent full-body image. Source art up to 2048 px is reduced to fit 512 px.";
-  if (mode === "quick" && builderPoses[0]) {
-    builderPoses[0].emotion = 9;
-    builderPoses[0].intensity = 0;
+    ? "Add up to 24 full-body poses, including repeated expressions and gestures. Source art up to 2048 px is reduced to fit 512 px."
+    : "Add one pose for each slot: Neutral, Happy, Coy, Bored, Scared, Sad, Angry, Shout, Laugh, Wave, Point at other, Point at self, Double point, and Shrug. Number filenames 01–14 if selecting them together.";
+  if (mode === "quick") {
+    builderPoses.forEach((pose, index) => {
+      pose.emotion = QUICK_BUILDER_EMOTIONS[index];
+      pose.intensity = pose.emotion === 9 ? 0 : 0.8;
+    });
   }
   renderBuilderPoses();
   setBuilderStatus(builderPoses.length
-    ? mode === "quick" ? "Your neutral character image is ready." : `${builderPoses.length} pose images ready. Assign the matching emotion to each.`
-    : mode === "quick" ? "Choose one transparent character image." : "Add at least one neutral pose.");
+    ? mode === "quick" ? quickBuilderStatus() : `${builderPoses.length} pose images ready. Assign the matching emotion to each.`
+    : mode === "quick" ? quickBuilderStatus() : "Add at least one neutral pose.");
 }
 
 function updateBuilderControls(): void {
   builderAuraValue.value = `${builderAuraInput.value} px`;
   builderAddPosesButton.disabled = builderBusy;
-  builderDownloadButton.disabled = builderBusy || builderPoses.length === 0 || builderNameInput.value.trim().length === 0;
+  const posesReady = builderMode() === "quick" ? builderPoses.length === QUICK_BUILDER_EMOTIONS.length : builderPoses.length > 0;
+  builderDownloadButton.disabled = builderBusy || !posesReady || builderNameInput.value.trim().length === 0;
   builderClearButton.disabled = builderBusy || builderPoses.length === 0;
 }
 
@@ -1474,15 +1485,24 @@ function renderBuilderPoses(): void {
       intensityValue.value = builderIntensityLabel(Number(intensity.value));
     });
     intensityLabel.append(intensity, intensityValue);
-    details.append(filename, emotion, intensityLabel);
+    const quickEmotion = document.createElement("span");
+    quickEmotion.className = "builder-quick-emotion";
+    quickEmotion.textContent = `${BUILDER_EMOTION_NAMES.get(pose.emotion) ?? "Core"} pose`;
+    details.append(filename, quickEmotion, emotion, intensityLabel);
     const remove = document.createElement("button");
     remove.type = "button";
     remove.textContent = "Remove";
     remove.setAttribute("aria-label", `Remove ${pose.filename}`);
     remove.addEventListener("click", () => {
       builderPoses.splice(index, 1);
+      if (builderMode() === "quick") {
+        builderPoses.forEach((remaining, remainingIndex) => {
+          remaining.emotion = QUICK_BUILDER_EMOTIONS[remainingIndex];
+          remaining.intensity = remaining.emotion === 9 ? 0 : 0.8;
+        });
+      }
       renderBuilderPoses();
-      setBuilderStatus(builderPoses.length ? `${builderPoses.length} pose images ready.` : "Add at least one neutral pose.");
+      setBuilderStatus(builderMode() === "quick" ? quickBuilderStatus() : builderPoses.length ? `${builderPoses.length} pose images ready.` : "Add at least one neutral pose.");
     });
     row.append(preview, details, remove);
     builderPoseList.append(row);
@@ -1492,9 +1512,9 @@ function renderBuilderPoses(): void {
 
 async function addBuilderPoseFiles(files: readonly File[]): Promise<void> {
   const advanced = builderMode() === "advanced";
-  const maximum = advanced ? 16 : 1;
+  const maximum = advanced ? 24 : QUICK_BUILDER_EMOTIONS.length;
   if (builderPoses.length + files.length > maximum) {
-    throw new Error(advanced ? "A character can have at most 16 poses" : "Quick character uses one image. Choose Expressive character to add more poses.");
+    throw new Error(advanced ? "An expressive character can have at most 24 poses" : "Core character uses exactly 14 expression and gesture images. Choose Expressive character to add more.");
   }
   const defaults = [9, 1, 5, 6, 10, 8, 7, 14];
   builderBusy = true;
@@ -1503,7 +1523,7 @@ async function addBuilderPoseFiles(files: readonly File[]): Promise<void> {
     for (const file of files) {
       setBuilderStatus(`Reading ${file.name}…`);
       const art = await imageFileToRgba(file);
-      const emotion = advanced ? defaults[builderPoses.length % defaults.length] : 9;
+      const emotion = advanced ? defaults[builderPoses.length % defaults.length] : QUICK_BUILDER_EMOTIONS[builderPoses.length];
       builderPoses.push({ filename: file.name, art, emotion, intensity: emotion === 9 ? 0 : 0.8 });
     }
   } finally {
@@ -1512,7 +1532,7 @@ async function addBuilderPoseFiles(files: readonly File[]): Promise<void> {
   }
   setBuilderStatus(advanced
     ? `${builderPoses.length} pose ${builderPoses.length === 1 ? "image" : "images"} ready. Assign the matching emotion to each.`
-    : "Your neutral character image is ready. Add a name, then build it.");
+    : quickBuilderStatus());
 }
 
 function downloadAvatar(buffer: ArrayBuffer, name: string): void {
@@ -4401,7 +4421,7 @@ builderFilesInput.addEventListener("change", () => {
 builderClearButton.addEventListener("click", () => {
   builderPoses.length = 0;
   renderBuilderPoses();
-  setBuilderStatus("Add at least one neutral pose.");
+  setBuilderStatus(builderMode() === "quick" ? quickBuilderStatus() : "Add at least one neutral pose.");
 });
 builderDownloadButton.addEventListener("click", () => {
   void buildAndUseAvatar().catch((error) => {
