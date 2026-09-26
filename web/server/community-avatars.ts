@@ -2,7 +2,7 @@ import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypt
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
-import { validateAvatarImport, MAX_AVATAR_FILE_BYTES } from "../src/avatar-import";
+import { validateAvatarImport, MAX_AVATAR_FILE_BYTES, MAX_AVATAR_FILE_LABEL } from "../src/avatar-import";
 
 const MAX_JSON_BYTES = Math.ceil(MAX_AVATAR_FILE_BYTES * 4 / 3) + 16 * 1024;
 const REPORT_REASONS = new Set(["sexual", "real-person", "hate", "harassment", "violence", "copyright", "spam", "other"]);
@@ -240,7 +240,7 @@ export class CommunityAvatarService {
       throw new HttpError(400, "Avatar file data is missing or unreadable");
     }
     const bytes = Buffer.from(body.fileBase64, "base64");
-    if (bytes.length === 0 || bytes.length > MAX_AVATAR_FILE_BYTES) throw new HttpError(413, "Avatar files must be 2 MB or smaller");
+    if (bytes.length === 0 || bytes.length > MAX_AVATAR_FILE_BYTES) throw new HttpError(413, `Avatar files must be ${MAX_AVATAR_FILE_LABEL} or smaller`);
     let validated;
     try {
       validated = await validateAvatarImport(arrayBuffer(bytes), filename);

@@ -251,7 +251,7 @@ in `community-data/` beside `dist/`; do not replace that directory during a
 deployment. The unlisted `/community-admin/` page accepts the token stored in
 `community-data/admin-token` (mode 0600). A 32-character-or-longer
 `COMMUNITY_ADMIN_TOKEN` environment variable overrides the generated token.
-The public upload API parses every `.avb` server-side, limits files to 2 MB,
+The public upload API parses every `.avb` server-side, limits files to 4 MB,
 rejects exact duplicates, and rate-limits uploads and reports. Technical
 validation does not constitute content approval, so reports still require
 human moderation.

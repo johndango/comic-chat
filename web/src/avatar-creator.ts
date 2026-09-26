@@ -1,4 +1,4 @@
-import { createSimpleCharacter, type ArtStyle, type Rgba } from "./avb-builder";
+import { createHeadAndTorsoCharacter, createSimpleCharacter, type ArtStyle, type Rgba } from "./avb-builder";
 import { writeAvbDocument } from "./avb-document";
 
 export const BUILDER_EMOTIONS = [
@@ -24,6 +24,10 @@ export interface CreatorPose {
   intensity: number;
 }
 
+export interface CreatorPartPose extends CreatorPose {
+  neck: { x: number; y: number };
+}
+
 export interface CreatorOptions {
   name: string;
   credit?: string;
@@ -32,7 +36,13 @@ export interface CreatorOptions {
   poses: CreatorPose[];
 }
 
+export interface CompositeCreatorOptions extends Omit<CreatorOptions, "poses"> {
+  faces: CreatorPartPose[];
+  torsos: CreatorPartPose[];
+}
+
 const MAX_POSES = 24;
+const MAX_PART_POSES = 20;
 const MAX_DIMENSION = 512;
 const MAX_SOURCE_DIMENSION = 2048;
 
@@ -52,6 +62,17 @@ export function creatorImageSize(width: number, height: number): { width: number
 
 function cleanText(value: string, maximum: number): string {
   return value.replace(/[\u0000-\u001f\u007f]/gu, "").trim().slice(0, maximum);
+}
+
+function characterMeta(options: Pick<CreatorOptions, "name" | "credit" | "style" | "aura">) {
+  const name = cleanText(options.name, 60);
+  if (!name) throw new Error("Enter a character name");
+  return {
+    name,
+    style: options.style,
+    encode: { aura: Math.max(0, Math.min(8, Math.round(options.aura))) },
+    ...(cleanText(options.credit ?? "", 240) ? { copyright: cleanText(options.credit ?? "", 240) } : {}),
+  };
 }
 
 export function avatarDownloadName(name: string): string {
@@ -75,17 +96,31 @@ export function validateCreatorArt(art: Rgba): void {
 }
 
 export async function buildSimpleAvatar(options: CreatorOptions): Promise<ArrayBuffer> {
-  const name = cleanText(options.name, 60);
-  if (!name) throw new Error("Enter a character name");
   if (options.poses.length === 0) throw new Error("Add at least one pose image");
   if (options.poses.length > MAX_POSES) throw new Error(`A character can have at most ${MAX_POSES} poses`);
   for (const pose of options.poses) validateCreatorArt(pose.art);
-  const document = createSimpleCharacter({
-    name,
-    style: options.style,
-    encode: { aura: Math.max(0, Math.min(8, Math.round(options.aura))) },
-    ...(cleanText(options.credit ?? "", 240) ? { copyright: cleanText(options.credit ?? "", 240) } : {}),
-  }, options.poses);
+  const document = createSimpleCharacter(characterMeta(options), options.poses);
+  const bytes = await writeAvbDocument(document);
+  const copy = new Uint8Array(bytes.byteLength);
+  copy.set(bytes);
+  return copy.buffer;
+}
+
+export async function buildCompositeAvatar(options: CompositeCreatorOptions): Promise<ArrayBuffer> {
+  if (options.faces.length === 0) throw new Error("Add at least one face image");
+  if (options.torsos.length === 0) throw new Error("Add at least one body image");
+  if (options.faces.length > MAX_PART_POSES || options.torsos.length > MAX_PART_POSES) {
+    throw new Error(`A mix-and-match character can have at most ${MAX_PART_POSES} faces and ${MAX_PART_POSES} bodies`);
+  }
+  for (const part of [...options.faces, ...options.torsos]) {
+    validateCreatorArt(part.art);
+    if (!Number.isFinite(part.neck.x) || !Number.isFinite(part.neck.y)
+      || part.neck.x < 0 || part.neck.x > part.art.width
+      || part.neck.y < 0 || part.neck.y > part.art.height) {
+      throw new Error("Every face and body needs a valid neck attachment point");
+    }
+  }
+  const document = createHeadAndTorsoCharacter(characterMeta(options), options.faces, options.torsos);
   const bytes = await writeAvbDocument(document);
   const copy = new Uint8Array(bytes.byteLength);
   copy.set(bytes);

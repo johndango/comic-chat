@@ -23,7 +23,7 @@ describe("custom avatar imports", () => {
     await expect(validateAvatarImport(bytes, "room.bgb"))
       .rejects.toThrow("not a backdrop");
     await expect(validateAvatarImport(new ArrayBuffer(MAX_AVATAR_FILE_BYTES + 1), "huge.avb"))
-      .rejects.toThrow("2 MB");
+      .rejects.toThrow("4 MB");
   });
 
   it("allows only same-origin HTTPS .avb addresses", () => {
@@ -38,6 +38,6 @@ describe("custom avatar imports", () => {
   it("stops reading a hosted response once it exceeds the limit", async () => {
     const response = new Response(new Uint8Array(MAX_AVATAR_FILE_BYTES + 1));
     await expect(fetchAvatarFile("https://webcomicchat.com/avatars/huge.avb", async () => response))
-      .rejects.toThrow("2 MB");
+      .rejects.toThrow("4 MB");
   });
 });

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { parseAvatar } from "./avb";
-import { avatarDownloadName, buildSimpleAvatar, creatorImageSize, validateCreatorArt } from "./avatar-creator";
+import { avatarDownloadName, buildCompositeAvatar, buildSimpleAvatar, creatorImageSize, validateCreatorArt } from "./avatar-creator";
 import { Emotion, type Rgba } from "./avb-builder";
 
 function pose(): Rgba {
@@ -32,6 +32,21 @@ describe("avatar creator", () => {
     }));
     const avatar = parseAvatar(await buildSimpleAvatar({ name: "Expressive", style: "mono", aura: 3, poses }));
     expect(avatar.bodies).toHaveLength(24);
+  });
+
+  it("builds a mix-and-match character with independently selected faces and bodies", async () => {
+    const avatar = parseAvatar(await buildCompositeAvatar({
+      name: "Mixy",
+      style: "mono",
+      aura: 3,
+      faces: [{ art: pose(), emotion: Emotion.Happy, intensity: 1, neck: { x: 8, y: 23 } }],
+      torsos: [{ art: pose(), emotion: Emotion.Wave, intensity: 1, neck: { x: 8, y: 1 } }],
+    }));
+    expect(avatar.faces).toHaveLength(1);
+    expect(avatar.torsos).toHaveLength(1);
+    expect(avatar.bodies).toHaveLength(0);
+    expect(avatar.faces[0].anchor).toMatchObject({ cx: 8, cy: 23 });
+    expect(avatar.torsos[0]).toMatchObject({ x: 8, y: 1 });
   });
 
   it("makes safe filenames and rejects oversized art", () => {

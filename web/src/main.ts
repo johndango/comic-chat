@@ -20,8 +20,10 @@ import { fetchAvatarFile, sameOriginAvatarUrl, validateAvatarImport } from "./av
 import {
   avatarDownloadName,
   BUILDER_EMOTIONS,
+  buildCompositeAvatar,
   buildSimpleAvatar,
   imageFileToRgba,
+  type CreatorPartPose,
   type CreatorPose,
 } from "./avatar-creator";
 import { bodyForText, composeChoice, type ComposedBody } from "./composite";
@@ -885,14 +887,36 @@ app.innerHTML = `
             <label>Style <select id="builder-style"><option value="mono">Classic black &amp; white</option><option value="color">Color</option></select></label>
             <label class="builder-advanced">Outline aura <span><input id="builder-aura" type="range" min="0" max="8" value="3" /><output id="builder-aura-value">3 px</output></span></label>
           </div>
-          <div class="builder-add-row">
-            <button id="builder-add-poses" type="button">Add pose images…</button>
-            <input id="builder-files" class="visually-hidden" type="file" accept="image/png,image/webp,image/jpeg" multiple />
-            <small id="builder-image-help">Add 14 full-body images in the guided order shown below.</small>
-          </div>
-          <p class="builder-art-guide"><strong>For the classic look:</strong> use transparent PNGs with the full character visible, consistent scale and foot position, bold black outlines, and simple shading. Original whole-body art is usually about 150–300 px wide and 300–470 px tall.</p>
-          <p class="builder-art-guide builder-advanced"><strong>Emotion and intensity:</strong> assign what each pose conveys. Intensity tells Comic Chat how strongly it conveys it, so a slight smile might be <em>Happy · subtle</em> while a huge grin is <em>Happy · strong</em>. Multiple poses may share an emotion at different strengths; Neutral poses rotate. Keep Neutral at 0%.</p>
-          <div id="builder-pose-list" class="builder-pose-list"></div>
+          <fieldset class="builder-construction-picker builder-advanced">
+            <legend>How is the artwork assembled?</legend>
+            <label><input type="radio" name="builder-construction" value="full" checked /><span><strong>Complete poses</strong><small>Each image contains the whole character.</small></span></label>
+            <label><input type="radio" name="builder-construction" value="composite" /><span><strong>Mix faces &amp; bodies</strong><small>Combine expressions and gestures like classic Armando.</small></span></label>
+          </fieldset>
+          <section class="builder-full-workspace">
+            <div class="builder-add-row">
+              <button id="builder-add-poses" type="button">Add pose images…</button>
+              <input id="builder-files" class="visually-hidden" type="file" accept="image/png,image/webp,image/jpeg" multiple />
+              <small id="builder-image-help">Add 14 full-body images in the guided order shown below.</small>
+            </div>
+            <p class="builder-art-guide"><strong>For the classic look:</strong> use transparent PNGs with the full character visible, consistent scale and foot position, bold black outlines, and simple shading. Original whole-body art is usually about 150–300 px wide and 300–470 px tall.</p>
+            <p class="builder-art-guide builder-advanced"><strong>Emotion and intensity:</strong> assign what each pose conveys. Intensity tells Comic Chat how strongly it conveys it, so a slight smile might be <em>Happy · subtle</em> while a huge grin is <em>Happy · strong</em>. Multiple poses may share an emotion at different strengths; Neutral poses rotate. Keep Neutral at 0%.</p>
+            <div id="builder-pose-list" class="builder-pose-list"></div>
+          </section>
+          <section class="builder-composite-workspace builder-advanced" hidden>
+            <p class="builder-art-guide"><strong>Classic composite character:</strong> upload transparent head/face art and headless body/gesture art separately. Click the neck join on every thumbnail, then check combinations in the preview. Comic Chat chooses the face and body independently.</p>
+            <div class="builder-part-actions">
+              <button id="builder-add-faces" type="button">Add face images…</button>
+              <input id="builder-face-files" class="visually-hidden" type="file" accept="image/png,image/webp,image/jpeg" multiple />
+              <button id="builder-add-torsos" type="button">Add body images…</button>
+              <input id="builder-torso-files" class="visually-hidden" type="file" accept="image/png,image/webp,image/jpeg" multiple />
+              <small>Up to 20 faces and 20 bodies. Click each image at the base/top of the neck.</small>
+            </div>
+            <div class="builder-composite-grid">
+              <figure class="builder-composite-preview"><canvas id="builder-composite-preview" width="260" height="260" role="img" aria-label="Preview of selected face and body"></canvas><figcaption id="builder-composite-caption">Add a face and body to preview combinations.</figcaption></figure>
+              <section><h3>Faces &amp; expressions</h3><div id="builder-face-list" class="builder-part-list"></div></section>
+              <section><h3>Bodies &amp; gestures</h3><div id="builder-torso-list" class="builder-part-list"></div></section>
+            </div>
+          </section>
           <p id="builder-status" class="builder-status" role="status">Add at least one neutral pose.</p>
         </div>
         <footer><button id="builder-clear" type="button">Clear poses</button><button value="cancel">Cancel</button><button id="builder-download" type="button" disabled>Build, use &amp; download</button></footer>
@@ -1077,6 +1101,7 @@ const avatarFileInput = element<HTMLInputElement>("#avatar-file");
 const createAvatarButton = element<HTMLButtonElement>("#create-avatar");
 const avatarBuilderDialog = element<HTMLDialogElement>("#avatar-builder-dialog");
 const builderModeInputs = [...document.querySelectorAll<HTMLInputElement>('input[name="builder-mode"]')];
+const builderConstructionInputs = [...document.querySelectorAll<HTMLInputElement>('input[name="builder-construction"]')];
 const builderNameInput = element<HTMLInputElement>("#builder-name");
 const builderCreditInput = element<HTMLInputElement>("#builder-credit");
 const builderStyleSelect = element<HTMLSelectElement>("#builder-style");
@@ -1086,6 +1111,16 @@ const builderAddPosesButton = element<HTMLButtonElement>("#builder-add-poses");
 const builderFilesInput = element<HTMLInputElement>("#builder-files");
 const builderImageHelp = element<HTMLElement>("#builder-image-help");
 const builderPoseList = element<HTMLElement>("#builder-pose-list");
+const builderFullWorkspace = element<HTMLElement>(".builder-full-workspace");
+const builderCompositeWorkspace = element<HTMLElement>(".builder-composite-workspace");
+const builderAddFacesButton = element<HTMLButtonElement>("#builder-add-faces");
+const builderFaceFilesInput = element<HTMLInputElement>("#builder-face-files");
+const builderAddTorsosButton = element<HTMLButtonElement>("#builder-add-torsos");
+const builderTorsoFilesInput = element<HTMLInputElement>("#builder-torso-files");
+const builderFaceList = element<HTMLElement>("#builder-face-list");
+const builderTorsoList = element<HTMLElement>("#builder-torso-list");
+const builderCompositePreview = element<HTMLCanvasElement>("#builder-composite-preview");
+const builderCompositeCaption = element<HTMLElement>("#builder-composite-caption");
 const builderStatus = element<HTMLElement>("#builder-status");
 const builderClearButton = element<HTMLButtonElement>("#builder-clear");
 const builderDownloadButton = element<HTMLButtonElement>("#builder-download");
@@ -1156,6 +1191,11 @@ let suppressWheelChange = false;
 let importedAvatarSequence = 0;
 let importedBackdropSequence = 0;
 const builderPoses: Array<CreatorPose & { filename: string }> = [];
+type BuilderPartPose = CreatorPartPose & { filename: string };
+const builderFaces: BuilderPartPose[] = [];
+const builderTorsos: BuilderPartPose[] = [];
+let selectedBuilderFace = 0;
+let selectedBuilderTorso = 0;
 const QUICK_BUILDER_EMOTIONS = BUILDER_EMOTIONS.map(([emotion]) => emotion);
 const BUILDER_EMOTION_NAMES = new Map<number, string>(BUILDER_EMOTIONS);
 let builderBusy = false;
@@ -1370,10 +1410,43 @@ function builderMode(): "quick" | "advanced" {
   return builderModeInputs.find((input) => input.checked)?.value === "advanced" ? "advanced" : "quick";
 }
 
+function builderConstruction(): "full" | "composite" {
+  return builderConstructionInputs.find((input) => input.checked)?.value === "composite" ? "composite" : "full";
+}
+
+function compositeBuilderActive(): boolean {
+  return builderMode() === "advanced" && builderConstruction() === "composite";
+}
+
 function quickBuilderStatus(): string {
   const missing = QUICK_BUILDER_EMOTIONS.find((emotion) => !builderPoses.some((pose) => pose.emotion === emotion));
   if (missing === undefined) return "All 14 core poses are ready. Add a name, then build your character.";
   return `${builderPoses.length} / 14 core poses ready. Next: ${BUILDER_EMOTION_NAMES.get(missing) ?? "pose"}.`;
+}
+
+function compositeBuilderStatus(): string {
+  if (builderFaces.length === 0 && builderTorsos.length === 0) return "Add at least one face and one body image.";
+  if (builderFaces.length === 0) return `${builderTorsos.length} ${builderTorsos.length === 1 ? "body" : "bodies"} ready. Add a face image.`;
+  if (builderTorsos.length === 0) return `${builderFaces.length} ${builderFaces.length === 1 ? "face" : "faces"} ready. Add a body image.`;
+  const faceLabel = builderFaces.length === 1 ? "face" : "faces";
+  const bodyLabel = builderTorsos.length === 1 ? "body" : "bodies";
+  return `${builderFaces.length} ${faceLabel} × ${builderTorsos.length} ${bodyLabel} = ${builderFaces.length * builderTorsos.length} possible combinations. Click any thumbnail to adjust its neck join.`;
+}
+
+function applyBuilderConstruction(): void {
+  const composite = compositeBuilderActive();
+  avatarBuilderDialog.dataset.construction = composite ? "composite" : "full";
+  builderFullWorkspace.hidden = composite;
+  builderCompositeWorkspace.hidden = !composite;
+  if (composite) {
+    renderBuilderParts();
+    setBuilderStatus(compositeBuilderStatus());
+  } else {
+    renderBuilderPoses();
+    setBuilderStatus(builderMode() === "quick" ? quickBuilderStatus()
+      : builderPoses.length ? `${builderPoses.length} pose images ready. Assign the matching emotion to each.` : "Add at least one neutral pose.");
+  }
+  updateBuilderControls();
 }
 
 function applyBuilderMode(): void {
@@ -1397,18 +1470,21 @@ function applyBuilderMode(): void {
       pose.intensity = pose.emotion === 9 ? 0 : 0.8;
     });
   }
-  renderBuilderPoses();
-  setBuilderStatus(builderPoses.length
-    ? mode === "quick" ? quickBuilderStatus() : `${builderPoses.length} pose images ready. Assign the matching emotion to each.`
-    : mode === "quick" ? quickBuilderStatus() : "Add at least one neutral pose.");
+  applyBuilderConstruction();
 }
 
 function updateBuilderControls(): void {
   builderAuraValue.value = `${builderAuraInput.value} px`;
   builderAddPosesButton.disabled = builderBusy;
-  const posesReady = builderMode() === "quick" ? builderPoses.length === QUICK_BUILDER_EMOTIONS.length : builderPoses.length > 0;
+  builderAddFacesButton.disabled = builderBusy;
+  builderAddTorsosButton.disabled = builderBusy;
+  const composite = compositeBuilderActive();
+  const posesReady = composite
+    ? builderFaces.length > 0 && builderTorsos.length > 0
+    : builderMode() === "quick" ? builderPoses.length === QUICK_BUILDER_EMOTIONS.length : builderPoses.length > 0;
   builderDownloadButton.disabled = builderBusy || !posesReady || builderNameInput.value.trim().length === 0;
-  builderClearButton.disabled = builderBusy || builderPoses.length === 0;
+  builderClearButton.disabled = builderBusy || (composite ? builderFaces.length + builderTorsos.length === 0 : builderPoses.length === 0);
+  builderClearButton.textContent = composite ? "Clear faces & bodies" : "Clear poses";
 }
 
 function drawBuilderThumbnail(canvas: HTMLCanvasElement, pose: CreatorPose): void {
@@ -1433,6 +1509,222 @@ function builderIntensityLabel(value: number): string {
   const percent = Math.max(0, Math.min(100, Math.round(value)));
   const description = percent === 0 ? "neutral" : percent <= 33 ? "subtle" : percent <= 66 ? "moderate" : "strong";
   return `${description} (${percent}%)`;
+}
+
+function builderArtCanvas(art: CreatorPose["art"]): HTMLCanvasElement {
+  const source = document.createElement("canvas");
+  source.width = art.width;
+  source.height = art.height;
+  source.getContext("2d")?.putImageData(new ImageData(new Uint8ClampedArray(art.pixels), art.width, art.height), 0, 0);
+  return source;
+}
+
+function builderPartDrawing(canvas: HTMLCanvasElement, part: BuilderPartPose): { scale: number; left: number; top: number } {
+  const scale = Math.min((canvas.width - 8) / part.art.width, (canvas.height - 8) / part.art.height);
+  return {
+    scale,
+    left: (canvas.width - part.art.width * scale) / 2,
+    top: (canvas.height - part.art.height * scale) / 2,
+  };
+}
+
+function drawBuilderPart(canvas: HTMLCanvasElement, part: BuilderPartPose): void {
+  const context = canvas.getContext("2d");
+  if (!context) return;
+  context.fillStyle = "#fff";
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  const drawing = builderPartDrawing(canvas, part);
+  context.imageSmoothingEnabled = false;
+  context.drawImage(builderArtCanvas(part.art), drawing.left, drawing.top, part.art.width * drawing.scale, part.art.height * drawing.scale);
+  const x = drawing.left + part.neck.x * drawing.scale;
+  const y = drawing.top + part.neck.y * drawing.scale;
+  context.strokeStyle = "#d00000";
+  context.lineWidth = 2;
+  context.beginPath();
+  context.moveTo(x - 6, y);
+  context.lineTo(x + 6, y);
+  context.moveTo(x, y - 6);
+  context.lineTo(x, y + 6);
+  context.stroke();
+  context.fillStyle = "#fff";
+  context.fillRect(x - 1, y - 1, 2, 2);
+}
+
+function drawBuilderCompositePreview(): void {
+  const context = builderCompositePreview.getContext("2d");
+  if (!context) return;
+  context.fillStyle = "#fff";
+  context.fillRect(0, 0, builderCompositePreview.width, builderCompositePreview.height);
+  const face = builderFaces[selectedBuilderFace];
+  const torso = builderTorsos[selectedBuilderTorso];
+  if (!face || !torso) {
+    context.fillStyle = "#555";
+    context.font = "12px 'MS Sans Serif', sans-serif";
+    context.textAlign = "center";
+    context.fillText("Add a face and body", builderCompositePreview.width / 2, builderCompositePreview.height / 2);
+    builderCompositeCaption.textContent = "Add a face and body to preview combinations.";
+    return;
+  }
+  const faceX = torso.neck.x - face.neck.x;
+  const faceY = torso.neck.y - face.neck.y;
+  const minX = Math.min(0, faceX);
+  const minY = Math.min(0, faceY);
+  const maxX = Math.max(torso.art.width, faceX + face.art.width);
+  const maxY = Math.max(torso.art.height, faceY + face.art.height);
+  const width = Math.max(1, maxX - minX);
+  const height = Math.max(1, maxY - minY);
+  const scale = Math.min((builderCompositePreview.width - 20) / width, (builderCompositePreview.height - 20) / height);
+  const left = (builderCompositePreview.width - width * scale) / 2 - minX * scale;
+  const top = (builderCompositePreview.height - height * scale) / 2 - minY * scale;
+  context.imageSmoothingEnabled = false;
+  context.drawImage(builderArtCanvas(torso.art), left, top, torso.art.width * scale, torso.art.height * scale);
+  context.drawImage(builderArtCanvas(face.art), left + faceX * scale, top + faceY * scale, face.art.width * scale, face.art.height * scale);
+  const joinX = left + torso.neck.x * scale;
+  const joinY = top + torso.neck.y * scale;
+  context.strokeStyle = "#d00000";
+  context.lineWidth = 1;
+  context.beginPath();
+  context.moveTo(joinX - 5, joinY);
+  context.lineTo(joinX + 5, joinY);
+  context.moveTo(joinX, joinY - 5);
+  context.lineTo(joinX, joinY + 5);
+  context.stroke();
+  builderCompositeCaption.textContent = `${face.filename} + ${torso.filename} · red cross is the neck join`;
+}
+
+function renderBuilderPartList(parts: BuilderPartPose[], host: HTMLElement, kind: "face" | "torso"): void {
+  host.replaceChildren();
+  if (parts.length === 0) {
+    host.append(Object.assign(document.createElement("p"), { className: "builder-empty", textContent: kind === "face" ? "No face images yet." : "No body images yet." }));
+    return;
+  }
+  const selected = kind === "face" ? selectedBuilderFace : selectedBuilderTorso;
+  parts.forEach((part, index) => {
+    const row = document.createElement("article");
+    row.className = "builder-part-row";
+    if (index === selected) row.classList.add("selected");
+    const preview = document.createElement("canvas");
+    preview.width = 88;
+    preview.height = 88;
+    preview.tabIndex = 0;
+    preview.setAttribute("role", "button");
+    preview.setAttribute("aria-label", `Set the neck point for ${part.filename}`);
+    preview.title = "Click where this part joins at the neck";
+    drawBuilderPart(preview, part);
+    preview.addEventListener("click", (event) => {
+      const rect = preview.getBoundingClientRect();
+      const drawing = builderPartDrawing(preview, part);
+      const canvasX = (event.clientX - rect.left) * preview.width / rect.width;
+      const canvasY = (event.clientY - rect.top) * preview.height / rect.height;
+      part.neck.x = Math.round(Math.max(0, Math.min(part.art.width, (canvasX - drawing.left) / drawing.scale)));
+      part.neck.y = Math.round(Math.max(0, Math.min(part.art.height, (canvasY - drawing.top) / drawing.scale)));
+      if (kind === "face") selectedBuilderFace = index;
+      else selectedBuilderTorso = index;
+      renderBuilderParts();
+      setBuilderStatus(compositeBuilderStatus());
+    });
+    const details = document.createElement("div");
+    const filename = document.createElement("strong");
+    filename.textContent = part.filename;
+    filename.title = part.filename;
+    const emotion = document.createElement("select");
+    emotion.setAttribute("aria-label", `Emotion for ${part.filename}`);
+    for (const [value, label] of BUILDER_EMOTIONS) emotion.append(new Option(label, String(value)));
+    emotion.value = String(part.emotion);
+    const intensity = document.createElement("input");
+    intensity.type = "range";
+    intensity.min = "0";
+    intensity.max = "100";
+    intensity.value = String(Math.round(part.intensity * 100));
+    const intensityValue = document.createElement("output");
+    intensityValue.value = builderIntensityLabel(Number(intensity.value));
+    emotion.addEventListener("change", () => {
+      part.emotion = Number(emotion.value);
+      if (part.emotion === 9) {
+        part.intensity = 0;
+        intensity.value = "0";
+        intensityValue.value = builderIntensityLabel(0);
+      }
+    });
+    intensity.addEventListener("input", () => {
+      part.intensity = Number(intensity.value) / 100;
+      intensityValue.value = builderIntensityLabel(Number(intensity.value));
+    });
+    const intensityLabel = document.createElement("label");
+    intensityLabel.textContent = "Intensity ";
+    intensityLabel.append(intensity, intensityValue);
+    const coordinates = document.createElement("div");
+    coordinates.className = "builder-neck-coordinates";
+    for (const axis of ["x", "y"] as const) {
+      const label = document.createElement("label");
+      label.textContent = `Neck ${axis.toLocaleUpperCase()} `;
+      const input = document.createElement("input");
+      input.type = "number";
+      input.min = "0";
+      input.max = String(axis === "x" ? part.art.width : part.art.height);
+      input.value = String(part.neck[axis]);
+      input.addEventListener("change", () => {
+        part.neck[axis] = Math.max(0, Math.min(Number(input.max), Number(input.value) || 0));
+        if (kind === "face") selectedBuilderFace = index;
+        else selectedBuilderTorso = index;
+        renderBuilderParts();
+      });
+      label.append(input);
+      coordinates.append(label);
+    }
+    details.append(filename, emotion, intensityLabel, coordinates);
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.textContent = "Remove";
+    remove.addEventListener("click", () => {
+      parts.splice(index, 1);
+      if (kind === "face") selectedBuilderFace = Math.max(0, Math.min(selectedBuilderFace, parts.length - 1));
+      else selectedBuilderTorso = Math.max(0, Math.min(selectedBuilderTorso, parts.length - 1));
+      renderBuilderParts();
+      setBuilderStatus(compositeBuilderStatus());
+    });
+    row.addEventListener("focusin", () => {
+      if (kind === "face") selectedBuilderFace = index;
+      else selectedBuilderTorso = index;
+      for (const [rowIndex, candidate] of [...host.children].entries()) candidate.classList.toggle("selected", rowIndex === index);
+      drawBuilderCompositePreview();
+    });
+    row.append(preview, details, remove);
+    host.append(row);
+  });
+}
+
+function renderBuilderParts(): void {
+  renderBuilderPartList(builderFaces, builderFaceList, "face");
+  renderBuilderPartList(builderTorsos, builderTorsoList, "torso");
+  drawBuilderCompositePreview();
+  updateBuilderControls();
+}
+
+async function addBuilderPartFiles(kind: "face" | "torso", files: readonly File[]): Promise<void> {
+  const parts = kind === "face" ? builderFaces : builderTorsos;
+  if (parts.length + files.length > 20) throw new Error(`A mix-and-match character can have at most 20 ${kind === "face" ? "faces" : "bodies"}`);
+  const defaults = kind === "face" ? [9, 1, 2, 3, 4, 5, 6, 7, 8] : [9, 10, 11, 12, 13, 14];
+  builderBusy = true;
+  updateBuilderControls();
+  try {
+    for (const file of files) {
+      setBuilderStatus(`Reading ${file.name}…`);
+      const art = await imageFileToRgba(file);
+      const emotion = defaults[parts.length % defaults.length];
+      parts.push({
+        filename: file.name,
+        art,
+        emotion,
+        intensity: emotion === 9 ? 0 : 0.8,
+        neck: { x: Math.round(art.width / 2), y: kind === "face" ? Math.max(0, art.height - 1) : Math.min(1, art.height) },
+      });
+    }
+  } finally {
+    builderBusy = false;
+    renderBuilderParts();
+  }
+  setBuilderStatus(compositeBuilderStatus());
 }
 
 function renderBuilderPoses(): void {
@@ -1551,13 +1843,15 @@ async function buildAndUseAvatar(): Promise<void> {
   setBuilderStatus("Building the Comic Chat character…");
   try {
     const name = builderNameInput.value.trim();
-    const buffer = await buildSimpleAvatar({
+    const shared = {
       name,
       credit: builderCreditInput.value,
       style: builderStyleSelect.value === "color" ? "color" : "mono",
       aura: Number(builderAuraInput.value),
-      poses: builderPoses,
-    });
+    } as const;
+    const buffer = compositeBuilderActive()
+      ? await buildCompositeAvatar({ ...shared, faces: builderFaces, torsos: builderTorsos })
+      : await buildSimpleAvatar({ ...shared, poses: builderPoses });
     const imported = await validateAvatarImport(buffer, avatarDownloadName(name));
     const key = `local-avatar:${++importedAvatarSequence}`;
     avatarCache.set(key, Promise.resolve(loadedAvatar(buffer, imported.metadata)));
@@ -4408,6 +4702,7 @@ createAvatarButton.addEventListener("click", () => {
 });
 builderNameInput.addEventListener("input", updateBuilderControls);
 for (const input of builderModeInputs) input.addEventListener("change", applyBuilderMode);
+for (const input of builderConstructionInputs) input.addEventListener("change", applyBuilderConstruction);
 builderAuraInput.addEventListener("input", updateBuilderControls);
 builderAddPosesButton.addEventListener("click", () => builderFilesInput.click());
 builderFilesInput.addEventListener("change", () => {
@@ -4418,10 +4713,31 @@ builderFilesInput.addEventListener("change", () => {
     updateBuilderControls();
   });
 });
+builderAddFacesButton.addEventListener("click", () => builderFaceFilesInput.click());
+builderAddTorsosButton.addEventListener("click", () => builderTorsoFilesInput.click());
+function handleBuilderPartFiles(input: HTMLInputElement, kind: "face" | "torso"): void {
+  const files = [...(input.files ?? [])];
+  input.value = "";
+  if (files.length) void addBuilderPartFiles(kind, files).catch((error) => {
+    setBuilderStatus(error instanceof Error ? error.message : `Could not read those ${kind} images`, true);
+    updateBuilderControls();
+  });
+}
+builderFaceFilesInput.addEventListener("change", () => handleBuilderPartFiles(builderFaceFilesInput, "face"));
+builderTorsoFilesInput.addEventListener("change", () => handleBuilderPartFiles(builderTorsoFilesInput, "torso"));
 builderClearButton.addEventListener("click", () => {
-  builderPoses.length = 0;
-  renderBuilderPoses();
-  setBuilderStatus(builderMode() === "quick" ? quickBuilderStatus() : "Add at least one neutral pose.");
+  if (compositeBuilderActive()) {
+    builderFaces.length = 0;
+    builderTorsos.length = 0;
+    selectedBuilderFace = 0;
+    selectedBuilderTorso = 0;
+    renderBuilderParts();
+    setBuilderStatus(compositeBuilderStatus());
+  } else {
+    builderPoses.length = 0;
+    renderBuilderPoses();
+    setBuilderStatus(builderMode() === "quick" ? quickBuilderStatus() : "Add at least one neutral pose.");
+  }
 });
 builderDownloadButton.addEventListener("click", () => {
   void buildAndUseAvatar().catch((error) => {

@@ -1,7 +1,8 @@
 import { parseAvatar, type AvatarFile } from "./avb";
 import { AvbType, readAvbDocument } from "./avb-document";
 
-export const MAX_AVATAR_FILE_BYTES = 2 * 1024 * 1024;
+export const MAX_AVATAR_FILE_BYTES = 4 * 1024 * 1024;
+export const MAX_AVATAR_FILE_LABEL = "4 MB";
 
 export interface ImportedAvatar {
   metadata: AvatarFile;
@@ -16,7 +17,7 @@ function fallbackName(filename: string): string {
 /** Fully reads every image so malformed or decompression-bomb art is rejected before use. */
 export async function validateAvatarImport(buffer: ArrayBuffer, filename: string): Promise<ImportedAvatar> {
   if (buffer.byteLength === 0) throw new Error("That avatar file is empty");
-  if (buffer.byteLength > MAX_AVATAR_FILE_BYTES) throw new Error("Avatar files must be 2 MB or smaller");
+  if (buffer.byteLength > MAX_AVATAR_FILE_BYTES) throw new Error(`Avatar files must be ${MAX_AVATAR_FILE_LABEL} or smaller`);
 
   const document = await readAvbDocument(buffer);
   if (document.version !== 2) throw new Error("Only version 2 Comic Chat avatars are supported");
@@ -50,10 +51,10 @@ export async function fetchAvatarFile(url: string, fetcher: typeof fetch = fetch
   const response = await fetcher(url, { credentials: "omit", referrerPolicy: "no-referrer" });
   if (!response.ok) throw new Error(`Could not load hosted avatar (${response.status})`);
   const declared = Number(response.headers.get("content-length"));
-  if (Number.isFinite(declared) && declared > MAX_AVATAR_FILE_BYTES) throw new Error("Hosted avatar is larger than 2 MB");
+  if (Number.isFinite(declared) && declared > MAX_AVATAR_FILE_BYTES) throw new Error(`Hosted avatar is larger than ${MAX_AVATAR_FILE_LABEL}`);
   if (!response.body) {
     const buffer = await response.arrayBuffer();
-    if (buffer.byteLength > MAX_AVATAR_FILE_BYTES) throw new Error("Hosted avatar is larger than 2 MB");
+    if (buffer.byteLength > MAX_AVATAR_FILE_BYTES) throw new Error(`Hosted avatar is larger than ${MAX_AVATAR_FILE_LABEL}`);
     return buffer;
   }
 
@@ -67,7 +68,7 @@ export async function fetchAvatarFile(url: string, fetcher: typeof fetch = fetch
       length += value.byteLength;
       if (length > MAX_AVATAR_FILE_BYTES) {
         await reader.cancel();
-        throw new Error("Hosted avatar is larger than 2 MB");
+        throw new Error(`Hosted avatar is larger than ${MAX_AVATAR_FILE_LABEL}`);
       }
       chunks.push(value);
     }
