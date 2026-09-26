@@ -246,6 +246,16 @@ screen, then set `NODE_ENV=production` and
 confirming that cPanel's front end appends the visitor address once. Restart the
 application after each upload or environment change.
 
+Community avatar uploads, reports, and the generated moderator token are kept
+in `community-data/` beside `dist/`; do not replace that directory during a
+deployment. The unlisted `/community-admin/` page accepts the token stored in
+`community-data/admin-token` (mode 0600). A 32-character-or-longer
+`COMMUNITY_ADMIN_TOKEN` environment variable overrides the generated token.
+The public upload API parses every `.avb` server-side, limits files to 2 MB,
+rejects exact duplicates, and rate-limits uploads and reports. Technical
+validation does not constitute content approval, so reports still require
+human moderation.
+
 The comic view includes a persistent balloon-font selector. Comic Sans MS—the
 font used by the original client—is the default when it is installed, with
 bundled Comic Neue as its cross-platform fallback and as a separate explicit

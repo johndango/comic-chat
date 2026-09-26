@@ -1,4 +1,7 @@
 import { once } from "node:events";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import WebSocket from "ws";
 import { createGatewayServer, IrcBridge } from "./gateway";
@@ -66,6 +69,76 @@ describe("local web gateway", () => {
       await once(webSocket, "close");
     } finally {
       await gateway.close();
+    }
+  });
+
+  it("publishes validated community avatars and supports reports and admin removal", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "webcomicchat-community-"));
+    const token = "test-admin-token-that-is-at-least-32-characters";
+    const gateway = createGatewayServer(undefined, undefined, { communityDataDirectory: directory, communityAdminToken: token });
+    const port = await gateway.listen(0);
+    const origin = `http://127.0.0.1:${port}`;
+    const avatar = await readFile(new URL("../../v2.5-beta-1-modern/comicart/connor.avb", import.meta.url));
+    try {
+      const uploaded = await fetch(`${origin}/api/community-avatars`, {
+        method: "POST",
+        headers: { origin, "content-type": "application/json" },
+        body: JSON.stringify({
+          name: "Test Connor",
+          creator: "Test Artist",
+          description: "A test upload",
+          filename: "connor.avb",
+          fileBase64: avatar.toString("base64"),
+          rightsConfirmed: true,
+          rulesConfirmed: true,
+        }),
+      });
+      expect(uploaded.status).toBe(201);
+      const entry = (await uploaded.json() as { avatar: { id: string; file: string } }).avatar;
+
+      const catalog = await (await fetch(`${origin}/api/community-avatars`)).json() as { avatars: { id: string }[] };
+      expect(catalog.avatars.map(({ id }) => id)).toContain(entry.id);
+      expect((await fetch(`${origin}/community-avatars/${entry.file}`)).status).toBe(200);
+
+      const reported = await fetch(`${origin}/api/community-avatars/${entry.id}/reports`, {
+        method: "POST",
+        headers: { origin, "content-type": "application/json" },
+        body: JSON.stringify({ reason: "spam", details: "Test report" }),
+      });
+      expect(reported.status).toBe(201);
+
+      const admin = await fetch(`${origin}/api/community-admin`, { headers: { origin, authorization: `Bearer ${token}` } });
+      expect(admin.status).toBe(200);
+      expect((await admin.json() as { reports: unknown[] }).reports).toHaveLength(1);
+
+      const removed = await fetch(`${origin}/api/community-admin/avatars/${entry.id}`, {
+        method: "DELETE",
+        headers: { origin, authorization: `Bearer ${token}` },
+      });
+      expect(removed.status).toBe(200);
+      expect((await fetch(`${origin}/community-avatars/${entry.file}`)).status).toBe(404);
+    } finally {
+      await gateway.close();
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects malformed community avatar uploads", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "webcomicchat-community-"));
+    const gateway = createGatewayServer(undefined, undefined, { communityDataDirectory: directory });
+    const port = await gateway.listen(0);
+    const origin = `http://127.0.0.1:${port}`;
+    try {
+      const response = await fetch(`${origin}/api/community-avatars`, {
+        method: "POST",
+        headers: { origin, "content-type": "application/json" },
+        body: JSON.stringify({ name: "Fake", filename: "fake.avb", fileBase64: Buffer.from("not an avatar").toString("base64"), rightsConfirmed: true, rulesConfirmed: true }),
+      });
+      expect(response.status).toBe(400);
+      expect((await response.json() as { error: string }).error).toMatch(/Comic Chat|record|avatar/iu);
+    } finally {
+      await gateway.close();
+      await rm(directory, { recursive: true, force: true });
     }
   });
 

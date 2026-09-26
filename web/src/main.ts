@@ -133,11 +133,12 @@ const communityAvatarAssets = import.meta.glob("../../community-avatars/*.{avb,A
   query: "?url",
   import: "default",
 }) as Record<string, string>;
-const communityAvatars: HostedCommunityAvatar[] = parseCommunityAvatarCatalog(communityAvatarCatalogSource).avatars
+const bundledCommunityAvatars: HostedCommunityAvatar[] = parseCommunityAvatarCatalog(communityAvatarCatalogSource).avatars
   .flatMap((entry) => {
     const fileUrl = communityAvatarAssets[`../../community-avatars/${entry.file}`];
     return fileUrl ? [{ ...entry, fileUrl }] : [];
   });
+let communityAvatars: HostedCommunityAvatar[] = [...bundledCommunityAvatars];
 
 const monochromeCharacters: ArtChoice[] = [
   { file: "anna.avb", label: "Anna" },
@@ -165,16 +166,16 @@ const monochromeCharacters: ArtChoice[] = [
   { file: "veronica.avb", label: "Veronica" },
   { file: "waf.avb", label: "Waf" },
   { file: "xeno.avb", label: "Xeno" },
-  { file: artPack("kevin.avb"), label: "Kevin — Art Pack" },
+  { file: artPack("kevin.avb"), label: "Kevin — black-and-white" },
   { file: artPack("kwensa.avb"), label: "Kwensa — Art Pack" },
-  { file: artPack("maynard.avb"), label: "Maynard — Art Pack" },
-  { file: artPack("rebecca.avb"), label: "Rebecca — Art Pack" },
-  { file: artPack("sage.avb"), label: "Sage — Art Pack" },
-  { file: artPack("scotty.avb"), label: "Scotty — Art Pack" },
-  { file: artPack("bolo.avb"), label: "Bolo — Art Pack edition" },
-  { file: artPack("cro.avb"), label: "Cro — Art Pack edition" },
-  { file: artPack("denise.avb"), label: "Denise — Art Pack edition" },
-  { file: artPack("lynnea.avb"), label: "Lynnea — Art Pack edition" },
+  { file: artPack("maynard.avb"), label: "Maynard — black-and-white" },
+  { file: artPack("rebecca.avb"), label: "Rebecca — black-and-white" },
+  { file: artPack("sage.avb"), label: "Sage — black-and-white" },
+  { file: artPack("scotty.avb"), label: "Scotty — black-and-white" },
+  { file: artPack("bolo.avb"), label: "Bolo — alternate art" },
+  { file: artPack("cro.avb"), label: "Cro — alternate art" },
+  { file: artPack("denise.avb"), label: "Denise — alternate art" },
+  { file: artPack("lynnea.avb"), label: "Lynnea — alternate art" },
 ];
 const colorReplacementDefinitions = [
   { name: "Anna", source: "ANNA_C.AVB", monochrome: "anna.avb" },
@@ -201,7 +202,7 @@ const colorReplacementDefinitions = [
 ] as const;
 const colorCharacters: ArtChoice[] = colorReplacementDefinitions.map(({ name, source }) => ({
   file: colorReplacement(source),
-  label: `${name} — Color edition`,
+  label: `${name} — color`,
   announcementName: source.replace(/\.AVB$/u, ""),
 }));
 const characters: ArtChoice[] = [...monochromeCharacters, ...colorCharacters];
@@ -219,10 +220,10 @@ for (const choice of characters) {
   studioCharacterFileById.set(id, choice.file);
 }
 const characterOptionMarkup = `
-  <optgroup label="Classic &amp; Art Pack">
+  <optgroup label="Black &amp; white / alternate art">
     ${monochromeCharacters.map(({ file, label }) => `<option value="${file}">${label}</option>`).join("")}
   </optgroup>
-  <optgroup label="Color replacements">
+  <optgroup label="Color editions">
     ${colorCharacters.map(({ file, label }) => `<option value="${file}">${label}</option>`).join("")}
   </optgroup>`;
 const avatarEditions = new Map<string, AvatarEditionPair>();
@@ -689,11 +690,52 @@ app.innerHTML = `
       <form method="dialog">
         <header><strong id="community-avatars-title">Community Avatars</strong><button value="cancel" aria-label="Close">×</button></header>
         <div class="dialog-body">
-          <p>These non-default characters are curated and hosted by WebComicChat. Each file is validated before it can be used. Other users can display one when their avatar rules allow community art.</p>
+          <p>These characters are uploaded directly by the community. WebComicChat checks that each file is a working version 2 Comic Chat avatar, but uploads are not reviewed before they appear.</p>
+          <p class="community-avatar-rules"><strong>Keep it suitable for a general audience.</strong> Do not upload nudity or sexual content, photos or depictions of real people, hateful or racist material, harassment, graphic violence, illegal content, personal information, or work you do not have the right to share. Uploads are public and may be removed without notice.</p>
+          <div class="community-avatar-toolbar"><button id="community-avatar-upload-open" type="button">Upload an .avb…</button><span id="community-avatar-catalog-status" role="status"></span></div>
           <div id="community-avatar-list" class="community-avatar-list"></div>
-          <p class="community-avatar-submit">Want to contribute a character you made or have permission to share? Email <a href="mailto:admin@webcomicchat.com?subject=Community%20avatar%20submission">admin@webcomicchat.com</a> with the .avb file, creator credit, and source or permission information.</p>
+          <p class="community-avatar-submit">See something that breaks these rules? Use its Report button. For legal or urgent concerns, email <a href="mailto:admin@webcomicchat.com?subject=Community%20avatar%20concern">admin@webcomicchat.com</a>.</p>
         </div>
         <footer><button value="cancel">Close</button></footer>
+      </form>
+    </dialog>
+    <dialog id="community-avatar-upload-dialog" class="classic-dialog community-avatar-upload-dialog" aria-labelledby="community-avatar-upload-title">
+      <form method="dialog">
+        <header><strong id="community-avatar-upload-title">Upload a Community Avatar</strong><button value="cancel" aria-label="Close">×</button></header>
+        <div class="dialog-body community-avatar-form">
+          <p>Your avatar becomes public immediately after automatic technical validation. This check cannot determine whether artwork is appropriate or whether you own it.</p>
+          <label>.avb file<input id="community-avatar-upload-file" type="file" accept=".avb,application/octet-stream" required /></label>
+          <label>Display name<input id="community-avatar-upload-name" maxlength="60" placeholder="Uses the name inside the .avb when blank" /></label>
+          <label>Creator or credit<input id="community-avatar-upload-creator" maxlength="80" placeholder="Optional" /></label>
+          <label>Description<textarea id="community-avatar-upload-description" maxlength="240" rows="3" placeholder="Optional"></textarea></label>
+          <label>Source or credit link<input id="community-avatar-upload-source" type="url" maxlength="500" inputmode="url" placeholder="https://… (optional)" /></label>
+          <label class="community-avatar-confirm"><input id="community-avatar-upload-rights" type="checkbox" /> I created this character or have permission to publish and share it.</label>
+          <label class="community-avatar-confirm"><input id="community-avatar-upload-rules" type="checkbox" /> This upload follows the community rules: no sexual, exploitative, hateful, harassing, graphic, illegal, privacy-invasive, or stolen content.</label>
+          <p id="community-avatar-upload-status" role="status"></p>
+        </div>
+        <footer><button id="community-avatar-upload-submit" type="button">Validate &amp; publish</button><button value="cancel">Cancel</button></footer>
+      </form>
+    </dialog>
+    <dialog id="community-avatar-report-dialog" class="classic-dialog community-avatar-report-dialog" aria-labelledby="community-avatar-report-title">
+      <form method="dialog">
+        <header><strong id="community-avatar-report-title">Report Community Avatar</strong><button value="cancel" aria-label="Close">×</button></header>
+        <div class="dialog-body community-avatar-form">
+          <p id="community-avatar-report-name"></p>
+          <label>Reason<select id="community-avatar-report-reason">
+            <option value="">Choose a reason…</option>
+            <option value="sexual">Nudity or sexual content</option>
+            <option value="real-person">Real person, privacy, or impersonation</option>
+            <option value="hate">Hateful or racist content</option>
+            <option value="harassment">Harassment or targeted abuse</option>
+            <option value="violence">Graphic violence or illegal content</option>
+            <option value="copyright">Stolen work or copyright concern</option>
+            <option value="spam">Spam or misleading listing</option>
+            <option value="other">Something else</option>
+          </select></label>
+          <label>Details<textarea id="community-avatar-report-details" maxlength="500" rows="4" placeholder="Briefly explain the problem (optional)"></textarea></label>
+          <p id="community-avatar-report-status" role="status"></p>
+        </div>
+        <footer><button id="community-avatar-report-submit" type="button">Send report</button><button value="cancel">Cancel</button></footer>
       </form>
     </dialog>
     <dialog id="generator-dialog" class="classic-dialog generator-dialog" aria-labelledby="generator-title">
@@ -831,18 +873,25 @@ app.innerHTML = `
       <form method="dialog">
         <header><strong id="avatar-builder-title">Create a Comic Chat character</strong><button value="cancel" aria-label="Close">×</button></header>
         <div class="dialog-body">
-          <p>Build a simple character from transparent pose images. It stays local unless you choose to host the downloaded .avb later.</p>
+          <p>Build a character from transparent full-body art. It stays local unless you choose to publish the downloaded .avb later.</p>
+          <fieldset class="builder-mode-picker">
+            <legend>How much do you want to customize?</legend>
+            <label><input type="radio" name="builder-mode" value="quick" checked /><span><strong>Quick character</strong><small>One picture. Comic Chat uses it as a neutral pose.</small></span></label>
+            <label><input type="radio" name="builder-mode" value="advanced" /><span><strong>Expressive character</strong><small>Up to 16 poses with emotions and strength settings.</small></span></label>
+          </fieldset>
           <div class="builder-fields">
             <label>Name <input id="builder-name" maxlength="60" placeholder="Character name" /></label>
             <label>Art credit <input id="builder-credit" maxlength="240" placeholder="Your name and license (optional)" /></label>
             <label>Style <select id="builder-style"><option value="mono">Classic black &amp; white</option><option value="color">Color</option></select></label>
-            <label>Aura <span><input id="builder-aura" type="range" min="0" max="8" value="3" /><output id="builder-aura-value">3 px</output></span></label>
+            <label class="builder-advanced">Outline aura <span><input id="builder-aura" type="range" min="0" max="8" value="3" /><output id="builder-aura-value">3 px</output></span></label>
           </div>
           <div class="builder-add-row">
             <button id="builder-add-poses" type="button">Add pose images…</button>
             <input id="builder-files" class="visually-hidden" type="file" accept="image/png,image/webp,image/jpeg" multiple />
-            <small>PNG with transparency works best · up to 16 images · 512×512 maximum</small>
+            <small id="builder-image-help">Choose one transparent full-body image. Source art up to 2048 px is reduced to fit 512 px.</small>
           </div>
+          <p class="builder-art-guide"><strong>For the classic look:</strong> use transparent PNGs with the full character visible, consistent scale and foot position, bold black outlines, and simple shading. Original whole-body art is usually about 150–300 px wide and 300–470 px tall.</p>
+          <p class="builder-art-guide builder-advanced"><strong>Emotion and intensity:</strong> assign what each pose conveys. Intensity tells Comic Chat how strongly it conveys it, so a slight smile might be <em>Happy · subtle</em> while a huge grin is <em>Happy · strong</em>. This helps the automatic pose picker match the tone of a message. Keep Neutral at 0%.</p>
           <div id="builder-pose-list" class="builder-pose-list"></div>
           <p id="builder-status" class="builder-status" role="status">Add at least one neutral pose.</p>
         </div>
@@ -922,6 +971,24 @@ const roomBookmarkMenuList = element<HTMLElement>("#room-bookmark-menu-list");
 const roomBookmarkDialogList = element<HTMLElement>("#room-bookmark-dialog-list");
 const communityAvatarsDialog = element<HTMLDialogElement>("#community-avatars-dialog");
 const communityAvatarList = element<HTMLElement>("#community-avatar-list");
+const communityAvatarCatalogStatus = element<HTMLElement>("#community-avatar-catalog-status");
+const communityAvatarUploadOpen = element<HTMLButtonElement>("#community-avatar-upload-open");
+const communityAvatarUploadDialog = element<HTMLDialogElement>("#community-avatar-upload-dialog");
+const communityAvatarUploadFile = element<HTMLInputElement>("#community-avatar-upload-file");
+const communityAvatarUploadName = element<HTMLInputElement>("#community-avatar-upload-name");
+const communityAvatarUploadCreator = element<HTMLInputElement>("#community-avatar-upload-creator");
+const communityAvatarUploadDescription = element<HTMLTextAreaElement>("#community-avatar-upload-description");
+const communityAvatarUploadSource = element<HTMLInputElement>("#community-avatar-upload-source");
+const communityAvatarUploadRights = element<HTMLInputElement>("#community-avatar-upload-rights");
+const communityAvatarUploadRules = element<HTMLInputElement>("#community-avatar-upload-rules");
+const communityAvatarUploadStatus = element<HTMLElement>("#community-avatar-upload-status");
+const communityAvatarUploadSubmit = element<HTMLButtonElement>("#community-avatar-upload-submit");
+const communityAvatarReportDialog = element<HTMLDialogElement>("#community-avatar-report-dialog");
+const communityAvatarReportName = element<HTMLElement>("#community-avatar-report-name");
+const communityAvatarReportReason = element<HTMLSelectElement>("#community-avatar-report-reason");
+const communityAvatarReportDetails = element<HTMLTextAreaElement>("#community-avatar-report-details");
+const communityAvatarReportStatus = element<HTMLElement>("#community-avatar-report-status");
+const communityAvatarReportSubmit = element<HTMLButtonElement>("#community-avatar-report-submit");
 const closeDialog = element<HTMLDialogElement>("#close-dialog");
 const generatorDialog = element<HTMLDialogElement>("#generator-dialog");
 const generatorBrief = element<HTMLPreElement>("#generator-brief");
@@ -1009,6 +1076,7 @@ const importAvatarButton = element<HTMLButtonElement>("#import-avatar");
 const avatarFileInput = element<HTMLInputElement>("#avatar-file");
 const createAvatarButton = element<HTMLButtonElement>("#create-avatar");
 const avatarBuilderDialog = element<HTMLDialogElement>("#avatar-builder-dialog");
+const builderModeInputs = [...document.querySelectorAll<HTMLInputElement>('input[name="builder-mode"]')];
 const builderNameInput = element<HTMLInputElement>("#builder-name");
 const builderCreditInput = element<HTMLInputElement>("#builder-credit");
 const builderStyleSelect = element<HTMLSelectElement>("#builder-style");
@@ -1016,6 +1084,7 @@ const builderAuraInput = element<HTMLInputElement>("#builder-aura");
 const builderAuraValue = element<HTMLOutputElement>("#builder-aura-value");
 const builderAddPosesButton = element<HTMLButtonElement>("#builder-add-poses");
 const builderFilesInput = element<HTMLInputElement>("#builder-files");
+const builderImageHelp = element<HTMLElement>("#builder-image-help");
 const builderPoseList = element<HTMLElement>("#builder-pose-list");
 const builderStatus = element<HTMLElement>("#builder-status");
 const builderClearButton = element<HTMLButtonElement>("#builder-clear");
@@ -1024,10 +1093,17 @@ const builderDownloadButton = element<HTMLButtonElement>("#builder-download");
 const avatarCache = new Map<string, Promise<LoadedAvatar>>();
 const communityAvatarLoads = new Map<string, Promise<LoadedAvatar>>();
 const communityAvatarByFile = new Map<string, HostedCommunityAvatar>();
-for (const entry of communityAvatars) {
-  communityAvatarByFile.set(entry.fileUrl, entry);
-  communityAvatarByFile.set(new URL(entry.fileUrl, window.location.href).href, entry);
+const communityAvatarByAnnouncement = new Map<string, HostedCommunityAvatar>();
+function indexCommunityAvatars(): void {
+  communityAvatarByFile.clear();
+  communityAvatarByAnnouncement.clear();
+  for (const entry of communityAvatars) {
+    communityAvatarByFile.set(entry.fileUrl, entry);
+    communityAvatarByFile.set(new URL(entry.fileUrl, window.location.href).href, entry);
+    communityAvatarByAnnouncement.set(entry.announcementName.toLocaleLowerCase(), entry);
+  }
 }
+indexCommunityAvatars();
 const sessionCustomBackdrops = new Map<string, { name: string; bitmap: DecodedBitmap }>();
 const acceptedHostedAvatars = new Set<string>();
 const sessionCustomAvatars = new Set<string>();
@@ -1288,6 +1364,35 @@ function setBuilderStatus(message: string, error = false): void {
   builderStatus.classList.toggle("error", error);
 }
 
+function builderMode(): "quick" | "advanced" {
+  return builderModeInputs.find((input) => input.checked)?.value === "advanced" ? "advanced" : "quick";
+}
+
+function applyBuilderMode(): void {
+  const mode = builderMode();
+  if (mode === "quick" && builderPoses.length > 1) {
+    const advanced = builderModeInputs.find((input) => input.value === "advanced");
+    if (advanced) advanced.checked = true;
+    avatarBuilderDialog.dataset.mode = "advanced";
+    setBuilderStatus("This character already has several poses. Remove all but one before switching to Quick character.", true);
+    return;
+  }
+  avatarBuilderDialog.dataset.mode = mode;
+  builderFilesInput.multiple = mode === "advanced";
+  builderAddPosesButton.textContent = mode === "advanced" ? "Add pose images…" : "Choose character image…";
+  builderImageHelp.textContent = mode === "advanced"
+    ? "Add up to 16 transparent full-body poses. Source art up to 2048 px is reduced to fit 512 px."
+    : "Choose one transparent full-body image. Source art up to 2048 px is reduced to fit 512 px.";
+  if (mode === "quick" && builderPoses[0]) {
+    builderPoses[0].emotion = 9;
+    builderPoses[0].intensity = 0;
+  }
+  renderBuilderPoses();
+  setBuilderStatus(builderPoses.length
+    ? mode === "quick" ? "Your neutral character image is ready." : `${builderPoses.length} pose images ready. Assign the matching emotion to each.`
+    : mode === "quick" ? "Choose one transparent character image." : "Add at least one neutral pose.");
+}
+
 function updateBuilderControls(): void {
   builderAuraValue.value = `${builderAuraInput.value} px`;
   builderAddPosesButton.disabled = builderBusy;
@@ -1313,6 +1418,12 @@ function drawBuilderThumbnail(canvas: HTMLCanvasElement, pose: CreatorPose): voi
   context.drawImage(source, (canvas.width - source.width * scale) / 2, canvas.height - source.height * scale - 2, source.width * scale, source.height * scale);
 }
 
+function builderIntensityLabel(value: number): string {
+  const percent = Math.max(0, Math.min(100, Math.round(value)));
+  const description = percent === 0 ? "neutral" : percent <= 33 ? "subtle" : percent <= 66 ? "moderate" : "strong";
+  return `${description} (${percent}%)`;
+}
+
 function renderBuilderPoses(): void {
   builderPoseList.replaceChildren();
   if (builderPoses.length === 0) {
@@ -1336,11 +1447,20 @@ function renderBuilderPoses(): void {
     filename.textContent = pose.filename;
     filename.title = pose.filename;
     const emotion = document.createElement("select");
+    emotion.className = "builder-advanced";
     emotion.setAttribute("aria-label", `Emotion for ${pose.filename}`);
     for (const [value, label] of BUILDER_EMOTIONS) emotion.append(new Option(label, String(value)));
     emotion.value = String(pose.emotion);
-    emotion.addEventListener("change", () => { pose.emotion = Number(emotion.value); });
+    emotion.addEventListener("change", () => {
+      pose.emotion = Number(emotion.value);
+      if (pose.emotion === 9) {
+        pose.intensity = 0;
+        intensity.value = "0";
+        intensityValue.value = builderIntensityLabel(0);
+      }
+    });
     const intensityLabel = document.createElement("label");
+    intensityLabel.className = "builder-advanced";
     intensityLabel.textContent = "Intensity ";
     const intensity = document.createElement("input");
     intensity.type = "range";
@@ -1348,10 +1468,10 @@ function renderBuilderPoses(): void {
     intensity.max = "100";
     intensity.value = String(Math.round(pose.intensity * 100));
     const intensityValue = document.createElement("output");
-    intensityValue.value = `${intensity.value}%`;
+    intensityValue.value = builderIntensityLabel(Number(intensity.value));
     intensity.addEventListener("input", () => {
       pose.intensity = Number(intensity.value) / 100;
-      intensityValue.value = `${intensity.value}%`;
+      intensityValue.value = builderIntensityLabel(Number(intensity.value));
     });
     intensityLabel.append(intensity, intensityValue);
     details.append(filename, emotion, intensityLabel);
@@ -1371,7 +1491,11 @@ function renderBuilderPoses(): void {
 }
 
 async function addBuilderPoseFiles(files: readonly File[]): Promise<void> {
-  if (builderPoses.length + files.length > 16) throw new Error("A character can have at most 16 poses");
+  const advanced = builderMode() === "advanced";
+  const maximum = advanced ? 16 : 1;
+  if (builderPoses.length + files.length > maximum) {
+    throw new Error(advanced ? "A character can have at most 16 poses" : "Quick character uses one image. Choose Expressive character to add more poses.");
+  }
   const defaults = [9, 1, 5, 6, 10, 8, 7, 14];
   builderBusy = true;
   updateBuilderControls();
@@ -1379,14 +1503,16 @@ async function addBuilderPoseFiles(files: readonly File[]): Promise<void> {
     for (const file of files) {
       setBuilderStatus(`Reading ${file.name}…`);
       const art = await imageFileToRgba(file);
-      const emotion = defaults[builderPoses.length % defaults.length];
+      const emotion = advanced ? defaults[builderPoses.length % defaults.length] : 9;
       builderPoses.push({ filename: file.name, art, emotion, intensity: emotion === 9 ? 0 : 0.8 });
     }
   } finally {
     builderBusy = false;
     renderBuilderPoses();
   }
-  setBuilderStatus(`${builderPoses.length} pose ${builderPoses.length === 1 ? "image" : "images"} ready. Assign the matching emotion to each.`);
+  setBuilderStatus(advanced
+    ? `${builderPoses.length} pose ${builderPoses.length === 1 ? "image" : "images"} ready. Assign the matching emotion to each.`
+    : "Your neutral character image is ready. Add a name, then build it.");
 }
 
 function downloadAvatar(buffer: ArrayBuffer, name: string): void {
@@ -1433,7 +1559,13 @@ async function buildAndUseAvatar(): Promise<void> {
 async function prepareHostedAvatar(nickname: string): Promise<string | undefined> {
   const announcement = announcedAvatars.get(memberAvatarRuleKey(nickname));
   if (!announcement || announcedOfficialFile(nickname) || avatarDisplayPolicy.officialOnly) return undefined;
-  const url = sameOriginAvatarUrl(announcement.url, new URL(window.location.href));
+  let community = communityAvatarByAnnouncement.get(announcement.name.toLocaleLowerCase());
+  if (!announcement.url && !community) {
+    await refreshCommunityAvatarCatalog().catch(() => {});
+    community = communityAvatarByAnnouncement.get(announcement.name.toLocaleLowerCase());
+  }
+  const hostedUrl = announcement.url ?? community?.fileUrl;
+  const url = sameOriginAvatarUrl(hostedUrl ? new URL(hostedUrl, window.location.href).href : undefined, new URL(window.location.href));
   if (!url) return undefined;
   if (acceptedHostedAvatars.has(url)) return url;
   if (sessionCustomAvatars.size >= MAX_SESSION_CUSTOM_AVATARS) throw new Error("This tab already has the maximum of 24 custom avatars");
@@ -1524,6 +1656,104 @@ function drawCommunityAvatarIcon(canvas: HTMLCanvasElement, source?: HTMLCanvasE
   );
 }
 
+async function communityApi<T>(path: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(path, { ...init, headers: { ...(init?.body ? { "content-type": "application/json" } : {}), ...init?.headers } });
+  const body = await response.json().catch(() => ({})) as { error?: unknown };
+  if (!response.ok) throw new Error(typeof body.error === "string" ? body.error : `Community service returned ${response.status}`);
+  return body as T;
+}
+
+async function refreshCommunityAvatarCatalog(): Promise<void> {
+  const response = await communityApi<{ avatars?: unknown[]; hiddenIds?: unknown[] }>("/api/community-avatars", { cache: "no-store" });
+  const dynamic = parseCommunityAvatarCatalog({ version: 1, avatars: response.avatars }).avatars
+    .map((entry): HostedCommunityAvatar => ({ ...entry, fileUrl: `/community-avatars/${entry.file}` }));
+  const hidden = new Set((response.hiddenIds ?? []).filter((id): id is string => typeof id === "string"));
+  const dynamicIds = new Set(dynamic.map(({ id }) => id));
+  communityAvatars = [
+    ...bundledCommunityAvatars.filter(({ id }) => !hidden.has(id) && !dynamicIds.has(id)),
+    ...dynamic,
+  ];
+  indexCommunityAvatars();
+}
+
+function arrayBufferBase64(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer);
+  let binary = "";
+  const chunkSize = 32_768;
+  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + chunkSize));
+  }
+  return btoa(binary);
+}
+
+async function publishCommunityAvatar(): Promise<void> {
+  const file = communityAvatarUploadFile.files?.[0];
+  if (!file) throw new Error("Choose an .avb file to upload");
+  if (!communityAvatarUploadRights.checked || !communityAvatarUploadRules.checked) {
+    throw new Error("Confirm both the sharing rights and the community content rules");
+  }
+  communityAvatarUploadSubmit.disabled = true;
+  communityAvatarUploadStatus.textContent = "Checking the entire avatar file…";
+  try {
+    const buffer = await file.arrayBuffer();
+    const validated = await validateAvatarImport(buffer, file.name);
+    communityAvatarUploadStatus.textContent = "Technical check passed. Publishing…";
+    const result = await communityApi<{ avatar: CommunityAvatarEntry }>("/api/community-avatars", {
+      method: "POST",
+      body: JSON.stringify({
+        filename: file.name,
+        fileBase64: arrayBufferBase64(buffer),
+        name: communityAvatarUploadName.value.trim() || validated.name,
+        creator: communityAvatarUploadCreator.value.trim(),
+        description: communityAvatarUploadDescription.value.trim(),
+        sourceUrl: communityAvatarUploadSource.value.trim(),
+        rightsConfirmed: true,
+        rulesConfirmed: true,
+      }),
+    });
+    await refreshCommunityAvatarCatalog();
+    renderCommunityAvatarGallery();
+    communityAvatarCatalogStatus.textContent = `${communityAvatars.length} ${communityAvatars.length === 1 ? "avatar" : "avatars"} available`;
+    communityAvatarUploadDialog.close();
+    communityAvatarUploadDialog.querySelector("form")?.reset();
+    communityAvatarUploadStatus.textContent = "";
+    setStatus(`${result.avatar.name} passed validation and is now available in Community Avatars.`);
+  } finally {
+    communityAvatarUploadSubmit.disabled = false;
+  }
+}
+
+let reportedCommunityAvatar: HostedCommunityAvatar | undefined;
+
+function openCommunityAvatarReport(entry: HostedCommunityAvatar): void {
+  reportedCommunityAvatar = entry;
+  communityAvatarReportName.textContent = `Report “${entry.name}” if it breaks the community content or sharing rules.`;
+  communityAvatarReportReason.value = "";
+  communityAvatarReportDetails.value = "";
+  communityAvatarReportStatus.textContent = "";
+  communityAvatarReportDialog.showModal();
+}
+
+async function submitCommunityAvatarReport(): Promise<void> {
+  if (!reportedCommunityAvatar) throw new Error("Choose an avatar to report");
+  if (!communityAvatarReportReason.value) throw new Error("Choose a report reason");
+  communityAvatarReportSubmit.disabled = true;
+  communityAvatarReportStatus.textContent = "Sending report…";
+  try {
+    await communityApi(`/api/community-avatars/${encodeURIComponent(reportedCommunityAvatar.id)}/reports`, {
+      method: "POST",
+      body: JSON.stringify({ reason: communityAvatarReportReason.value, details: communityAvatarReportDetails.value.trim() }),
+    });
+    communityAvatarReportStatus.textContent = "Report sent. Thank you.";
+    setStatus(`Report sent for ${reportedCommunityAvatar.name}.`);
+    setTimeout(() => {
+      if (communityAvatarReportDialog.open) communityAvatarReportDialog.close();
+    }, 700);
+  } finally {
+    communityAvatarReportSubmit.disabled = false;
+  }
+}
+
 function renderCommunityAvatarGallery(): void {
   communityAvatarList.replaceChildren();
   if (communityAvatars.length === 0) {
@@ -1571,7 +1801,14 @@ function renderCommunityAvatarGallery(): void {
         showError(error);
       });
     });
-    card.append(preview, copy, use);
+    const report = document.createElement("button");
+    report.type = "button";
+    report.textContent = "Report";
+    report.addEventListener("click", () => openCommunityAvatarReport(entry));
+    const actions = document.createElement("div");
+    actions.className = "community-avatar-card-actions";
+    actions.append(use, report);
+    card.append(preview, copy, actions);
     communityAvatarList.append(card);
     void loadCommunityAvatar(entry).then(avatarIcon).then((icon) => {
       if (!card.isConnected) return;
@@ -1590,6 +1827,14 @@ function renderCommunityAvatarGallery(): void {
 function showCommunityAvatarGallery(): void {
   renderCommunityAvatarGallery();
   communityAvatarsDialog.showModal();
+  communityAvatarCatalogStatus.textContent = "Checking for new uploads…";
+  void refreshCommunityAvatarCatalog().then(() => {
+    renderCommunityAvatarGallery();
+    communityAvatarCatalogStatus.textContent = `${communityAvatars.length} ${communityAvatars.length === 1 ? "avatar" : "avatars"} available`;
+  }).catch((error) => {
+    communityAvatarCatalogStatus.textContent = "Could not refresh; showing bundled avatars.";
+    setStatus(error instanceof Error ? error.message : "Could not refresh community avatars");
+  });
 }
 
 function addressedPeople(message: string, speaker: string, selected: readonly string[] = []): string[] {
@@ -1783,10 +2028,9 @@ function selectedAvatarAnnouncement(): { name: string; message: string } | undef
   if (officialName) return { name: officialName, message: `# Appears as ${officialName}` };
   const community = communityAvatarByFile.get(characterSelect.value);
   if (!community || window.location.protocol !== "https:") return undefined;
-  const url = new URL(community.fileUrl, window.location.href).href;
   return {
     name: community.name,
-    message: `# Appears as ${community.announcementName}.${url}`,
+    message: `# Appears as ${community.announcementName}`,
   };
 }
 
@@ -1818,8 +2062,9 @@ function characterForNickname(nickname: string): string {
     return characterSelect.value;
   }
   const announcement = announcedAvatars.get(memberAvatarRuleKey(nickname));
+  const community = announcement ? communityAvatarByAnnouncement.get(announcement.name.toLocaleLowerCase()) : undefined;
   const hosted = !avatarDisplayPolicy.officialOnly
-    ? sameOriginAvatarUrl(announcement?.url, new URL(window.location.href))
+    ? sameOriginAvatarUrl(announcement?.url ?? (community ? new URL(community.fileUrl, window.location.href).href : undefined), new URL(window.location.href))
     : undefined;
   return resolveAvatarFile({
     network: networkSelect.value,
@@ -4116,6 +4361,20 @@ characterSelect.addEventListener("change", () => {
   }).catch(showError);
 });
 communityAvatarsButton.addEventListener("click", showCommunityAvatarGallery);
+communityAvatarUploadOpen.addEventListener("click", () => {
+  communityAvatarUploadStatus.textContent = "";
+  communityAvatarUploadDialog.showModal();
+});
+communityAvatarUploadSubmit.addEventListener("click", () => {
+  void publishCommunityAvatar().catch((error) => {
+    communityAvatarUploadStatus.textContent = error instanceof Error ? error.message : "Upload failed";
+  });
+});
+communityAvatarReportSubmit.addEventListener("click", () => {
+  void submitCommunityAvatarReport().catch((error) => {
+    communityAvatarReportStatus.textContent = error instanceof Error ? error.message : "Could not send report";
+  });
+});
 importAvatarButton.addEventListener("click", () => avatarFileInput.click());
 avatarFileInput.addEventListener("change", () => {
   const file = avatarFileInput.files?.[0];
@@ -4123,11 +4382,12 @@ avatarFileInput.addEventListener("change", () => {
   if (file) void importLocalAvatar(file).catch(showError);
 });
 createAvatarButton.addEventListener("click", () => {
-  renderBuilderPoses();
+  applyBuilderMode();
   avatarBuilderDialog.showModal();
   builderNameInput.focus();
 });
 builderNameInput.addEventListener("input", updateBuilderControls);
+for (const input of builderModeInputs) input.addEventListener("change", applyBuilderMode);
 builderAuraInput.addEventListener("input", updateBuilderControls);
 builderAddPosesButton.addEventListener("click", () => builderFilesInput.click());
 builderFilesInput.addEventListener("change", () => {

@@ -37,6 +37,7 @@ describe("IRC protocol boundary", () => {
 
   it("validates room joins independently from registration", () => {
     expect(validateJoinRequest({ type: "join", channel: "#comic-chat" })).toBe("#comic-chat");
+    expect(validateJoinRequest({ type: "join", channel: "##apple" })).toBe("##apple");
     expect(() => validateJoinRequest({ type: "join", channel: "bad room" })).toThrow("Channel");
   });
 

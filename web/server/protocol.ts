@@ -21,7 +21,7 @@ export interface IrcMessage {
 }
 
 const nicknamePattern = /^[A-Za-z][A-Za-z0-9_\-[\]\\`^{}]{0,15}$/;
-const channelPattern = /^#[A-Za-z0-9_+\-]{1,50}$/;
+const channelPattern = /^#[#A-Za-z0-9_+\-]{1,50}$/;
 
 export function validateConnectRequest(value: unknown): ConnectRequest {
   if (!value || typeof value !== "object") throw new Error("Invalid connection request");

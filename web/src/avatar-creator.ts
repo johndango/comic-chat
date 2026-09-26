@@ -34,6 +34,21 @@ export interface CreatorOptions {
 
 const MAX_POSES = 16;
 const MAX_DIMENSION = 512;
+const MAX_SOURCE_DIMENSION = 2048;
+
+export function creatorImageSize(width: number, height: number): { width: number; height: number } {
+  if (!Number.isInteger(width) || !Number.isInteger(height) || width < 1 || height < 1) {
+    throw new Error("Pose images must have valid dimensions");
+  }
+  if (width > MAX_SOURCE_DIMENSION || height > MAX_SOURCE_DIMENSION) {
+    throw new Error(`Source images must be ${MAX_SOURCE_DIMENSION}×${MAX_SOURCE_DIMENSION} pixels or smaller`);
+  }
+  const scale = Math.min(1, MAX_DIMENSION / Math.max(width, height));
+  return {
+    width: Math.max(1, Math.round(width * scale)),
+    height: Math.max(1, Math.round(height * scale)),
+  };
+}
 
 function cleanText(value: string, maximum: number): string {
   return value.replace(/[\u0000-\u001f\u007f]/gu, "").trim().slice(0, maximum);
@@ -81,17 +96,22 @@ export async function imageFileToRgba(file: File): Promise<Rgba> {
   if (file.size > 4 * 1024 * 1024) throw new Error(`${file.name} is larger than 4 MB`);
   const bitmap = await createImageBitmap(file);
   try {
-    if (bitmap.width > MAX_DIMENSION || bitmap.height > MAX_DIMENSION) {
-      throw new Error(`${file.name} must be 512×512 pixels or smaller`);
+    let size: { width: number; height: number };
+    try {
+      size = creatorImageSize(bitmap.width, bitmap.height);
+    } catch (error) {
+      throw new Error(`${file.name}: ${error instanceof Error ? error.message : "unsupported image size"}`);
     }
     const canvas = document.createElement("canvas");
-    canvas.width = bitmap.width;
-    canvas.height = bitmap.height;
+    canvas.width = size.width;
+    canvas.height = size.height;
     const context = canvas.getContext("2d", { willReadFrequently: true });
     if (!context) throw new Error("Canvas image decoding is unavailable");
-    context.drawImage(bitmap, 0, 0);
-    const pixels = context.getImageData(0, 0, bitmap.width, bitmap.height).data;
-    return { width: bitmap.width, height: bitmap.height, pixels };
+    context.imageSmoothingEnabled = true;
+    context.imageSmoothingQuality = "high";
+    context.drawImage(bitmap, 0, 0, size.width, size.height);
+    const pixels = context.getImageData(0, 0, size.width, size.height).data;
+    return { width: size.width, height: size.height, pixels };
   } finally {
     bitmap.close();
   }

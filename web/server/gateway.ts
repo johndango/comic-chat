@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { connect as connectTls, type TLSSocket } from "node:tls";
 import { WebSocket, WebSocketServer } from "ws";
 import { MessageLinkFilter, type UnsafeMessageLink } from "./link-filter";
+import { CommunityAvatarService } from "./community-avatars";
 import {
   IRC_NETWORKS,
   ircCaseFold,
@@ -620,6 +621,8 @@ export interface GatewaySecurityOptions {
   maxLifetimeMs?: number;
   keepaliveMs?: number;
   linkFilter?: Pick<MessageLinkFilter, "check">;
+  communityDataDirectory?: string;
+  communityAdminToken?: string;
 }
 
 export function createGatewayServer(
@@ -640,6 +643,10 @@ export function createGatewayServer(
   const keepaliveMs = security.keepaliveMs ?? 30_000;
   const linkFilter = security.linkFilter ?? new MessageLinkFilter();
   if (linkFilter instanceof MessageLinkFilter) linkFilter.start();
+  const communityAvatars = new CommunityAvatarService(
+    security.communityDataDirectory ?? process.env.COMMUNITY_AVATAR_DATA_DIR ?? fileURLToPath(new URL("../community-data", import.meta.url)),
+    security.communityAdminToken ?? process.env.COMMUNITY_ADMIN_TOKEN,
+  );
   const webSockets = new WebSocketServer({ noServer: true, maxPayload: 4096 });
   const bridges = new Set<IrcBridge>();
   const clientsByAddress = new Map<string, number>();
@@ -647,7 +654,14 @@ export function createGatewayServer(
   let ircConnects: number[] = [];
   let outboundMessages: number[] = [];
   const httpServer = createServer((request, response) => {
-    void serveStatic(request, response, distDirectory);
+    const address = clientAddress(request, trustProxyHops);
+    const mutationAllowed = originAllowed(request, publicOrigin);
+    void communityAvatars.handle(request, response, { address, mutationAllowed }).then((handled) => {
+      if (!handled) return serveStatic(request, response, distDirectory);
+    }).catch(() => {
+      if (!response.headersSent) response.writeHead(500, { "content-type": "text/plain; charset=utf-8" });
+      response.end("Internal server error");
+    });
   });
 
   httpServer.on("upgrade", (request, socket, head) => {

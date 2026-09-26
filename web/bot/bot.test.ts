@@ -310,11 +310,18 @@ describe("show, title and fact", () => {
 
   it("gives conservative canned directions for focused help keywords", () => {
     const brain = new BotBrain(config);
-    expect(brain.answer("cyber", "Anna")).toMatch(/all-ages/);
     expect(brain.answer("privacy?", "Anna")).toMatch(/public IRC chat/);
     expect(brain.answer("studio", "Anna")).toMatch(/disconnects live chat/);
     expect(brain.answer("avatars", "Anna")).toMatch(/community avatars/);
     expect(brain.answer("notifications", "Anna")).toMatch(/View > Notifications/);
+  });
+
+  it("shuts down cyber solicitations without advertising cyber as a help topic", () => {
+    const brain = new BotBrain(config);
+    expect(brain.answer("help", "Anna")).not.toMatch(/cyber/iu);
+    expect(brain.handle({ type: "message", channel: "#c", nick: "Troll", text: "any1 wanna cyber?", at: T0 })[0]?.text)
+      .toMatch(/No cybering here.*all-ages/iu);
+    expect(brain.handle({ type: "message", channel: "#c", nick: "Historian", text: "What did cyber mean in old chat rooms?", at: T0 })).toEqual([]);
   });
 });
 

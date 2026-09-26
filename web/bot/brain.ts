@@ -64,6 +64,13 @@ const DAILY_SPARK_QUIET = 30 * MINUTE;
 
 const fold = (s: string) => s.toLowerCase();
 
+function isCyberSolicitation(text: string): boolean {
+  const q = fold(text).trim().replace(/[!?.,]+$/u, "");
+  return /^(?:cyber|cybersex)$/u.test(q)
+    || /\b(?:wanna|want to|anyone wanna|anybody wanna|any1 wanna|who wants to|looking for|up for)\s+cyber(?:sex|ing)?\b/u.test(q)
+    || /\bcyber(?:sex|ing)?\s+(?:with me|anyone|anybody|any1)\b/u.test(q);
+}
+
 /** Rough bot detection: names ending in bot/serv, or ones we were told to ignore. */
 function looksLikeBot(nick: string, ignore: Set<string>): boolean {
   const n = fold(nick);
@@ -312,7 +319,8 @@ export class BotBrain {
       state.lastHumanLineAt = event.at;
     }
     const request = event.channel ? this.addressed(event.text) : event.text.trim();
-    if (request === null) return [];
+    const shutDownCyber = !!event.channel && isCyberSolicitation(request ?? event.text);
+    if (request === null && !shutDownCyber) return [];
     const allowed = this.allowAnswer(event.nick, event.at);
     if (allowed === "quiet") return [];
     if (event.channel) this.channel(event.channel).loneLineAt = null;
@@ -320,7 +328,9 @@ export class BotBrain {
       return [{ target: replyTo, text: `Catching my breath, ${event.nick}. Ask me again in a minute :)`, delay: 1500 }];
     }
     const aiPresent = !!event.channel && !!this.config.aiFriend && this.aiFriendIn(event.channel);
-    return [{ target: replyTo, text: this.answer(request, event.nick, aiPresent), delay: 1500 }];
+    return [{ target: replyTo, text: shutDownCyber
+      ? "Nope. No cybering here—this is a public, all-ages comic room. Knock it off."
+      : this.answer(request!, event.nick, aiPresent), delay: 1500 }];
   }
 
   private nextTip(): string {
@@ -348,13 +358,10 @@ export class BotBrain {
   answer(request: string, nick: string, aiPresent = false): string {
     const q = fold(request);
     if (/^(help|commands|\?)?$/.test(q)) {
-      return `Hi ${nick}! Ask me for: tips, show, title, fact, link, about, schedule, privacy, studio, avatars, notifications, or cyber. Or just chat and watch the comic draw itself :)`;
+      return `Hi ${nick}! Ask me for: tips, show, title, fact, link, about, schedule, privacy, studio, avatars, or notifications. Or just chat and watch the comic draw itself :)`;
     }
     // Short, exact help topics stay canned and predictable. Requiring the bot
     // to be addressed plus a focused phrase keeps ordinary room chatter quiet.
-    if (/^(cyber|cybering|cybersex)[?!.]*$/.test(q)) {
-      return "Cyber? Not in the public comic :) Keep the room all-ages, and remember that room messages can appear in somebody's saved strip.";
-    }
     if (/^(privacy|private|is this private|safety)[?!.]*$/.test(q)) {
       return "Room messages are public IRC chat and can be saved in comics. Use a whisper for a private message, but never share passwords or personal information.";
     }

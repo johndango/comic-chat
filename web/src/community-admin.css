@@ -1,0 +1,22 @@
+body { min-width: 320px; }
+.admin-window { max-width: 1080px; margin-right: auto; margin-left: auto; }
+.admin-body { min-height: calc(100vh - 60px); padding: 12px; background: var(--face); }
+.admin-login { max-width: 520px; margin: 8vh auto; padding: 18px; border: 2px outset #fff; }
+.admin-login h1 { margin-top: 0; font-size: 18px; }
+.admin-login label { margin: 14px 0; display: grid; grid-template-columns: 100px 1fr; align-items: center; gap: 8px; }
+.admin-toolbar { display: flex; align-items: center; gap: 7px; }
+.admin-toolbar > span { margin-right: auto; }
+#admin-status { min-height: 18px; padding: 4px; background: #ffffdf; border: 1px solid #a0a080; }
+.admin-list { display: grid; gap: 7px; }
+.admin-list article { padding: 8px; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: center; background: #ddd; border: 2px outset #fff; }
+.admin-list article > div { min-width: 0; display: grid; gap: 3px; }
+.admin-list article > div:last-child { display: flex; flex-wrap: wrap; }
+.admin-list p { margin: 0; }
+.admin-list small { color: #444; }
+.admin-empty { padding: 18px !important; background: #fff; border: 2px inset #fff; }
+@media (max-width: 620px) {
+  .admin-toolbar { align-items: stretch; flex-direction: column; }
+  .admin-toolbar > span { margin-right: 0; }
+  .admin-list article { grid-template-columns: 1fr; }
+  .admin-login label { grid-template-columns: 1fr; }
+}

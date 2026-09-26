@@ -35,6 +35,8 @@ export default defineConfig({
       allow: [fileURLToPath(new URL("..", import.meta.url))],
     },
     proxy: {
+      "/api": "http://127.0.0.1:8787",
+      "/community-avatars": "http://127.0.0.1:8787",
       "/irc": {
         target: "ws://127.0.0.1:8787",
         ws: true,
@@ -50,6 +52,7 @@ export default defineConfig({
       input: {
         main: fileURLToPath(new URL("index.html", import.meta.url)),
         generation: fileURLToPath(new URL("generation/index.html", import.meta.url)),
+        communityAdmin: fileURLToPath(new URL("community-admin/index.html", import.meta.url)),
       },
     },
   },

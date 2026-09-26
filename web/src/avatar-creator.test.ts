@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { parseAvatar } from "./avb";
-import { avatarDownloadName, buildSimpleAvatar, validateCreatorArt } from "./avatar-creator";
+import { avatarDownloadName, buildSimpleAvatar, creatorImageSize, validateCreatorArt } from "./avatar-creator";
 import { Emotion, type Rgba } from "./avb-builder";
 
 function pose(): Rgba {
@@ -28,5 +28,11 @@ describe("avatar creator", () => {
     expect(avatarDownloadName("  Dr. Åwesome!  ")).toBe("dr-awesome.avb");
     expect(() => validateCreatorArt({ width: 513, height: 20, pixels: new Uint8Array(513 * 20 * 4) }))
       .toThrow("512×512");
+  });
+
+  it("reduces high-resolution source art to the classic logical size", () => {
+    expect(creatorImageSize(1200, 1800)).toEqual({ width: 341, height: 512 });
+    expect(creatorImageSize(250, 420)).toEqual({ width: 250, height: 420 });
+    expect(() => creatorImageSize(2049, 100)).toThrow("2048×2048");
   });
 });

@@ -19,6 +19,11 @@ describe("room links", () => {
     });
   });
 
+  it("accepts Libera topical channels with a double hash", () => {
+    expect(normalizeRoomSelection("libera", "##apple")).toEqual({ network: "libera", channel: "##apple" });
+    expect(createLiberaWebChatUrl("##apple")).toBe("https://web.libera.chat/##apple");
+  });
+
   it("rejects unsupported networks and unsafe channels", () => {
     expect(normalizeRoomSelection("attacker", "#chat")).toBeUndefined();
     expect(normalizeRoomSelection("oftc", "#chat room")).toBeUndefined();

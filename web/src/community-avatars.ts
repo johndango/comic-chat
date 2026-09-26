@@ -39,7 +39,7 @@ export function parseCommunityAvatarCatalog(value: unknown): CommunityAvatarCata
   const ids = new Set<string>();
   const files = new Set<string>();
 
-  for (const candidate of candidates.slice(0, 50)) {
+  for (const candidate of candidates.slice(0, 500)) {
     if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) continue;
     const entry = candidate as Record<string, unknown>;
     const id = shortText(entry.id, 60);

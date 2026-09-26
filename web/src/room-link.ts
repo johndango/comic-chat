@@ -10,7 +10,9 @@ export const DEFAULT_ROOM_SELECTION: Readonly<RoomSelection> = {
   channel: "#webcomicchat",
 };
 
-const channelPattern = /^#[A-Za-z0-9_+\-]{1,50}$/;
+// IRC channel names may contain another # after the channel sigil. Libera uses
+// this for topical rooms such as ##apple.
+const channelPattern = /^#[#A-Za-z0-9_+\-]{1,50}$/;
 
 export function normalizeRoomSelection(network: string, rawChannel: string): RoomSelection | undefined {
   if (network !== "libera" && network !== "oftc") return undefined;
