@@ -703,7 +703,7 @@ app.innerHTML = `
     </dialog>
     <dialog id="community-avatar-upload-dialog" class="classic-dialog community-avatar-upload-dialog" aria-labelledby="community-avatar-upload-title">
       <form method="dialog">
-        <header><strong id="community-avatar-upload-title">Upload a Community Avatar</strong><button value="cancel" aria-label="Close">×</button></header>
+        <header><strong id="community-avatar-upload-title">Upload a Community Avatar</strong><button value="cancel" formnovalidate aria-label="Close">×</button></header>
         <div class="dialog-body community-avatar-form">
           <p>Your avatar becomes public immediately after automatic technical validation. This check cannot determine whether artwork is appropriate or whether you own it.</p>
           <label>.avb file<input id="community-avatar-upload-file" type="file" accept=".avb,application/octet-stream" required /></label>
@@ -715,12 +715,12 @@ app.innerHTML = `
           <label class="community-avatar-confirm"><input id="community-avatar-upload-rules" type="checkbox" /> This upload follows the community rules: no sexual, exploitative, hateful, harassing, graphic, illegal, privacy-invasive, or stolen content.</label>
           <p id="community-avatar-upload-status" role="status"></p>
         </div>
-        <footer><button id="community-avatar-upload-submit" type="button">Validate &amp; publish</button><button value="cancel">Cancel</button></footer>
+        <footer><button id="community-avatar-upload-submit" type="button">Validate &amp; publish</button><button value="cancel" formnovalidate>Cancel</button></footer>
       </form>
     </dialog>
     <dialog id="community-avatar-report-dialog" class="classic-dialog community-avatar-report-dialog" aria-labelledby="community-avatar-report-title">
       <form method="dialog">
-        <header><strong id="community-avatar-report-title">Report Community Avatar</strong><button value="cancel" aria-label="Close">×</button></header>
+        <header><strong id="community-avatar-report-title">Report Community Avatar</strong><button value="cancel" formnovalidate aria-label="Close">×</button></header>
         <div class="dialog-body community-avatar-form">
           <p id="community-avatar-report-name"></p>
           <label>Reason<select id="community-avatar-report-reason">
@@ -737,7 +737,7 @@ app.innerHTML = `
           <label>Details<textarea id="community-avatar-report-details" maxlength="500" rows="4" placeholder="Briefly explain the problem (optional)"></textarea></label>
           <p id="community-avatar-report-status" role="status"></p>
         </div>
-        <footer><button id="community-avatar-report-submit" type="button">Send report</button><button value="cancel">Cancel</button></footer>
+        <footer><button id="community-avatar-report-submit" type="button">Send report</button><button value="cancel" formnovalidate>Cancel</button></footer>
       </form>
     </dialog>
     <dialog id="generator-dialog" class="classic-dialog generator-dialog" aria-labelledby="generator-title">

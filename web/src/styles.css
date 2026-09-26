@@ -359,7 +359,21 @@ button:disabled { color: #808080; text-shadow: 1px 1px #fff; cursor: not-allowed
 .community-avatar-form > label:not(.community-avatar-confirm) { display: grid; grid-template-columns: 145px minmax(0, 1fr); align-items: center; gap: 8px; }
 .community-avatar-form input:not([type="checkbox"]), .community-avatar-form select, .community-avatar-form textarea { width: 100%; }
 .community-avatar-confirm { display: grid; grid-template-columns: auto 1fr; align-items: start; gap: 7px; line-height: 1.35; }
-.community-avatar-confirm input { margin-top: 2px; }
+.community-avatar-confirm input[type="checkbox"] {
+  appearance: auto;
+  -webkit-appearance: checkbox;
+  width: 15px;
+  min-width: 15px;
+  height: 15px;
+  margin: 1px 0 0;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  box-shadow: none;
+  accent-color: var(--navy);
+}
+.community-avatar-confirm input[type="checkbox"]:focus-visible { outline: 1px dotted #000; outline-offset: 1px; }
 #community-avatar-upload-status, #community-avatar-report-status { min-height: 17px; color: #700; font-weight: 700; }
 .strip-workshop-dialog { width: min(960px, calc(100vw - 20px)); max-height: calc(100vh - 20px); overflow: hidden; }
 .strip-workshop-dialog > form { height: min(850px, calc(100vh - 30px)); }
