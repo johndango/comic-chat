@@ -412,12 +412,29 @@ describe("gremlin persona (n00bBot)", () => {
   it("goes away for an hour when anyone asks", async () => {
     const { brain } = gremlin();
     const bye = await brain.message("#c", "Anna", "n00bBot: go away", T0);
-    expect(bye).toEqual(["[AI] FINE. brb in an hour :("]);
+    expect(bye).toEqual(['[AI] FINE. brb in an hour :( (Anna can say "n00bBot: come back" if u miss me)']);
     await brain.message("#c", "Dan", "chatting", T0 + 30 * MIN);
     expect(await brain.interject("#c", T0 + 31 * MIN)).toEqual([]);
     expect(await brain.message("#c", "Dan", "n00bBot: hi", T0 + 32 * MIN)).toEqual([]);
     await brain.message("#c", "Dan", "chatting", T0 + 61 * MIN);
     expect(await brain.interject("#c", T0 + 62 * MIN)).toHaveLength(1);
+  });
+
+  it("understands go away with the name anywhere and punctuation", async () => {
+    for (const line of ["go away n00bBot!", "n00bBot, please shut up.", "@n00bBot stop!!", "n00bBot: be quiet"]) {
+      const { brain } = gremlin();
+      expect(await brain.message("#c", "Anna", line, T0), line).toHaveLength(1);
+      expect(await brain.message("#c", "Anna", "n00bBot: hi", T0 + MIN), line).toEqual([]);
+    }
+  });
+
+  it("comes back early only for the person who sent it away, or an operator", async () => {
+    const { brain } = gremlin();
+    await brain.message("#c", "Anna", "n00bBot: go away", T0);
+    expect(await brain.message("#c", "Dan", "n00bBot: come back", T0 + MIN)).toEqual([]);
+    expect(await brain.message("#c", "Anna", "come back n00bBot", T0 + 2 * MIN)).toEqual(["[AI] I'M BACK!!! did u miss me lol"]);
+    await brain.message("#c", "Dan", "n00bBot: go away", T0 + 3 * MIN);
+    expect(await brain.message("#c", "johndango", "n00bBot: come back", T0 + 4 * MIN)).toEqual(["[AI] I'M BACK!!! did u miss me lol"]);
   });
 
   it("the friendly bot never interjects", async () => {
@@ -429,11 +446,13 @@ describe("gremlin persona (n00bBot)", () => {
     expect(sent).toHaveLength(0);
   });
 
-  it("does not apply the gremlin's public mute command to the friendly bot", async () => {
+  it("lets anyone send the friendly bot away too", async () => {
     const { say, sent } = setup();
-    expect((await say("Anna", "CamBot: stop")).some((line) => /FINE|quiet for an hour/.test(line))).toBe(false);
-    expect(sent).toHaveLength(1);
+    expect(await say("Anna", "CamBot: go away")).toEqual(['[AI] Okay Anna, I\'ll stay quiet for an hour. Say "CamBot: come back" if you change your mind.']);
+    expect(await say("Dan", "CamBot: hello?")).toEqual([]);
+    expect(await say("Anna", "CamBot: come back")).toEqual(["[AI] I'm back :)"]);
     expect((await say("Anna", "CamBot: hello again")).length).toBeGreaterThan(0);
+    expect(sent).toHaveLength(1);
   });
 
   it("does not interject from activity remembered across a disconnect", async () => {

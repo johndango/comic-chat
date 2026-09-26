@@ -155,8 +155,10 @@ down real people.
   while people are chatting, and only on half of those chances.
 - Those unprompted lines never read the room: the model is told only which
   bots are present. Any unprompted line that names a real person is dropped.
-- Anyone can say `n00bBot: go away` to mute it for an hour; operators can
-  still use sleep and wake.
+- Anyone can say `go away`, `shut up`, `stop` or `be quiet` to either AI bot
+  (with its name anywhere in the line) to mute it for an hour. The person who
+  sent it away, or an operator, can say `come back` to end that early.
+  Operators can still use sleep and wake.
 
 Run it with its own settings file (its own NickServ account):
 

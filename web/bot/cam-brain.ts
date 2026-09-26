@@ -106,6 +106,8 @@ export class CamBrain {
   private lastHumanLine = new Map<string, number>();
   private lastInterjection = new Map<string, number>();
   private mutedUntil = new Map<string, number>();
+  /** Who sent the bot away in each channel: they (or an operator) can call it back early. */
+  private mutedBy = new Map<string, string>();
   /** Recent gremlin output, used locally to stop a catchphrase taking over. */
   private recentGremlinLines = new Map<string, string[]>();
 
@@ -193,6 +195,13 @@ export class CamBrain {
   }
 
   /** The bot's name plus friendly variants: TongueTiedBot → tonguetied, tongue-tied, tongue tied. */
+  /** "go away n00bBot!" / "TongueTiedBot please stop" → "go away" / "stop". */
+  private commandWords(request: string): string {
+    let words = ` ${request.toLowerCase()} `;
+    for (const name of this.aliases()) words = words.split(name).join(" ");
+    return words.replace(/[^a-z\s]/g, " ").replace(/\b(please|pls|plz|now|ok|okay)\b/g, " ").replace(/\s+/g, " ").trim();
+  }
+
   private aliases(): string[] {
     const nick = this.config.nick;
     const base = nick.replace(/bot[_\d]*$/i, "");
@@ -259,12 +268,28 @@ export class CamBrain {
 
     // Anyone can send the gremlin away for an hour. Keep this persona-specific
     // so an ordinary "TongueTiedBot: stop" remains a normal conversation.
-    if (this.config.persona === "gremlin" && /^(go away|shut up|stop|be quiet)[.!]*$/i.test(request)) {
-      this.mutedUntil.set(fold(channel), at + MUTE_FOR);
+    // Anyone can send either bot away for an hour; the same person or an
+    // operator can call it back early.
+    const command = this.commandWords(request);
+    const key = fold(channel);
+    const muted = (this.mutedUntil.get(key) ?? 0) > at;
+    if (/^(go away|shut up|stop|be quiet)$/.test(command)) {
+      this.mutedUntil.set(key, at + MUTE_FOR);
+      this.mutedBy.set(key, fold(nick));
       this.log(`muted in ${channel} by ${nick} for an hour`);
-      return this.mark(["FINE. brb in an hour :("]);
+      if (muted) return [];
+      return this.mark([this.config.persona === "gremlin"
+        ? `FINE. brb in an hour :( (${nick} can say "${this.config.nick}: come back" if u miss me)`
+        : `Okay ${nick}, I'll stay quiet for an hour. Say "${this.config.nick}: come back" if you change your mind.`]);
     }
-    if ((this.mutedUntil.get(fold(channel)) ?? 0) > at) return [];
+    if (/^come back$/.test(command) && muted) {
+      if (this.mutedBy.get(key) !== fold(nick) && !this.opSet(channel).has(fold(nick))) return [];
+      this.mutedUntil.delete(key);
+      this.mutedBy.delete(key);
+      this.log(`unmuted in ${channel} by ${nick}`);
+      return this.mark([this.config.persona === "gremlin" ? "I'M BACK!!! did u miss me lol" : "I'm back :)"]);
+    }
+    if (muted) return [];
 
     const transcript = this.transcripts.get(fold(channel)) ?? [];
     if (/^forget( me)?$/i.test(request)) {

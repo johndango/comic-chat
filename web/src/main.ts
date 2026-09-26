@@ -619,11 +619,11 @@ app.innerHTML = `
           </ol>
           <dl>
             <dt>BettyBot</dt><dd>A command-based helper. Try <code>BettyBot: help</code>, <code>tips</code>, <code>fact</code>, <code>show happy</code>, or focused help words such as <code>privacy</code>, <code>studio</code>, <code>notifications</code>, and <code>cyber</code>.</dd>
-            <dt>TongueTiedBot</dt><dd>A friendly conversational AI bot. Address it by name and ask a question.</dd>
+            <dt>TongueTiedBot</dt><dd>A friendly conversational AI bot. Address it by name and ask a question; say <code>TongueTiedBot: go away</code> to quiet it for an hour.</dd>
             <dt>n00bBot</dt><dd>A deliberately silly conversational AI gremlin. Address it by name; say <code>n00bBot: go away</code> to quiet it for an hour.</dd>
           </dl>
           <p id="bot-tips-presence" class="bot-tips-presence" role="status"></p>
-          <small>Only bots shown in Members are currently available. AI-generated replies are identified on IRC.</small>
+          <small>Only bots shown in Members are currently available. Whoever sends a bot away (or an operator) can say <code>come back</code> to it early. AI-generated replies are identified on IRC.</small>
         </div>
         <footer><button value="cancel">OK</button></footer>
       </form>
