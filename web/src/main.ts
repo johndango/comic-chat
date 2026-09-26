@@ -62,6 +62,7 @@ import { reconcilePanelSelection, selectedPanelIndexes } from "./panel-selection
 import { shouldFollowLatest } from "./scroll-follow";
 import { blockedLinkMessage, blockedMessageLink, displayMessageLinks } from "./message-links";
 import { censorComicText } from "./content-censor";
+import { convertGenerationScript, generationBrief, type GenerationCatalog } from "./generation-script";
 import { parseSlashCommand, SLASH_HELP } from "./slash-commands";
 import { describePanel, transcriptLine } from "./panel-text";
 import { parseComicChatAnnotation, poseForAnnotation, type ComicChatAnnotation } from "./cc-annotation";
@@ -694,6 +695,32 @@ app.innerHTML = `
         <footer><button value="cancel">Close</button></footer>
       </form>
     </dialog>
+    <dialog id="generator-dialog" class="classic-dialog generator-dialog" aria-labelledby="generator-title">
+      <form method="dialog">
+        <header><strong id="generator-title">Comic Generator</strong><button value="cancel" aria-label="Close">×</button></header>
+        <div class="dialog-body generator-body">
+          <p class="generator-private">Private page: not linked anywhere on the site, and not indexed by search engines. Everything happens in this browser; nothing is posted to IRC.</p>
+          <section>
+            <strong>1. Give your AI assistant the instructions</strong>
+            <p>They list every character, pose, background and limit this site supports, with an example. Paste them into ChatGPT, then describe the comic you want.</p>
+            <div class="generator-actions"><button id="generator-copy-brief" type="button">Copy instructions for ChatGPT</button></div>
+            <details><summary>Show the instructions</summary><pre id="generator-brief"></pre></details>
+          </section>
+          <section>
+            <label for="generator-script"><strong>2. Paste its reply</strong> (the whole reply is fine; the JSON is found automatically)</label>
+            <textarea id="generator-script" rows="12" spellcheck="false" autocomplete="off" placeholder='{"format": "webcomicchat-generation", "cast": {...}, "panels": [...]}'></textarea>
+            <div class="generator-actions"><button id="generator-make" type="button" class="generator-primary">Make comic</button><button id="generator-example" type="button">Load the example</button></div>
+          </section>
+          <section id="generator-problems" hidden>
+            <strong id="generator-problems-title">Fix these, then try again</strong>
+            <ul id="generator-errors"></ul>
+            <ul id="generator-warnings" class="generator-warnings"></ul>
+            <div class="generator-actions"><button id="generator-copy-errors" type="button">Copy for ChatGPT</button></div>
+          </section>
+        </div>
+        <footer><span>The comic opens in the Studio, where you can edit it, save the project, or export a PNG.</span><button value="cancel">Close</button></footer>
+      </form>
+    </dialog>
     <dialog id="close-dialog" class="classic-dialog close-dialog" aria-labelledby="close-title">
       <form method="dialog">
         <header><strong id="close-title">Microsoft Comic Chat</strong><button value="cancel" aria-label="Close">×</button></header>
@@ -895,6 +922,13 @@ const roomBookmarkDialogList = element<HTMLElement>("#room-bookmark-dialog-list"
 const communityAvatarsDialog = element<HTMLDialogElement>("#community-avatars-dialog");
 const communityAvatarList = element<HTMLElement>("#community-avatar-list");
 const closeDialog = element<HTMLDialogElement>("#close-dialog");
+const generatorDialog = element<HTMLDialogElement>("#generator-dialog");
+const generatorBrief = element<HTMLPreElement>("#generator-brief");
+const generatorScript = element<HTMLTextAreaElement>("#generator-script");
+const generatorProblems = element<HTMLElement>("#generator-problems");
+const generatorProblemsTitle = element<HTMLElement>("#generator-problems-title");
+const generatorErrors = element<HTMLUListElement>("#generator-errors");
+const generatorWarnings = element<HTMLUListElement>("#generator-warnings");
 const workshopLiveWarningDialog = element<HTMLDialogElement>("#workshop-live-warning-dialog");
 const workshopLiveWarningDetail = element<HTMLElement>("#workshop-live-warning-detail");
 const textView = element<HTMLOListElement>("#text-view");
@@ -3434,6 +3468,100 @@ async function disconnectAndOpenBlankStudio(): Promise<void> {
   setStatus("Disconnected from live chat. Offline Comic Studio opened with a blank project.");
 }
 
+// ---------------------------------------------------------------------------
+// Comic Generator (/generation): a private page that turns an AI assistant's
+// JSON script into a Studio project. See generation-script.ts.
+
+const onGenerationPage = /^\/generation\/?$/u.test(window.location.pathname);
+const GENERATOR_DRAFT_KEY = "webcomicchat.generation.draft";
+
+/** Friendly names for what the Studio can draw: "Anna", "Anna (color)", "Bolo (art pack)". */
+function generationCatalog(): GenerationCatalog {
+  const named = <T extends { name: string; id: string }>(items: T[]): T[] => {
+    const seen = new Map<string, number>();
+    return items.map((item) => {
+      const count = (seen.get(item.name.toLocaleLowerCase()) ?? 0) + 1;
+      seen.set(item.name.toLocaleLowerCase(), count);
+      return count === 1 ? item : { ...item, name: `${item.name} ${count}` };
+    });
+  };
+  const characterName = (label: string) => {
+    const [base, edition = ""] = label.split(" — ");
+    if (/color/iu.test(edition)) return `${base} (color)`;
+    if (/art pack edition/iu.test(edition)) return `${base} (art pack)`;
+    return base;
+  };
+  return {
+    characters: named(characters.flatMap(({ file, label }) => {
+      const id = studioCharacterIdByFile.get(file);
+      return id ? [{ name: characterName(label), id }] : [];
+    })),
+    backgrounds: named(backdrops.flatMap(({ file, label }) => {
+      const id = studioBackdropIdByFile.get(file);
+      return id ? [{ name: label.split(" — ")[0], id }] : [];
+    })),
+    fonts: COMIC_FONT_OPTIONS.map(({ id, label }) => ({ name: label.replace(/\s*\(.*\)$/u, ""), id })),
+  };
+}
+
+function showGeneratorProblems(errors: readonly string[], warnings: readonly string[]): void {
+  const item = (text: string) => Object.assign(document.createElement("li"), { textContent: text });
+  generatorErrors.replaceChildren(...errors.map(item));
+  generatorWarnings.replaceChildren(...warnings.map(item));
+  generatorProblemsTitle.textContent = errors.length ? "Fix these, then try again" : "Made the comic, with notes";
+  generatorProblems.hidden = errors.length === 0 && warnings.length === 0;
+}
+
+function openGenerator(): void {
+  generatorBrief.textContent = generationBrief(generationCatalog());
+  if (!generatorScript.value) {
+    try { generatorScript.value = localStorage.getItem(GENERATOR_DRAFT_KEY) ?? ""; } catch {}
+  }
+  if (!generatorDialog.open) generatorDialog.showModal();
+}
+
+async function makeGeneratedComic(): Promise<void> {
+  try { localStorage.setItem(GENERATOR_DRAFT_KEY, generatorScript.value); } catch {}
+  const result = convertGenerationScript(generatorScript.value, generationCatalog());
+  showGeneratorProblems(result.errors, result.warnings);
+  if (!result.project) return;
+  const name = `${result.project.title || "generated-comic"}.wcc.json`;
+  generatorDialog.close();
+  showStripWorkshop();
+  try {
+    await openStudioProject(new File([JSON.stringify(result.project)], name, { type: "application/json" }));
+  } catch (error) {
+    stripWorkshopDialog.close();
+    showGeneratorProblems([error instanceof Error ? error.message : String(error)], result.warnings);
+    openGenerator();
+  }
+}
+
+element<HTMLButtonElement>("#generator-copy-brief").addEventListener("click", () => {
+  void copyText(generationBrief(generationCatalog())).then((copied) => {
+    setStatus(copied ? "Instructions copied. Paste them into ChatGPT." : "Couldn't copy; open \"Show the instructions\" and copy them by hand.");
+  });
+});
+element<HTMLButtonElement>("#generator-copy-errors").addEventListener("click", () => {
+  const lines = [...generatorErrors.children, ...generatorWarnings.children].map((item) => `- ${item.textContent}`);
+  void copyText(`The site couldn't use that script:\n${lines.join("\n")}\nPlease fix exactly these problems and reply with the whole corrected JSON.`);
+});
+element<HTMLButtonElement>("#generator-example").addEventListener("click", () => {
+  const brief = generationBrief(generationCatalog());
+  generatorScript.value = brief.slice(brief.indexOf("EXAMPLE\n") + 8, brief.lastIndexOf("}") + 1);
+  showGeneratorProblems([], []);
+});
+element<HTMLButtonElement>("#generator-make").addEventListener("click", () => void makeGeneratedComic().catch(showError));
+if (onGenerationPage) {
+  document.title = "Comic Generator — Comic Chat";
+  // generation/index.html already says this; repeat it for hosts that serve the main page here.
+  if (!document.querySelector('meta[name="robots"]')) {
+    document.head.append(Object.assign(document.createElement("meta"), { name: "robots", content: "noindex, nofollow, noarchive" }));
+  }
+  // Back to the generator whenever the Studio closes, to try another script.
+  stripWorkshopDialog.addEventListener("close", () => openGenerator());
+}
+
 function openStripWorkshop(): void {
   if (!studioEntryNeedsDisconnect(liveState)) {
     showStripWorkshop();
@@ -4737,4 +4865,6 @@ if (linkedRoom) {
 }
 renderRoomBookmarks();
 updateControls();
-void initialLoad();
+void initialLoad().then(() => {
+  if (onGenerationPage) openGenerator();
+});

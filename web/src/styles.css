@@ -14,6 +14,17 @@
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
 .visually-hidden { position: absolute !important; width: 1px !important; height: 1px !important; padding: 0 !important; margin: -1px !important; overflow: hidden !important; clip: rect(0, 0, 0, 0) !important; white-space: nowrap !important; border: 0 !important; }
+.generator-dialog { width: min(760px, calc(100vw - 32px)); }
+.generator-body { display: grid; gap: 12px; max-height: min(70vh, 720px); overflow: auto; }
+.generator-body section { display: grid; gap: 6px; }
+.generator-body p { margin: 0; }
+.generator-private { padding: 6px; background: #ffffdf; border: 1px solid #a0a080; }
+.generator-body textarea { width: 100%; box-sizing: border-box; resize: vertical; font: 12px/1.4 "Courier New", monospace; padding: 4px; border: 2px inset #fff; }
+.generator-body pre { max-height: 240px; overflow: auto; margin: 6px 0 0; padding: 6px; background: #fff; border: 2px inset #fff; font: 11px/1.4 "Courier New", monospace; white-space: pre-wrap; }
+.generator-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.generator-primary { font-weight: 700; }
+#generator-errors { margin: 0; padding-left: 20px; color: #a00000; }
+.generator-warnings { margin: 0; padding-left: 20px; color: #555; }
 .text-view { margin: 0; padding: 10px 14px 10px 44px; background: #fff; color: #000; font: 14px/1.5 "Courier New", monospace; overflow-wrap: anywhere; }
 .text-view li { padding: 1px 0; }
 .text-view li[data-mode="think"], .text-view li[data-mode="action"] { font-style: italic; }

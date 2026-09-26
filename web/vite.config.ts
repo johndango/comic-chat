@@ -44,5 +44,13 @@ export default defineConfig({
   build: {
     outDir: "dist",
     emptyOutDir: true,
+    rollupOptions: {
+      // /generation is the private comic generator: the same app, opened on
+      // its own page so it can carry a noindex tag. Nothing links to it.
+      input: {
+        main: fileURLToPath(new URL("index.html", import.meta.url)),
+        generation: fileURLToPath(new URL("generation/index.html", import.meta.url)),
+      },
+    },
   },
 });
