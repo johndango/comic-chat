@@ -375,7 +375,7 @@ app.innerHTML = `
         <hr />
         <button type="button" role="menuitem" data-command="about">About WebComicChat…</button>
       </div>
-      <strong>Microsoft Comic Chat - [<span id="window-room">Not connected</span>]</strong>
+      <strong>WebComicChat - [<span id="window-room">Not connected</span>]</strong>
       <span class="window-buttons">
         <button id="window-minimize" type="button" aria-label="Minimize">_</button>
         <button id="window-maximize" type="button" aria-label="Maximize">□</button>
@@ -723,7 +723,7 @@ app.innerHTML = `
     </dialog>
     <dialog id="close-dialog" class="classic-dialog close-dialog" aria-labelledby="close-title">
       <form method="dialog">
-        <header><strong id="close-title">Microsoft Comic Chat</strong><button value="cancel" aria-label="Close">×</button></header>
+        <header><strong id="close-title">WebComicChat</strong><button value="cancel" aria-label="Close">×</button></header>
         <div class="dialog-body close-dialog-body"><span aria-hidden="true">?</span><p>Are you sure you want to leave the comic?</p></div>
         <footer><button id="close-yes" value="yes">Yes</button><button id="close-no" value="cancel" autofocus>No</button></footer>
       </form>
@@ -849,7 +849,7 @@ app.innerHTML = `
       </form>
     </dialog>
   </div>
-  <button id="comic-taskbar-button" class="comic-taskbar-button" type="button" hidden><img class="classic-app-icon" src="${classicAppIconUrl}" alt="" />Microsoft Comic Chat</button>
+  <button id="comic-taskbar-button" class="comic-taskbar-button" type="button" hidden><img class="classic-app-icon" src="${classicAppIconUrl}" alt="" />WebComicChat</button>
   <div id="shutdown-screen" class="shutdown-screen" role="button" tabindex="0" aria-label="Restore Comic Chat" hidden>
     <p>It's now safe to turn off your comic.</p><small>Click anywhere to come back.</small>
   </div>
