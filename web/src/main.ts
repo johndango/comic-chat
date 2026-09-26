@@ -699,7 +699,7 @@ app.innerHTML = `
       <form method="dialog">
         <header><strong id="generator-title">Comic Generator</strong><button value="cancel" aria-label="Close">×</button></header>
         <div class="dialog-body generator-body">
-          <p class="generator-private">Private page: not linked anywhere on the site, and not indexed by search engines. Everything happens in this browser; nothing is posted to IRC.</p>
+          <p class="generator-private"><strong>Unlisted tool:</strong> nothing on the site links here, and the page asks search engines not to index it. Anyone who knows the address can open it. Scripts stay in this browser and are never posted to IRC.</p>
           <section>
             <strong>1. Give your AI assistant the instructions</strong>
             <p>They list every character, pose, background and limit this site supports, with an example. Paste them into ChatGPT, then describe the comic you want.</p>

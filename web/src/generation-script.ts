@@ -55,9 +55,37 @@ function unknownKeys(value: Json, allowed: readonly string[], where: string, war
 export function extractJson(source: string): string {
   const fenced = source.match(/```(?:json)?\s*([\s\S]*?)```/u);
   if (fenced) return fenced[1].trim();
-  const start = source.indexOf("{");
-  const end = source.lastIndexOf("}");
-  return start >= 0 && end > start ? source.slice(start, end + 1) : source.trim();
+  // Find the first complete JSON object, respecting braces inside strings.
+  // This is more forgiving than taking the first "{" through the last "}",
+  // which breaks when an assistant adds prose such as "use {braces}" later.
+  for (let start = source.indexOf("{"); start >= 0; start = source.indexOf("{", start + 1)) {
+    let depth = 0;
+    let quoted = false;
+    let escaped = false;
+    for (let at = start; at < source.length; at += 1) {
+      const char = source[at];
+      if (quoted) {
+        if (escaped) escaped = false;
+        else if (char === "\\") escaped = true;
+        else if (char === '"') quoted = false;
+        continue;
+      }
+      if (char === '"') quoted = true;
+      else if (char === "{") depth += 1;
+      else if (char === "}") {
+        depth -= 1;
+        if (depth !== 0) continue;
+        const candidate = source.slice(start, at + 1);
+        try {
+          JSON.parse(candidate);
+          return candidate;
+        } catch {
+          break;
+        }
+      }
+    }
+  }
+  return source.trim();
 }
 
 export function convertGenerationScript(source: string, catalog: GenerationCatalog): GenerationResult {
@@ -170,7 +198,12 @@ export function convertGenerationScript(source: string, catalog: GenerationCatal
         const person = typeof target === "string" ? cast.get(fold(target)) : undefined;
         if (!person) errors.push(`${at}: "to" names "${String(target)}", who isn't in the cast (${castNames}).`);
         else if (person.name === who.name) errors.push(`${at}: ${who.name} can't talk to themselves; leave "to" out.`);
-        else talkTo.push(person.name);
+        else {
+          talkTo.push(person.name);
+          // Addressees can be drawn as listeners, so they count toward the
+          // original engine's five-body panel limit even without a beat.
+          inPanel.add(person.name);
+        }
       }
       if (mode === "whisper" && talkTo.length === 0) errors.push(`${at}: a whisper needs "to" (who it's whispered to).`);
       if (!silent) balloons += 1;

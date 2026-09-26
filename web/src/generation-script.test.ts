@@ -44,6 +44,7 @@ describe("turning an AI script into a Studio project", () => {
   it("reads JSON wrapped in an assistant's reply", () => {
     expect(extractJson('Here you go!\n```json\n{"a": 1}\n```\nEnjoy')).toBe('{"a": 1}');
     expect(extractJson('Sure: {"a": {"b": 2}} hope that helps')).toBe('{"a": {"b": 2}}');
+    expect(extractJson('Sure: {"a": "a } brace"} then use {braces} if you edit it')).toBe('{"a": "a } brace"}');
     expect(convertGenerationScript(`Here's your comic:\n\`\`\`json\n${script()}\n\`\`\``, catalog).errors).toEqual([]);
   });
 
@@ -75,6 +76,12 @@ describe("turning an AI script into a Studio project", () => {
     const errors = convertGenerationScript(script({ cast: six, panels: [{ beats }] }), catalog).errors;
     expect(errors).toContain("Panel 1 has 6 people (Mia, Rex, A, B, C, D); the most is 5. Split it into two panels.");
     expect(errors).toContain("Panel 1 has 6 balloons; the most is 5. Split it into two panels.");
+
+    const listeners = convertGenerationScript(script({
+      cast: six,
+      panels: [{ beats: [{ who: "Mia", text: "Everybody listen!", to: ["Rex", "A", "B", "C", "D"] }] }],
+    }), catalog).errors;
+    expect(listeners).toContain("Panel 1 has 6 people (Mia, Rex, A, B, C, D); the most is 5. Split it into two panels.");
   });
 
   it("accepts friendly pose names and warns about unknown fields", () => {
