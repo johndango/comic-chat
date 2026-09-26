@@ -51,19 +51,81 @@ function unknownKeys(value: Json, allowed: readonly string[], where: string, war
   if (extra.length) warnings.push(`${where}: ignored ${extra.map((key) => `"${key}"`).join(", ")} (allowed: ${allowed.join(", ")}).`);
 }
 
+/**
+ * Make JSON copied through iOS smart punctuation parseable without changing
+ * typographic quotation marks that are actually part of a dialogue string.
+ * A curly quote is structural only when it sits where a JSON string can begin
+ * or end; curly quotes within that string remain curly.
+ */
+export function normalizeJsonSmartQuotes(source: string): string {
+  const boundaryBefore = new Set(["{", "[", ",", ":"]);
+  const boundaryAfter = new Set(["}", "]", ",", ":"]);
+  const significantBefore = (at: number): string => {
+    for (let index = at - 1; index >= 0; index -= 1) {
+      if (!/\s/u.test(source[index])) return source[index];
+    }
+    return "";
+  };
+  const significantAfter = (at: number): string => {
+    for (let index = at + 1; index < source.length; index += 1) {
+      if (!/\s/u.test(source[index])) return source[index];
+    }
+    return "";
+  };
+
+  let result = "";
+  let quoted = false;
+  let escaped = false;
+  let nestedSmartQuotes = 0;
+  for (let at = 0; at < source.length; at += 1) {
+    const char = source[at];
+    if (quoted) {
+      if (escaped) {
+        escaped = false;
+      } else if (char === "\\") {
+        escaped = true;
+      } else if (char === '"') {
+        quoted = false;
+      } else if (char === "\u201c") {
+        nestedSmartQuotes += 1;
+      } else if (char === "\u201d" && nestedSmartQuotes > 0) {
+        nestedSmartQuotes -= 1;
+      } else if (char === "\u201d" && (boundaryAfter.has(significantAfter(at)) || significantAfter(at) === "")) {
+        result += '"';
+        quoted = false;
+        nestedSmartQuotes = 0;
+        continue;
+      }
+      result += char;
+      continue;
+    }
+    if (char === '"') {
+      quoted = true;
+    } else if (char === "\u201c" && boundaryBefore.has(significantBefore(at))) {
+      result += '"';
+      quoted = true;
+      nestedSmartQuotes = 0;
+      continue;
+    }
+    result += char;
+  }
+  return result;
+}
+
 /** Pull the JSON out of an assistant's reply, which is often wrapped in a ```json fence or a sentence. */
 export function extractJson(source: string): string {
-  const fenced = source.match(/```(?:json)?\s*([\s\S]*?)```/u);
+  const normalized = normalizeJsonSmartQuotes(source);
+  const fenced = normalized.match(/```(?:json)?\s*([\s\S]*?)```/u);
   if (fenced) return fenced[1].trim();
   // Find the first complete JSON object, respecting braces inside strings.
   // This is more forgiving than taking the first "{" through the last "}",
   // which breaks when an assistant adds prose such as "use {braces}" later.
-  for (let start = source.indexOf("{"); start >= 0; start = source.indexOf("{", start + 1)) {
+  for (let start = normalized.indexOf("{"); start >= 0; start = normalized.indexOf("{", start + 1)) {
     let depth = 0;
     let quoted = false;
     let escaped = false;
-    for (let at = start; at < source.length; at += 1) {
-      const char = source[at];
+    for (let at = start; at < normalized.length; at += 1) {
+      const char = normalized[at];
       if (quoted) {
         if (escaped) escaped = false;
         else if (char === "\\") escaped = true;
@@ -75,7 +137,7 @@ export function extractJson(source: string): string {
       else if (char === "}") {
         depth -= 1;
         if (depth !== 0) continue;
-        const candidate = source.slice(start, at + 1);
+        const candidate = normalized.slice(start, at + 1);
         try {
           JSON.parse(candidate);
           return candidate;
@@ -85,7 +147,7 @@ export function extractJson(source: string): string {
       }
     }
   }
-  return source.trim();
+  return normalized.trim();
 }
 
 export function convertGenerationScript(source: string, catalog: GenerationCatalog): GenerationResult {

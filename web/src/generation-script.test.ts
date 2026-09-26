@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { convertGenerationScript, extractJson, generationBrief, type GenerationCatalog } from "./generation-script";
+import { convertGenerationScript, extractJson, generationBrief, normalizeJsonSmartQuotes, type GenerationCatalog } from "./generation-script";
 import { parseStudioProject } from "./studio-project";
 
 const catalog: GenerationCatalog = {
@@ -46,6 +46,14 @@ describe("turning an AI script into a Studio project", () => {
     expect(extractJson('Sure: {"a": {"b": 2}} hope that helps')).toBe('{"a": {"b": 2}}');
     expect(extractJson('Sure: {"a": "a } brace"} then use {braces} if you edit it')).toBe('{"a": "a } brace"}');
     expect(convertGenerationScript(`Here's your comic:\n\`\`\`json\n${script()}\n\`\`\``, catalog).errors).toEqual([]);
+  });
+
+  it("accepts smart JSON quotes copied on iOS without changing dialogue quotes", () => {
+    const mobile = `{“format”:“webcomicchat-generation”,“cast”:{“Mia”:“Anna”},“panels”:[{“beats”:[{“who”:“Mia”,“text”:“She said “hello,” today”}]}]}`;
+    expect(normalizeJsonSmartQuotes(`{“format”:“webcomicchat-generation”}`)).toBe('{"format":"webcomicchat-generation"}');
+    const result = convertGenerationScript(mobile, catalog);
+    expect(result.errors).toEqual([]);
+    expect(result.project?.lines[0]).toMatchObject({ message: "She said “hello,” today" });
   });
 
   it("gives errors that say what's allowed, so they can go back to the assistant", () => {

@@ -709,7 +709,7 @@ app.innerHTML = `
           <section>
             <label for="generator-script"><strong>2. Paste its reply</strong> (the whole reply is fine; the JSON is found automatically)</label>
             <textarea id="generator-script" rows="12" spellcheck="false" autocomplete="off" placeholder='{"format": "webcomicchat-generation", "cast": {...}, "panels": [...]}'></textarea>
-            <div class="generator-actions"><button id="generator-make" type="button" class="generator-primary">Make comic</button><button id="generator-example" type="button">Load the example</button></div>
+            <div class="generator-actions"><button id="generator-make" type="button" class="generator-primary">Make comic</button><button id="generator-example" type="button">Load the example</button><button id="generator-clear" type="button">Clear</button></div>
           </section>
           <section id="generator-problems" hidden>
             <strong id="generator-problems-title">Fix these, then try again</strong>
@@ -3550,6 +3550,13 @@ element<HTMLButtonElement>("#generator-example").addEventListener("click", () =>
   const brief = generationBrief(generationCatalog());
   generatorScript.value = brief.slice(brief.indexOf("EXAMPLE\n") + 8, brief.lastIndexOf("}") + 1);
   showGeneratorProblems([], []);
+});
+element<HTMLButtonElement>("#generator-clear").addEventListener("click", () => {
+  generatorScript.value = "";
+  try { localStorage.removeItem(GENERATOR_DRAFT_KEY); } catch {}
+  showGeneratorProblems([], []);
+  generatorScript.focus();
+  setStatus("Generator script cleared.");
 });
 element<HTMLButtonElement>("#generator-make").addEventListener("click", () => void makeGeneratedComic().catch(showError));
 if (onGenerationPage) {
