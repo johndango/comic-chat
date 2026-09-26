@@ -291,6 +291,26 @@ button:disabled { color: #808080; text-shadow: 1px 1px #fff; cursor: not-allowed
 .bot-tips-body dd { margin: 0; }
 .bot-tips-body code { padding: 1px 3px; background: #fff; border: 1px solid #aaa; font: 11px "Courier New", monospace; }
 .bot-tips-presence { padding: 6px; color: #000 !important; background: #ffffdf; border: 1px solid #a0a080; }
+.notification-dialog { width: min(560px, calc(100vw - 24px)); }
+.notification-body { display: grid; gap: 9px; }
+.notification-body > p { margin: 0; }
+.notification-modes { margin: 0; padding: 8px 10px 10px; display: grid; gap: 7px; border: 1px solid #808080; }
+.notification-modes legend { padding: 0 4px; font-weight: 700; }
+.notification-modes label, .notification-check { display: flex; align-items: center; gap: 7px; }
+.notification-modes input, .notification-check input { width: 14px; height: 14px; margin: 0; padding: 0; outline: 0; flex: 0 0 auto; }
+.notification-modes small { margin: -3px 0 2px 21px; color: #444; }
+.notification-sleep { padding: 8px; display: grid; grid-template-columns: auto 1fr; gap: 7px 10px; align-items: center; background: #ddd; border: 1px solid #808080; }
+.notification-sleep output { min-width: 0; font-weight: 700; }
+.notification-sleep div { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 6px; }
+.notification-sleep small { grid-column: 1 / -1; color: #444; }
+.notification-watch { display: grid; gap: 3px; }
+.notification-watch + textarea { width: 100%; resize: vertical; font: 12px "Courier New", monospace; }
+.notification-permission { margin: 0 !important; padding: 6px; color: #000 !important; background: #ffffdf; border: 1px solid #a0a080; }
+.chat-commands-dialog { width: min(500px, calc(100vw - 24px)); }
+.chat-commands-body dl { margin: 8px 0 0; display: grid; grid-template-columns: minmax(130px, auto) 1fr; gap: 7px 12px; }
+.chat-commands-body dt { font-weight: 700; }
+.chat-commands-body dd { margin: 0; }
+.chat-commands-body code { padding: 1px 3px; background: #fff; border: 1px solid #aaa; font: 11px "Courier New", monospace; }
 .room-bookmarks-dialog { width: min(540px, calc(100vw - 24px)); }
 .room-bookmark-dialog-list { display: grid; gap: 5px; }
 .room-bookmark-row { min-height: 45px; padding: 5px; display: grid; grid-template-columns: minmax(150px, 1fr) 70px 70px; gap: 6px; align-items: center; border: 1px solid #808080; background: #ddd; }

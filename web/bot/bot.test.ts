@@ -307,6 +307,15 @@ describe("show, title and fact", () => {
   it("help lists the new commands", () => {
     expect(new BotBrain(config).answer("help", "Anna")).toMatch(/tips, show, title, fact/);
   });
+
+  it("gives conservative canned directions for focused help keywords", () => {
+    const brain = new BotBrain(config);
+    expect(brain.answer("cyber", "Anna")).toMatch(/all-ages/);
+    expect(brain.answer("privacy?", "Anna")).toMatch(/public IRC chat/);
+    expect(brain.answer("studio", "Anna")).toMatch(/disconnects live chat/);
+    expect(brain.answer("avatars", "Anna")).toMatch(/community avatars/);
+    expect(brain.answer("notifications", "Anna")).toMatch(/View > Notifications/);
+  });
 });
 
 describe("about mentions the AI bot while it's present", () => {

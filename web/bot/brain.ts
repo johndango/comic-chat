@@ -348,7 +348,24 @@ export class BotBrain {
   answer(request: string, nick: string, aiPresent = false): string {
     const q = fold(request);
     if (/^(help|commands|\?)?$/.test(q)) {
-      return `Hi ${nick}! Ask me for: tips, show, title, fact, link, about, or schedule. Or just chat and watch the comic draw itself :)`;
+      return `Hi ${nick}! Ask me for: tips, show, title, fact, link, about, schedule, privacy, studio, avatars, notifications, or cyber. Or just chat and watch the comic draw itself :)`;
+    }
+    // Short, exact help topics stay canned and predictable. Requiring the bot
+    // to be addressed plus a focused phrase keeps ordinary room chatter quiet.
+    if (/^(cyber|cybering|cybersex)[?!.]*$/.test(q)) {
+      return "Cyber? Not in the public comic :) Keep the room all-ages, and remember that room messages can appear in somebody's saved strip.";
+    }
+    if (/^(privacy|private|is this private|safety)[?!.]*$/.test(q)) {
+      return "Room messages are public IRC chat and can be saved in comics. Use a whisper for a private message, but never share passwords or personal information.";
+    }
+    if (/^(studio|comic studio|offline studio|editor)[?!.]*$/.test(q)) {
+      return "Open File > Offline Comic Studio to direct a local strip. Entering Studio disconnects live chat and clears its panels so you can't rewrite what real people said.";
+    }
+    if (/^(avatar|avatars|character|characters)[?!.]*$/.test(q)) {
+      return "Choose Character > Browse community avatars, import an .avb, or create one. Character > Avatar display rules controls what other people's characters look like to you.";
+    }
+    if (/^(notification|notifications|alerts|logon notifications)[?!.]*$/.test(q)) {
+      return "Open View > Notifications to enable mentions, room wake-ups, sound, watched-user logons, or snooze. Alerts work only while the WebComicChat tab stays open.";
     }
     if (/^show\b/.test(q)) return this.show(q);
     if (/\btitle\b/.test(q)) {

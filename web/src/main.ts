@@ -65,6 +65,16 @@ import { censorComicText } from "./content-censor";
 import { parseSlashCommand, SLASH_HELP } from "./slash-commands";
 import { describePanel, transcriptLine } from "./panel-text";
 import { parseComicChatAnnotation, poseForAnnotation, type ComicChatAnnotation } from "./cc-annotation";
+import { TabAttention, chime, desktopPermission, requestDesktopPermission, showDesktop } from "./attention";
+import {
+  NotifyPolicy,
+  loadNotifySettings,
+  notificationsSleeping,
+  parseWatchList,
+  saveNotifySettings,
+  type Alert,
+  type NotifyMode,
+} from "./notifications";
 import {
   COMIC_FONT_OPTIONS,
   comicFontOption,
@@ -398,6 +408,8 @@ app.innerHTML = `
         <button type="button" role="menuitemcheckbox" data-command="plain-text-view">Plain text view</button>
         <button type="button" role="menuitemcheckbox" data-command="censor-content">Censor mature &amp; sensitive text</button>
         <hr />
+        <button type="button" data-command="notifications">Notifications…</button>
+        <hr />
         <button type="button" data-command="auto-panels">Automatic panel wrapping</button>
         <button type="button" data-command="reset-zoom">Reset zoom to 100%</button>
       </div></details>
@@ -436,6 +448,8 @@ app.innerHTML = `
       <details><summary><u>H</u>elp</summary><div class="classic-menu-popup classic-menu-popup-right">
         <button type="button" data-command="comic-tips">Comic tips (F1)</button>
         <button type="button" data-command="bot-tips">Bot tips…</button>
+        <button type="button" data-command="chat-commands">Chat commands…</button>
+        <button type="button" data-command="notification-help">Notification help…</button>
         <hr />
         <button type="button" data-command="about">About WebComicChat…</button>
         <a href="mailto:admin@webcomicchat.com">Email WebComicChat…</a>
@@ -601,12 +615,60 @@ app.innerHTML = `
             <li>Start the message with its name, such as <code>TongueTiedBot: tell me about Comic Chat</code>.</li>
           </ol>
           <dl>
-            <dt>BettyBot</dt><dd>A command-based helper. Try <code>BettyBot: help</code>, <code>tips</code>, <code>fact</code>, or <code>show happy</code>.</dd>
+            <dt>BettyBot</dt><dd>A command-based helper. Try <code>BettyBot: help</code>, <code>tips</code>, <code>fact</code>, <code>show happy</code>, or focused help words such as <code>privacy</code>, <code>studio</code>, <code>notifications</code>, and <code>cyber</code>.</dd>
             <dt>TongueTiedBot</dt><dd>A friendly conversational AI bot. Address it by name and ask a question.</dd>
             <dt>n00bBot</dt><dd>A deliberately silly conversational AI gremlin. Address it by name; say <code>n00bBot: go away</code> to quiet it for an hour.</dd>
           </dl>
           <p id="bot-tips-presence" class="bot-tips-presence" role="status"></p>
           <small>Only bots shown in Members are currently available. AI-generated replies are identified on IRC.</small>
+        </div>
+        <footer><button value="cancel">OK</button></footer>
+      </form>
+    </dialog>
+    <dialog id="notification-dialog" class="classic-dialog notification-dialog" aria-labelledby="notification-title">
+      <form method="dialog">
+        <header><strong id="notification-title">Chat notifications</strong><button value="cancel" aria-label="Close">×</button></header>
+        <div class="dialog-body notification-body">
+          <p><strong>Alerts work only while this WebComicChat tab remains open.</strong> Desktop alerts also require browser permission and HTTPS.</p>
+          <fieldset class="notification-modes">
+            <legend>Notify me about</legend>
+            <label><input type="radio" name="notification-mode" value="off" /> Nothing (Off)</label>
+            <label><input type="radio" name="notification-mode" value="wake" /> Room wake-up, mentions, and whispers</label>
+            <small>Room wake-up alerts once when people start talking after at least five quiet minutes.</small>
+            <label><input type="radio" name="notification-mode" value="mentions" /> Mentions and whispers only</label>
+          </fieldset>
+          <label class="notification-check"><input id="notification-sound" type="checkbox" /> Play a short chime with an alert</label>
+          <section class="notification-sleep">
+            <strong>Snooze alerts</strong>
+            <output id="notification-sleep-status">Not snoozed</output>
+            <div>
+              <button id="notification-sleep-hour" type="button">1 hour</button>
+              <button id="notification-sleep-eight" type="button">8 hours</button>
+              <button id="notification-resume" type="button">Resume now</button>
+            </div>
+            <small>Snooze pauses sound and desktop pop-ups but keeps the unread tab count.</small>
+          </section>
+          <label class="notification-watch" for="notification-watch"><strong>Logon Notifications</strong><span>Tell me when these nicknames enter the room (one per line or comma-separated):</span></label>
+          <textarea id="notification-watch" rows="3" maxlength="800" spellcheck="false" placeholder="Anna, Dan"></textarea>
+          <p id="notification-permission" class="notification-permission" role="status"></p>
+        </div>
+        <footer><button id="notification-save" type="button">Save</button><button value="cancel">Cancel</button></footer>
+      </form>
+    </dialog>
+    <dialog id="chat-commands-dialog" class="classic-dialog chat-commands-dialog" aria-labelledby="chat-commands-title">
+      <form method="dialog">
+        <header><strong id="chat-commands-title">Chat commands</strong><button value="cancel" aria-label="Close">×</button></header>
+        <div class="dialog-body chat-commands-body">
+          <p>Type these in the Message box. Commands are interpreted locally; only the resulting message is sent.</p>
+          <dl>
+            <dt><code>/me waves</code></dt><dd>Narration/action box</dd>
+            <dt><code>/think hmm</code></dt><dd>Thought balloon</dd>
+            <dt><code>/whisper Anna psst</code></dt><dd>Private Comic Chat whisper</dd>
+            <dt><code>/join #room</code></dt><dd>Join or switch rooms</dd>
+            <dt><code>/clear</code></dt><dd>Clear the local comic</dd>
+            <dt><code>/quit</code></dt><dd>Disconnect from IRC</dd>
+            <dt><code>//text</code></dt><dd>Send ordinary text beginning with /</dd>
+          </dl>
         </div>
         <footer><button value="cancel">OK</button></footer>
       </form>
@@ -817,6 +879,16 @@ const menuCommandButtons = [...classicMenu.querySelectorAll<HTMLButtonElement>("
 const aboutDialog = element<HTMLDialogElement>("#about-dialog");
 const botTipsDialog = element<HTMLDialogElement>("#bot-tips-dialog");
 const botTipsPresence = element<HTMLElement>("#bot-tips-presence");
+const notificationDialog = element<HTMLDialogElement>("#notification-dialog");
+const notificationSound = element<HTMLInputElement>("#notification-sound");
+const notificationWatch = element<HTMLTextAreaElement>("#notification-watch");
+const notificationSleepStatus = element<HTMLOutputElement>("#notification-sleep-status");
+const notificationPermission = element<HTMLElement>("#notification-permission");
+const notificationSave = element<HTMLButtonElement>("#notification-save");
+const notificationSleepHour = element<HTMLButtonElement>("#notification-sleep-hour");
+const notificationSleepEight = element<HTMLButtonElement>("#notification-sleep-eight");
+const notificationResume = element<HTMLButtonElement>("#notification-resume");
+const chatCommandsDialog = element<HTMLDialogElement>("#chat-commands-dialog");
 const roomBookmarksDialog = element<HTMLDialogElement>("#room-bookmarks-dialog");
 const roomBookmarkMenuList = element<HTMLElement>("#room-bookmark-menu-list");
 const roomBookmarkDialogList = element<HTMLElement>("#room-bookmark-dialog-list");
@@ -940,6 +1012,11 @@ let previewGeneration = 0;
 let isAdding = false;
 let liveState: LiveState = "offline";
 let joinedChannel = "";
+let joinedNickname = "";
+const notificationStorage = (() => { try { return window.localStorage; } catch { return undefined; } })();
+const notifyPolicy = new NotifyPolicy(loadNotifySettings(notificationStorage));
+const tabAttention = new TabAttention();
+let pendingNotifySleepUntil = notifyPolicy.settings.sleepUntil;
 let roomBookmarks: RoomSelection[] = parseRoomBookmarks(null);
 let roomDirectoryLoaded = false;
 let panelsAcross: PanelsAcross = "auto";
@@ -2123,11 +2200,77 @@ function updateLiveUi(state: LiveState, message: string): void {
   updateControls();
 }
 
+function notificationModeLabel(mode: NotifyMode): string {
+  if (mode === "wake") return "Room wake-up";
+  if (mode === "mentions") return "Mentions only";
+  return "Off";
+}
+
+function renderNotificationSleep(): void {
+  const sleeping = pendingNotifySleepUntil > Date.now();
+  notificationSleepStatus.textContent = sleeping
+    ? `Snoozed until ${new Date(pendingNotifySleepUntil).toLocaleString()}`
+    : "Not snoozed";
+  notificationResume.disabled = !sleeping;
+}
+
+function renderNotificationPermission(): void {
+  const permission = desktopPermission();
+  notificationPermission.textContent = permission === "granted"
+    ? "Desktop alerts are allowed. Clicking one returns to this tab."
+    : permission === "denied"
+      ? "Desktop alerts are blocked in your browser settings; tab counts and optional chimes still work."
+      : permission === "unsupported"
+        ? "This browser does not offer desktop alerts; tab counts and optional chimes still work."
+        : "Your browser will ask for desktop-alert permission when you save an enabled mode.";
+}
+
+function openNotificationSettings(): void {
+  const selected = notificationDialog.querySelector<HTMLInputElement>(`input[name="notification-mode"][value="${notifyPolicy.settings.mode}"]`);
+  if (selected) selected.checked = true;
+  notificationSound.checked = notifyPolicy.settings.sound;
+  notificationWatch.value = notifyPolicy.settings.watch.join("\n");
+  pendingNotifySleepUntil = notifyPolicy.settings.sleepUntil;
+  renderNotificationSleep();
+  renderNotificationPermission();
+  notificationDialog.showModal();
+}
+
+function deliverNotification(alert: Alert): void {
+  if (notifyPolicy.settings.sound) chime();
+  if (document.hidden) showDesktop(alert, classicAppIconUrl);
+  tabAttention.show(notifyPolicy.unread);
+}
+
+function inspectMessageForNotification(event: LiveMessageEvent): void {
+  // Appearance announcements are client metadata, not conversation.
+  if (parseAvatarAnnouncement(event.message)) return;
+  const annotation = parseComicChatAnnotation(event.message, event.whisper);
+  const alert = notifyPolicy.message({
+    nick: event.nickname,
+    text: withoutAiMarker(event.nickname, annotation?.text ?? event.message),
+    myNick: joinedNickname || nicknameInput.value.trim(),
+    self: event.self,
+    whisper: event.whisper,
+    channel: joinedChannel || channelInput.value,
+    hidden: document.hidden,
+    at: event.timestamp || Date.now(),
+  });
+  if (alert) deliverNotification(alert);
+  else if (document.hidden) tabAttention.show(notifyPolicy.unread);
+}
+
 function handleLiveEvent(event: LiveEvent): void {
   if (event.type === "status") {
-    if (event.state === "joined") joinedChannel = event.channel ?? channelInput.value;
+    if (event.state === "joined") {
+      joinedChannel = event.channel ?? channelInput.value;
+      joinedNickname = event.nickname ?? nicknameInput.value.trim();
+      notifyPolicy.resetRoom();
+      tabAttention.show(0);
+    }
     else if (event.state === "offline" || event.state === "disconnected") {
       joinedChannel = "";
+      joinedNickname = "";
       pendingLiveLines.length = 0;
     }
     updateLiveUi(event.state, event.message);
@@ -2167,6 +2310,9 @@ function handleLiveEvent(event: LiveEvent): void {
     knownMembers.clear();
     for (const nickname of event.members) knownMembers.add(nickname);
     renderMembers();
+    for (const alert of notifyPolicy.roster(event.members, joinedChannel || channelInput.value, Date.now())) {
+      deliverNotification(alert);
+    }
     return;
   }
   if (event.type === "error") {
@@ -2180,6 +2326,7 @@ function handleLiveEvent(event: LiveEvent): void {
     showError(new Error(event.message));
     return;
   }
+  inspectMessageForNotification(event);
   if (event.self) {
     const pending = pendingLiveLines.shift();
     if (!pending) return;
@@ -2320,6 +2467,10 @@ function updateControls(): void {
     if (command === "censor-content") button.setAttribute("aria-checked", String(censorContent));
     if (command === "plain-text-view") button.setAttribute("aria-checked", String(plainTextView));
     if (command === "select-panels") button.setAttribute("aria-checked", String(panelSelectionMode));
+    if (command === "notifications") {
+      const sleeping = notificationsSleeping(notifyPolicy.settings);
+      button.textContent = `Notifications… (${sleeping ? "Snoozed" : notificationModeLabel(notifyPolicy.settings.mode)})`;
+    }
   }
   for (const button of document.querySelectorAll<HTMLButtonElement>("[data-room-bookmark-key]")) {
     button.disabled = busy;
@@ -4170,6 +4321,56 @@ function showBotTips(): void {
   botTipsDialog.showModal();
 }
 
+notificationSleepHour.addEventListener("click", () => {
+  pendingNotifySleepUntil = Date.now() + 60 * 60_000;
+  renderNotificationSleep();
+});
+notificationSleepEight.addEventListener("click", () => {
+  pendingNotifySleepUntil = Date.now() + 8 * 60 * 60_000;
+  renderNotificationSleep();
+});
+notificationResume.addEventListener("click", () => {
+  pendingNotifySleepUntil = 0;
+  renderNotificationSleep();
+});
+notificationSave.addEventListener("click", () => {
+  const mode = notificationDialog.querySelector<HTMLInputElement>('input[name="notification-mode"]:checked')?.value as NotifyMode | undefined;
+  const parsed = parseWatchList(notificationWatch.value);
+  if (!mode) {
+    showError(new Error("Choose a notification mode"));
+    return;
+  }
+  if (parsed.rejected.length > 0) {
+    showError(new Error(`These are not valid IRC nicknames: ${parsed.rejected.join(", ")}`));
+    return;
+  }
+  notifyPolicy.settings = {
+    mode,
+    sound: notificationSound.checked,
+    watch: parsed.watch,
+    sleepUntil: pendingNotifySleepUntil > Date.now() ? pendingNotifySleepUntil : 0,
+  };
+  saveNotifySettings(notificationStorage, notifyPolicy.settings);
+  if (mode === "off") {
+    notifyPolicy.seen();
+    tabAttention.show(0);
+  }
+  const sleeping = notificationsSleeping(notifyPolicy.settings);
+  notificationDialog.close();
+  updateControls();
+  setStatus(`Notifications: ${notificationModeLabel(mode)}${sleeping ? ` · snoozed until ${new Date(notifyPolicy.settings.sleepUntil).toLocaleTimeString()}` : ""}.`);
+  if (mode !== "off" && !sleeping && desktopPermission() === "default") {
+    void requestDesktopPermission().then(() => renderNotificationPermission());
+  }
+});
+
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) {
+    notifyPolicy.seen();
+    tabAttention.show(0);
+  }
+});
+
 function runMenuCommand(command: string): void {
   const botNickname = HIDE_BOT_COMMANDS[command];
   if (botNickname) {
@@ -4215,6 +4416,10 @@ function runMenuCommand(command: string): void {
     case "reset-zoom":
       panelSizeInput.value = "100";
       updatePanelView();
+      break;
+    case "notifications":
+    case "notification-help":
+      openNotificationSettings();
       break;
     case "plain-text-view":
       plainTextView = !plainTextView;
@@ -4279,6 +4484,9 @@ function runMenuCommand(command: string): void {
       break;
     case "bot-tips":
       showBotTips();
+      break;
+    case "chat-commands":
+      chatCommandsDialog.showModal();
       break;
     case "about":
       aboutDialog.showModal();
