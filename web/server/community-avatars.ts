@@ -36,6 +36,7 @@ interface CommunityState {
   avatars: StoredAvatar[];
   reports: StoredReport[];
   hiddenIds: string[];
+  blockedHashes: string[];
 }
 
 interface UploadBody {
@@ -87,6 +88,9 @@ function safeState(value: unknown): CommunityState {
     avatars: Array.isArray(source.avatars) ? source.avatars.filter((avatar): avatar is StoredAvatar => Boolean(avatar && SAFE_ID.test(avatar.id))) : [],
     reports: Array.isArray(source.reports) ? source.reports.filter((report): report is StoredReport => Boolean(report && typeof report.id === "string" && SAFE_ID.test(report.avatarId))) : [],
     hiddenIds: Array.isArray(source.hiddenIds) ? source.hiddenIds.filter((id): id is string => typeof id === "string" && SAFE_ID.test(id)) : [],
+    blockedHashes: Array.isArray(source.blockedHashes)
+      ? source.blockedHashes.filter((hash): hash is string => typeof hash === "string" && /^[a-f0-9]{64}$/u.test(hash))
+      : [],
   };
 }
 
@@ -169,7 +173,7 @@ export class CommunityAvatarService {
       return safeState(JSON.parse(await readFile(this.statePath, "utf8")));
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-      return { version: 1, avatars: [], reports: [], hiddenIds: [] };
+      return { version: 1, avatars: [], reports: [], hiddenIds: [], blockedHashes: [] };
     }
   }
 
@@ -251,6 +255,7 @@ export class CommunityAvatarService {
 
     return this.serialized(async () => {
       const state = await this.readState();
+      if (state.blockedHashes.includes(hash)) throw new HttpError(409, "This avatar was removed from the community gallery and cannot be republished");
       if (state.avatars.some((avatar) => avatar.sha256 === hash)) throw new HttpError(409, "That exact avatar is already in the community gallery");
       if (state.avatars.length >= 500) throw new HttpError(503, "The community gallery is temporarily full");
       const id = `${avatarSlug(name)}-${randomBytes(5).toString("hex")}`;
@@ -305,7 +310,13 @@ export class CommunityAvatarService {
     await this.serialized(async () => {
       const state = await this.readState();
       const avatar = state.avatars.find((entry) => entry.id === avatarId);
-      if (!state.hiddenIds.includes(avatarId)) state.hiddenIds.push(avatarId);
+      if (avatar) {
+        if (!state.blockedHashes.includes(avatar.sha256)) state.blockedHashes.push(avatar.sha256);
+      } else if (!state.hiddenIds.includes(avatarId)) {
+        // Bundled avatars are not in the writable catalog, so remember their
+        // public catalog ID instead of a file fingerprint.
+        state.hiddenIds.push(avatarId);
+      }
       state.avatars = state.avatars.filter((entry) => entry.id !== avatarId);
       for (const report of state.reports) if (report.avatarId === avatarId && report.status === "open") report.status = "removed";
       await this.writeState(state);

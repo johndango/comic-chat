@@ -117,6 +117,20 @@ describe("local web gateway", () => {
       });
       expect(removed.status).toBe(200);
       expect((await fetch(`${origin}/community-avatars/${entry.file}`)).status).toBe(404);
+
+      const republished = await fetch(`${origin}/api/community-avatars`, {
+        method: "POST",
+        headers: { origin, "content-type": "application/json" },
+        body: JSON.stringify({
+          name: "Renamed Connor",
+          filename: "connor.avb",
+          fileBase64: avatar.toString("base64"),
+          rightsConfirmed: true,
+          rulesConfirmed: true,
+        }),
+      });
+      expect(republished.status).toBe(409);
+      expect((await republished.json() as { error: string }).error).toContain("cannot be republished");
     } finally {
       await gateway.close();
       await rm(directory, { recursive: true, force: true });
