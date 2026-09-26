@@ -200,10 +200,15 @@ button:disabled { color: #808080; text-shadow: 1px 1px #fff; cursor: not-allowed
 .panel-link-hitbox:focus-visible { background: rgb(0 0 128 / 16%); outline: 2px solid #000080; outline-offset: 1px; }
 .panel-meta { position: absolute; left: 5px; bottom: 5px; margin: 0; font-size: 10px; }
 .remove-panel { position: absolute; right: 3px; bottom: 2px; min-height: 19px; padding: 0 5px; font-size: 10px; }
-.empty-strip { min-height: 330px; grid-column: 1 / -1; flex: 1 0 100%; display: grid; place-content: center; justify-items: center; color: #555; text-align: center; }
+.empty-strip { min-height: 330px; padding: 28px; grid-column: 1 / -1; flex: 1 0 100%; display: grid; place-content: center; justify-items: center; gap: 6px; color: #555; text-align: center; }
 .empty-strip span { font: 700 54px Arial, sans-serif; color: #c0c0c0; }
 .empty-strip strong { font-size: 15px; }
-.empty-strip p { margin-bottom: 0; }
+.empty-strip p { max-width: 620px; margin: 0; line-height: 1.45; }
+.empty-strip small { max-width: 620px; margin-top: 3px; line-height: 1.4; }
+.empty-strip-actions { margin: 7px 0 2px; display: flex; flex-wrap: wrap; justify-content: center; gap: 7px; }
+.empty-strip-actions button { min-width: 170px; }
+.empty-strip-actions .empty-strip-primary { color: #fff; background: var(--navy); border-top-color: #4a84e8; border-left-color: #4a84e8; border-right-color: #000040; border-bottom-color: #000040; font-weight: 700; }
+.empty-strip-actions .empty-strip-primary:active { color: #fff; background: #000060; }
 
 .controls { min-width: 0; min-height: 0; overflow: hidden; display: flex; flex-direction: column; background: var(--face); }
 .member-pane, .character-pane { min-height: 0; border-bottom: 2px solid #808080; background: var(--face); }

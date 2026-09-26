@@ -2233,6 +2233,7 @@ function updateLiveUi(state: LiveState, message: string): void {
   addLabel.textContent = state === "joined" ? "Send to room" : "Add to comic";
   setRoomBrowserVisible(state === "browsing");
   updateControls();
+  refreshEmptyStrip();
 }
 
 function notificationModeLabel(mode: NotifyMode): string {
@@ -3592,6 +3593,66 @@ function followNewestPanel(generation: number, previousScrollTop: number): void 
   });
 }
 
+function createEmptyStrip(): HTMLElement {
+  const empty = document.createElement("div");
+  empty.className = "empty-strip";
+  const number = document.createElement("span");
+  number.textContent = "01";
+  const heading = document.createElement("strong");
+  const description = document.createElement("p");
+  empty.append(number, heading, description);
+
+  if (liveState === "offline" || liveState === "disconnected") {
+    heading.textContent = "Chat live or make your own comic.";
+    description.textContent = `Join ${DEFAULT_ROOM_SELECTION.channel} using any nickname—no account or signup required. Every message becomes a comic panel.`;
+
+    const actions = document.createElement("div");
+    actions.className = "empty-strip-actions";
+    const join = document.createElement("button");
+    join.type = "button";
+    join.className = "empty-strip-primary";
+    join.textContent = `Join ${DEFAULT_ROOM_SELECTION.channel}`;
+    join.addEventListener("click", () => {
+      networkSelect.value = DEFAULT_ROOM_SELECTION.network;
+      channelInput.value = DEFAULT_ROOM_SELECTION.channel;
+      updateControls();
+      connectButton.click();
+    });
+    const studio = document.createElement("button");
+    studio.type = "button";
+    studio.textContent = "Open Comic Studio…";
+    studio.addEventListener("click", openStripWorkshop);
+    actions.append(join, studio);
+
+    const note = document.createElement("small");
+    note.textContent = "The online Comic Studio lets you write, stage, and edit a strip without joining chat. To chat elsewhere, enter another #channel above or browse channels.";
+    empty.append(actions, note);
+    return empty;
+  }
+
+  if (liveState === "joined") {
+    const room = joinedChannel || channelInput.value || DEFAULT_ROOM_SELECTION.channel;
+    heading.textContent = `You’re live in ${room}.`;
+    description.textContent = "Write a message below to start the strip. WebComicChat will choose the pose and lay out the panel.";
+    return empty;
+  }
+
+  if (liveState === "browsing") {
+    heading.textContent = "Choose a chat room to begin.";
+    description.textContent = "Pick a channel from the list, or type one above. Your first message there will start the strip.";
+    return empty;
+  }
+
+  heading.textContent = liveState === "joining" ? `Joining ${channelInput.value || DEFAULT_ROOM_SELECTION.channel}…` : "Connecting to live chat…";
+  description.textContent = "The first message after you join will start the strip.";
+  return empty;
+}
+
+function refreshEmptyStrip(): void {
+  if (!strip.querySelector(".empty-strip")) return;
+  strip.replaceChildren(createEmptyStrip());
+}
+
 async function renderStrip(): Promise<void> {
   const generation = ++renderGeneration;
   const followLatest = shouldFollowLatest(stage);
@@ -3604,10 +3665,7 @@ async function renderStrip(): Promise<void> {
   updateControls();
 
   if (renderedConversation.length === 0) {
-    const empty = document.createElement("div");
-    empty.className = "empty-strip";
-    empty.innerHTML = `<span>01</span><strong>Your next line starts the strip.</strong><p>Comic Chat will choose the pose and lay out the panel.</p>`;
-    fragment.append(empty);
+    fragment.append(createEmptyStrip());
     if (generation !== renderGeneration) return;
     strip.replaceChildren(fragment);
     panelCanvases = [];
