@@ -3,6 +3,17 @@
 // itself is injected, so all of this is testable without an API key.
 
 import { cleanReply, formatTranscript, stripIrcFormatting, type TranscriptLine } from "./cam-guard";
+import {
+  ACCEPT_INVITE,
+  GAME_IDLE_MS,
+  GIVE_UP,
+  INVITES,
+  pickSecret,
+  readAnswer,
+  START_GAME,
+  TOTAL_QUESTIONS,
+  TwentyQuestionsGame,
+} from "./twenty-questions";
 
 export interface CamConfig {
   nick: string;
@@ -46,6 +57,12 @@ export const AI_MARK = "[AI]";
 const MAX_INPUT_CHARS = 400;
 const PER_PERSON_PER_MINUTE = 3;
 const PER_HOUR = 40;
+/** A room playing 20 questions asks a lot, so the hourly cap is higher during a game. */
+const PER_HOUR_IN_GAME = 70;
+/** The friendly bot offers a game at most this often, only in a lull after people have been chatting. */
+const INVITE_EVERY = 2 * HOUR;
+/** "yes" / "me" without the bot's name count as accepting an invite for this long. */
+const INVITE_OPEN_FOR = 5 * MINUTE;
 
 const fold = (s: string) => s.toLowerCase();
 const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\-]/g, "\\$&");
@@ -113,6 +130,9 @@ export class CamBrain {
   private mutedBy = new Map<string, string>();
   /** Recent gremlin output, used locally to stop a catchphrase taking over. */
   private recentGremlinLines = new Map<string, string[]>();
+  /** Friendly bot: a game of 20 questions per channel, and when it last offered one. */
+  private games = new Map<string, TwentyQuestionsGame>();
+  private lastInvite = new Map<string, number>();
 
   constructor(
     private readonly config: CamConfig,
@@ -320,7 +340,13 @@ export class CamBrain {
     // Lines not addressed to CamBot are never kept or sent anywhere.
     // The daily starter's other lines (BettyBot's "about" names this bot)
     // aren't prompts; only a line that starts with this bot's name is.
-    const request = this.addressed(text, dailyStarter);
+    let request = this.addressed(text, dailyStarter);
+    // Right after an invite, a plain "yes" or "me" starts the game. Only this
+    // tiny pattern is checked; the line isn't kept or sent anywhere.
+    const invited = at - (this.lastInvite.get(fold(channel)) ?? -Infinity) < INVITE_OPEN_FOR;
+    if (request === null && !dailyStarter && invited && !this.games.has(fold(channel)) && ACCEPT_INVITE.test(text.trim())) {
+      request = "20 questions";
+    }
     if (request === null) return [];
 
     // Operator controls.
@@ -389,10 +415,16 @@ export class CamBrain {
     }
     const mine = (this.perPerson.get(fold(nick)) ?? []).filter((t) => at - t < MINUTE);
     this.hourly = this.hourly.filter((t) => at - t < HOUR);
-    if (mine.length >= PER_PERSON_PER_MINUTE || this.hourly.length >= PER_HOUR) return [];
+    const hourlyCap = this.games.has(fold(channel)) ? PER_HOUR_IN_GAME : PER_HOUR;
+    if (mine.length >= PER_PERSON_PER_MINUTE || this.hourly.length >= hourlyCap) return [];
     mine.push(at);
     this.perPerson.set(fold(nick), mine);
     this.hourly.push(at);
+
+    if (!dailyStarter) {
+      const played = await this.twentyQuestions(channel, nick, request, at);
+      if (played) return played;
+    }
 
     transcript.push({ nick, text: request });
     if (transcript.length > TRANSCRIPT_LINES) transcript.splice(0, transcript.length - TRANSCRIPT_LINES);
@@ -431,7 +463,7 @@ export class CamBrain {
    * channel, and any reply that names a real person is dropped.
    */
   async interject(channel: string, at = Date.now()): Promise<string[]> {
-    if (this.config.persona !== "gremlin") return [];
+    if (this.config.persona !== "gremlin") return this.hostTick(channel, at);
     const key = fold(channel);
     if (this.asleep.has(key) || (this.mutedUntil.get(key) ?? 0) > at) return [];
     const lastHuman = this.lastHumanLine.get(key);
@@ -496,6 +528,91 @@ export class CamBrain {
   }
 
   /** Mark lines as AI output, leading with a one-time daily AI disclosure to this person. */
+  /**
+   * Friendly bot: host 20 questions for the whole room. Returns the lines to
+   * send, or null when this line isn't part of a game (so it's normal chat).
+   */
+  private async twentyQuestions(channel: string, nick: string, request: string, at: number): Promise<string[] | null> {
+    if (this.config.persona === "gremlin") return null;
+    const key = fold(channel);
+    let game = this.games.get(key);
+    if (game && at - game.lastAt > GAME_IDLE_MS) {
+      this.games.delete(key);
+      game = undefined;
+    }
+    const starting = START_GAME.test(request);
+    if (!game) {
+      if (!starting) return null;
+      game = new TwentyQuestionsGame(pickSecret(this.random), at);
+      this.games.set(key, game);
+      this.lastInvite.set(key, at);
+      this.log(`20 questions started in ${channel} by ${nick}`);
+      return this.disclose(nick, [`Okay! I'm thinking of ${game.secret.kind}. Everyone can ask me yes-or-no questions, like "${this.config.nick}: is it bigger than a breadbox?" You have ${TOTAL_QUESTIONS}!`]);
+    }
+    game.lastAt = at;
+    if (starting) return this.mark([`We're already playing! ${game.remaining} questions left. Ask me a yes-or-no question about ${game.secret.kind}.`]);
+    if (GIVE_UP.test(request)) {
+      this.games.delete(key);
+      return this.mark([`It was ${game.secret.answer}! Say "${this.config.nick}: 20 questions" to play again :)`]);
+    }
+    if (game.guessedBy(request)) {
+      this.games.delete(key);
+      game.asked += 1;
+      return this.disclose(nick, [`YES!!! ${nick} got it in ${game.asked}: it was ${game.secret.answer}! :D Say "${this.config.nick}: 20 questions" for another round.`]);
+    }
+    let reply: ModelReply;
+    try {
+      reply = await this.respond(this.system, game.prompt(nick, request));
+    } catch (error) {
+      this.log(`20 questions answer failed: ${error instanceof Error ? error.message : String(error)}`);
+      return this.disclose(nick, ["Hmm, I lost my train of thought. Ask that again? (It didn't count.)"]);
+    }
+    this.spentToday += reply.costUsd;
+    const cleaned = reply.text && !reply.refused ? cleanReply(reply.text, { allowedLinkPrefix: this.config.siteUrl, roomNicks: [...this.memberSet(channel)] }) : null;
+    // The model knows the secret; never let a reply give it away.
+    if (!cleaned || game.leaks(cleaned.join(" "))) {
+      return this.disclose(nick, ["Ooh, I can't answer that one without giving it away! Try asking another way. (It didn't count.)"]);
+    }
+    const answer = readAnswer(cleaned.join(" "));
+    if (!answer.counted) return this.disclose(nick, [`${answer.text} (Still ${game.remaining} questions left.)`]);
+    game.asked += 1;
+    game.history.push({ question: request.slice(0, 200), answer: answer.text });
+    if (game.remaining <= 0) {
+      this.games.delete(key);
+      return this.disclose(nick, [`${answer.text} ...and that was question ${TOTAL_QUESTIONS}! It was ${game.secret.answer}. Good game, everyone :)`]);
+    }
+    const left = game.remaining === 1 ? "Last question!" : `${game.remaining} left.`;
+    return this.disclose(nick, [`${answer.text} (${left})`]);
+  }
+
+  /**
+   * Friendly bot, once a minute: end a game nobody is playing any more, and
+   * now and then offer one when people have been chatting but it's gone quiet.
+   * The invite is a fixed line, so it costs nothing.
+   */
+  private hostTick(channel: string, at: number): string[] {
+    const key = fold(channel);
+    const game = this.games.get(key);
+    if (game && at - game.lastAt > GAME_IDLE_MS) {
+      this.games.delete(key);
+      return this.mark([`Nobody's asked in a while, so our game's over: it was ${game.secret.answer}! Say "${this.config.nick}: 20 questions" to play again.`]);
+    }
+    if (game || this.asleep.has(key) || (this.mutedUntil.get(key) ?? 0) > at) return [];
+    const members = [...this.memberSet(channel)];
+    if (!members.some((member) => fold(member) === fold(this.config.admin))) return [];
+    const humans = members.filter((member) => !looksLikeBot(member, this.ignore) && fold(member) !== fold(this.config.nick));
+    if (humans.length < 2) return [];
+    // A lull: someone spoke in the last 20 minutes, but not in the last 3.
+    const lastHuman = this.lastHumanLine.get(key);
+    if (lastHuman === undefined || at - lastHuman < 3 * MINUTE || at - lastHuman > 20 * MINUTE) return [];
+    if (at - (this.lastInvite.get(key) ?? -Infinity) < INVITE_EVERY) return [];
+    // Not at the first chance, so it doesn't feel like clockwork.
+    if (this.random() >= 0.2) return [];
+    this.lastInvite.set(key, at);
+    this.log(`offered 20 questions in ${channel}`);
+    return this.mark([INVITES[Math.floor(this.random() * INVITES.length) % INVITES.length]]);
+  }
+
   private disclose(nick: string, lines: string[]): string[] {
     const out = [...lines];
     if (!this.disclosed.has(fold(nick))) {
