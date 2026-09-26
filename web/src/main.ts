@@ -442,6 +442,7 @@ app.innerHTML = `
       <details id="favorites-menu"><summary>F<u>a</u>vorites</summary><div class="classic-menu-popup classic-menu-popup-right">
         <a href="https://www.phoenix-online-nexus.com/Nexus_21/index.htm#addon" target="_blank" rel="noopener noreferrer">Comic Chat 2.5 add-ons ↗</a>
         <a href="https://www.phoenix-online-nexus.com/index.htm#CChat25" target="_blank" rel="noopener noreferrer">Phoenix Online Nexus ↗</a>
+        <a href="https://comic.dedoky.com/catalog.php" target="_blank" rel="noopener noreferrer">Dedoky character catalog ↗</a>
         <a href="https://mermeliz.com" target="_blank" rel="noopener noreferrer">Mermeliz ↗</a>
         <hr />
         <a href="https://web.libera.chat" target="_blank" rel="noopener noreferrer">Libera.Chat web client ↗</a>
