@@ -62,8 +62,8 @@ export const TOTAL_QUESTIONS = 20;
 /** A game nobody has touched for this long ends with a reveal. */
 export const GAME_IDLE_MS = 15 * 60_000;
 
-const words = (text: string) => ` ${text.toLowerCase().replace(/[^a-z0-9'\-\s]/g, " ").replace(/\s+/g, " ").trim()} `;
-const mentions = (text: string, name: string) => words(text).includes(` ${name} `);
+const words = (text: string) => ` ${text.toLowerCase().replace(/[^a-z0-9]+/g, " ").replace(/\s+/g, " ").trim()} `;
+const mentions = (text: string, name: string) => words(text).includes(words(name));
 
 export const START_GAME = /^(?:(?:ok(?:ay)?|hey|so)\s+)?(?:let'?s\s+)?(?:play\s+)?(?:a\s+(?:game\s+of\s+)?)?(?:20|twenty)[\s-]*(?:q|qs|questions?)\b|^(?:let'?s\s+play|wanna\s+play|play\s+(?:a\s+)?game)\b/i;
 export const GIVE_UP = /^(?:i\s+|we\s+)?(?:give\s+up|surrender|end\s+(?:the\s+)?game|quit(?:\s+(?:the\s+)?game)?|tell\s+(?:me|us)(?:\s+the\s+answer)?|what\s+(?:was|is)\s+it)\b/i;
@@ -110,7 +110,9 @@ export class TwentyQuestionsGame {
 /** The model's reply → the text to post, and whether it used up a question. */
 export function readAnswer(reply: string): { text: string; counted: boolean } {
   const text = reply.replace(/\s+/g, " ").trim().slice(0, 140);
-  return { text, counted: !/^not a yes[\s-]*or[\s-]*no question/i.test(text) };
+  const counted = /^(?:yes|no|sort of|sometimes|i don['’]?t know)\b/i.test(text)
+    && !/^not a yes[\s-]*or[\s-]*no question/i.test(text);
+  return { text, counted };
 }
 
 export function pickSecret(random: () => number): Secret {

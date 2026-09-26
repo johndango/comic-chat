@@ -130,9 +130,11 @@ export class CamBrain {
   private mutedBy = new Map<string, string>();
   /** Recent gremlin output, used locally to stop a catchphrase taking over. */
   private recentGremlinLines = new Map<string, string[]>();
-  /** Friendly bot: a game of 20 questions per channel, and when it last offered one. */
+  /** Friendly bot: a game of 20 questions per channel. */
   private games = new Map<string, TwentyQuestionsGame>();
-  private lastInvite = new Map<string, number>();
+  /** Invitation cooldown and acceptance window are deliberately separate. */
+  private lastInviteOffer = new Map<string, number>();
+  private inviteAcceptUntil = new Map<string, number>();
 
   constructor(
     private readonly config: CamConfig,
@@ -185,6 +187,9 @@ export class CamBrain {
     for (const operators of this.operators.values()) {
       if (operators.delete(fold(oldNick))) operators.add(fold(newNick));
     }
+    for (const [channel, muter] of this.mutedBy) {
+      if (muter === fold(oldNick)) this.mutedBy.set(channel, fold(newNick));
+    }
   }
 
   disconnected(): void {
@@ -217,7 +222,6 @@ export class CamBrain {
     if (member) members.delete(member);
   }
 
-  /** The bot's name plus friendly variants: TongueTiedBot → tonguetied, tongue-tied, tongue tied. */
   /** "go away n00bBot!" / "TongueTiedBot please stop" → "go away" / "stop". */
   private commandWords(request: string): string {
     let words = ` ${request.toLowerCase()} `;
@@ -343,7 +347,9 @@ export class CamBrain {
     let request = this.addressed(text, dailyStarter);
     // Right after an invite, a plain "yes" or "me" starts the game. Only this
     // tiny pattern is checked; the line isn't kept or sent anywhere.
-    const invited = at - (this.lastInvite.get(fold(channel)) ?? -Infinity) < INVITE_OPEN_FOR;
+    const inviteKey = fold(channel);
+    const offeredAt = this.lastInviteOffer.get(inviteKey) ?? Infinity;
+    const invited = at >= offeredAt && at <= (this.inviteAcceptUntil.get(inviteKey) ?? -Infinity);
     if (request === null && !dailyStarter && invited && !this.games.has(fold(channel)) && ACCEPT_INVITE.test(text.trim())) {
       request = "20 questions";
     }
@@ -362,8 +368,6 @@ export class CamBrain {
     }
     if (this.asleep.has(fold(channel))) return [];
 
-    // Anyone can send the gremlin away for an hour. Keep this persona-specific
-    // so an ordinary "TongueTiedBot: stop" remains a normal conversation.
     // Anyone can send either bot away for an hour; the same person or an
     // operator can call it back early.
     const command = this.commandWords(request);
@@ -545,7 +549,10 @@ export class CamBrain {
       if (!starting) return null;
       game = new TwentyQuestionsGame(pickSecret(this.random), at);
       this.games.set(key, game);
-      this.lastInvite.set(key, at);
+      // A manual start also begins the invitation cooldown, but never leaves
+      // a stale plain-"yes" acceptance window behind after the game ends.
+      this.lastInviteOffer.set(key, at);
+      this.inviteAcceptUntil.delete(key);
       this.log(`20 questions started in ${channel} by ${nick}`);
       return this.disclose(nick, [`Okay! I'm thinking of ${game.secret.kind}. Everyone can ask me yes-or-no questions, like "${this.config.nick}: is it bigger than a breadbox?" You have ${TOTAL_QUESTIONS}!`]);
     }
@@ -605,10 +612,18 @@ export class CamBrain {
     // A lull: someone spoke in the last 20 minutes, but not in the last 3.
     const lastHuman = this.lastHumanLine.get(key);
     if (lastHuman === undefined || at - lastHuman < 3 * MINUTE || at - lastHuman > 20 * MINUTE) return [];
-    if (at - (this.lastInvite.get(key) ?? -Infinity) < INVITE_EVERY) return [];
+    const today = new Date(at).toISOString().slice(0, 10);
+    if (today !== this.day) {
+      this.day = today;
+      this.spentToday = 0;
+      this.disclosed.clear();
+    }
+    if (this.spentToday >= this.config.dailyBudgetUsd) return [];
+    if (at - (this.lastInviteOffer.get(key) ?? -Infinity) < INVITE_EVERY) return [];
     // Not at the first chance, so it doesn't feel like clockwork.
     if (this.random() >= 0.2) return [];
-    this.lastInvite.set(key, at);
+    this.lastInviteOffer.set(key, at);
+    this.inviteAcceptUntil.set(key, at + INVITE_OPEN_FOR);
     this.log(`offered 20 questions in ${channel}`);
     return this.mark([INVITES[Math.floor(this.random() * INVITES.length) % INVITES.length]]);
   }

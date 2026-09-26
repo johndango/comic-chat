@@ -620,7 +620,7 @@ app.innerHTML = `
             <li>Start the message with its name, such as <code>TongueTiedBot: tell me about Comic Chat</code>.</li>
           </ol>
           <dl>
-            <dt>BettyBot</dt><dd>A command-based helper. Try <code>BettyBot: help</code>, <code>tips</code>, <code>fact</code>, <code>show happy</code>, or focused help words such as <code>privacy</code>, <code>studio</code>, <code>notifications</code>, and <code>cyber</code>.</dd>
+            <dt>BettyBot</dt><dd>A command-based helper. Try <code>BettyBot: help</code>, <code>tips</code>, <code>fact</code>, <code>show happy</code>, or focused help words such as <code>privacy</code>, <code>studio</code>, and <code>notifications</code>.</dd>
             <dt>TongueTiedBot</dt><dd>A friendly conversational AI bot (TTB for short). Address it by name and ask a question, or say <code>TTB: 20 questions</code> to play a guessing game with the whole room. Say <code>TTB: go away</code> to quiet it for an hour.</dd>
             <dt>n00bBot</dt><dd>A deliberately silly conversational AI gremlin (answers to "noob" too). Address it by name; say <code>noob: go away</code> to quiet it for an hour.</dd>
           </dl>
