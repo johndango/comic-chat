@@ -604,6 +604,7 @@ app.innerHTML = `
             <p>An independent, community-built revival of the classic Comic Chat experience for modern browsers.</p>
             <p>Crafted using <a href="${MICROSOFT_OPEN_SOURCE_URL}" target="_blank" rel="noopener noreferrer">Microsoft's open-source Comic Chat release</a>, with support from other great online communities.</p>
             <p>Questions, ideas, or help: <a href="mailto:admin@webcomicchat.com">admin@webcomicchat.com</a></p>
+            <p>Official updates: <a href="https://bsky.app/profile/webcomicchat.bsky.social" target="_blank" rel="noopener noreferrer">WebComicChat on Bluesky</a></p>
             <p>Not affiliated with or endorsed by Microsoft.</p>
           </div>
         </div>
