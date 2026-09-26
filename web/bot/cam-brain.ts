@@ -3,6 +3,17 @@
 // itself is injected, so all of this is testable without an API key.
 
 import { cleanReply, formatTranscript, stripIrcFormatting, type TranscriptLine } from "./cam-guard";
+import {
+  ACCEPT_INVITE,
+  GAME_IDLE_MS,
+  GIVE_UP,
+  INVITES,
+  pickSecret,
+  readAnswer,
+  START_GAME,
+  TOTAL_QUESTIONS,
+  TwentyQuestionsGame,
+} from "./twenty-questions";
 
 export interface CamConfig {
   nick: string;
@@ -46,8 +57,17 @@ export const AI_MARK = "[AI]";
 const MAX_INPUT_CHARS = 400;
 const PER_PERSON_PER_MINUTE = 3;
 const PER_HOUR = 40;
+/** A room playing 20 questions asks a lot, so the hourly cap is higher during a game. */
+const PER_HOUR_IN_GAME = 70;
+/** The friendly bot offers a game at most this often, only in a lull after people have been chatting. */
+const INVITE_EVERY = 2 * HOUR;
+/** "yes" / "me" without the bot's name count as accepting an invite for this long. */
+const INVITE_OPEN_FOR = 5 * MINUTE;
 
 const fold = (s: string) => s.toLowerCase();
+const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\-]/g, "\\$&");
+/** n00b ↔ noob: people type the bot's name either way. */
+const leet = (s: string) => (/0/.test(s) ? s.replace(/0/g, "o") : s);
 const looksLikeBot = (nick: string, ignore: Set<string>) =>
   ignore.has(fold(nick)) || /(bot|serv)[_\d]*$/i.test(nick) || /^(chanserv|nickserv)$/i.test(nick);
 
@@ -106,8 +126,13 @@ export class CamBrain {
   private lastHumanLine = new Map<string, number>();
   private lastInterjection = new Map<string, number>();
   private mutedUntil = new Map<string, number>();
+  /** Who sent the bot away in each channel: they (or an operator) can call it back early. */
+  private mutedBy = new Map<string, string>();
   /** Recent gremlin output, used locally to stop a catchphrase taking over. */
   private recentGremlinLines = new Map<string, string[]>();
+  /** Friendly bot: a game of 20 questions per channel, and when it last offered one. */
+  private games = new Map<string, TwentyQuestionsGame>();
+  private lastInvite = new Map<string, number>();
 
   constructor(
     private readonly config: CamConfig,
@@ -193,36 +218,110 @@ export class CamBrain {
   }
 
   /** The bot's name plus friendly variants: TongueTiedBot → tonguetied, tongue-tied, tongue tied. */
+  /** "go away n00bBot!" / "TongueTiedBot please stop" → "go away" / "stop". */
+  private commandWords(request: string): string {
+    let words = ` ${request.toLowerCase()} `;
+    const names = [...this.aliases(), ...this.shorthands().map(({ name }) => name)].sort((a, b) => b.length - a.length);
+    for (const name of names) words = words.replace(new RegExp(`(^|[^a-z0-9_])@?${escapeRegExp(name)}(?=$|[^a-z0-9_])`, "g"), " ");
+    return words.replace(/[^a-z\s]/g, " ").replace(/\b(please|pls|plz|now|ok|okay)\b/g, " ").replace(/\s+/g, " ").trim();
+  }
+
+  /** Names that address the bot anywhere in a line: distinctive enough not to be ordinary words. */
   private aliases(): string[] {
-    const nick = this.config.nick;
+    const nick = this.config.nick.toLowerCase();
     const base = nick.replace(/bot[_\d]*$/i, "");
-    const names = new Set([nick.toLowerCase()]);
-    // Short bases ("Cam") would match ordinary words, so only longer ones count.
+    const names = new Set([nick, leet(nick)]);
+    // Short bases ("Cam", "n00b") would match ordinary words, so only longer ones count here.
     if (base.length >= 5) {
-      names.add(base.toLowerCase());
-      const words = base.replace(/([a-z])([A-Z])/g, "$1 $2").toLowerCase();
-      names.add(words);
-      names.add(words.replace(/ /g, "-"));
+      names.add(base);
+      names.add(leet(base));
     }
     return [...names];
   }
 
   /**
+   * Nicknames people use at the start of a line to talk to the bot: "TTB: hi",
+   * "tongue tied, what's up", "n00b you're wrong". `loose` ones are ordinary
+   * words ("tongue", "noob"), so they only count with punctuation after them,
+   * on their own, or after a greeting ("hey noob"): "noob mistake lol" doesn't.
+   */
+  private shorthands(): Array<{ name: string; loose: boolean }> {
+    const base = this.config.nick.replace(/bot[_\d]*$/i, "");
+    const words = base.replace(/([a-z])([A-Z])/g, "$1 $2").toLowerCase().split(/\s+/).filter(Boolean);
+    const out = new Map<string, boolean>();
+    const add = (name: string, loose = false) => {
+      if (name.length >= 3 && !out.has(name)) out.set(name, loose);
+    };
+    const lower = base.toLowerCase();
+    add(lower, /^[a-z]+$/.test(lower) && lower.length < 6);
+    add(leet(lower), /^[a-z]+$/.test(leet(lower)) && lower.length < 6);
+    if (words.length > 1) {
+      for (const joined of [words.join(" "), words.join("-")]) {
+        add(joined);
+        add(`${joined} bot`);
+        add(`${joined}-bot`);
+      }
+      add(`${words.map((word) => word[0]).join("")}b`);
+      if (words[0].length >= 4) add(words[0], true);
+    } else {
+      for (const single of new Set([lower, leet(lower)])) add(`${single} bot`);
+    }
+    return [...out].map(([name, loose]) => ({ name, loose })).sort((a, b) => b.name.length - a.name.length);
+  }
+
+  /** "hey noob, what year is it?" → "what year is it?" if a shorthand opens the line. */
+  private shorthandRequest(text: string): string | null {
+    const match = text.match(/^\s*(?:(hey|hi|hello|yo|oi|ok|okay)[\s,]+)?@?([\s\S]*)$/iu);
+    if (!match) return null;
+    const greeted = Boolean(match[1]);
+    const rest = match[2];
+    const lower = rest.toLowerCase();
+    for (const { name, loose } of this.shorthands()) {
+      if (!lower.startsWith(name)) continue;
+      const after = rest.slice(name.length);
+      if (/^[a-z0-9_]/i.test(after)) continue;
+      const punctuated = /^\s*[:,!?.]/.test(after) || after.trim() === "";
+      if (loose && !punctuated && !greeted) continue;
+      const request = after.replace(/^[\s:,!?.]+/, "").trim();
+      return request || text.trim();
+    }
+    return null;
+  }
+
+  /** "what do you think, TTB?" / "thanks tongue-tied!": a nickname closing the line, after a comma or a thanks/bye. */
+  private shorthandAtEnd(text: string): string | null {
+    const lower = text.toLowerCase().replace(/[\s!?.:)(]+$/u, "");
+    for (const { name } of this.shorthands()) {
+      if (!lower.endsWith(name)) continue;
+      const before = lower.slice(0, -name.length);
+      if (/[a-z0-9_@]$/.test(before)) continue;
+      if (/,\s*@?$/.test(before) || /(^|\s)(thanks|thank you|thx|ty|bye|cya|later|night|gn|hi|hey|hello|yo)\s+@?$/.test(before)) return text.trim();
+    }
+    return null;
+  }
+
+  /**
    * The request if this line is addressed to the bot, else null. Counts:
    * "Name: hi" / "@Name hi" / "Anna, Name: hi" (what the site sends when you
-   * pick people in the member list), or the name anywhere in the line.
+   * pick people in the member list), the name anywhere in the line, or a
+   * shorthand ("TTB", "noob") opening the line.
    */
   /** `prefixOnly`: only "Name: ..." counts, not the name anywhere in the line. */
   private addressed(text: string, prefixOnly = false): string | null {
     const names = this.aliases();
+    const known = new Set([...names, ...this.shorthands().map(({ name }) => name)]);
     // "Anna, Name: hi" (a list needs the colon) or "Name, hi" (one name, comma).
     const prefix = text.match(/^\s*@?([^:]{1,120}?)\s*:\s+(\S[\s\S]*)$/u) ?? text.match(/^\s*@?([^\s,:]{1,32}),\s+(\S[\s\S]*)$/u);
     if (prefix) {
       const listed = prefix[1].split(/\s*,\s*|\s+and\s+/u).map((name) => name.replace(/^@/, "").toLowerCase());
-      if (listed.some((name) => names.includes(name))) return prefix[2].trim();
+      // The daily starter (another bot) must use the full name; people can use shorthands.
+      const pool = prefixOnly ? new Set(names) : known;
+      if (listed.some((name) => pool.has(name))) return prefix[2].trim();
     }
     if (prefixOnly) return null;
-    const anywhere = new RegExp(`(^|[^a-z0-9_])@?(${names.map((n) => n.replace(/[.*+?^${}()|[\]\\-]/g, "\\$&")).join("|")})(?=$|[^a-z0-9_])`, "i");
+    const shorthand = this.shorthandRequest(text) ?? this.shorthandAtEnd(text);
+    if (shorthand !== null) return shorthand;
+    const anywhere = new RegExp(`(^|[^a-z0-9_])@?(${names.map(escapeRegExp).join("|")})(?=$|[^a-z0-9_])`, "i");
     return anywhere.test(text) ? text.trim() : null;
   }
 
@@ -241,7 +340,13 @@ export class CamBrain {
     // Lines not addressed to CamBot are never kept or sent anywhere.
     // The daily starter's other lines (BettyBot's "about" names this bot)
     // aren't prompts; only a line that starts with this bot's name is.
-    const request = this.addressed(text, dailyStarter);
+    let request = this.addressed(text, dailyStarter);
+    // Right after an invite, a plain "yes" or "me" starts the game. Only this
+    // tiny pattern is checked; the line isn't kept or sent anywhere.
+    const invited = at - (this.lastInvite.get(fold(channel)) ?? -Infinity) < INVITE_OPEN_FOR;
+    if (request === null && !dailyStarter && invited && !this.games.has(fold(channel)) && ACCEPT_INVITE.test(text.trim())) {
+      request = "20 questions";
+    }
     if (request === null) return [];
 
     // Operator controls.
@@ -259,12 +364,28 @@ export class CamBrain {
 
     // Anyone can send the gremlin away for an hour. Keep this persona-specific
     // so an ordinary "TongueTiedBot: stop" remains a normal conversation.
-    if (this.config.persona === "gremlin" && /^(go away|shut up|stop|be quiet)[.!]*$/i.test(request)) {
-      this.mutedUntil.set(fold(channel), at + MUTE_FOR);
+    // Anyone can send either bot away for an hour; the same person or an
+    // operator can call it back early.
+    const command = this.commandWords(request);
+    const key = fold(channel);
+    const muted = (this.mutedUntil.get(key) ?? 0) > at;
+    if (/^(go away|shut up|stop|be quiet)$/.test(command)) {
+      this.mutedUntil.set(key, at + MUTE_FOR);
+      this.mutedBy.set(key, fold(nick));
       this.log(`muted in ${channel} by ${nick} for an hour`);
-      return this.mark(["FINE. brb in an hour :("]);
+      if (muted) return [];
+      return this.mark([this.config.persona === "gremlin"
+        ? `FINE. brb in an hour :( (${nick} can say "${this.config.nick}: come back" if u miss me)`
+        : `Okay ${nick}, I'll stay quiet for an hour. Say "${this.config.nick}: come back" if you change your mind.`]);
     }
-    if ((this.mutedUntil.get(fold(channel)) ?? 0) > at) return [];
+    if (/^come back$/.test(command) && muted) {
+      if (this.mutedBy.get(key) !== fold(nick) && !this.opSet(channel).has(fold(nick))) return [];
+      this.mutedUntil.delete(key);
+      this.mutedBy.delete(key);
+      this.log(`unmuted in ${channel} by ${nick}`);
+      return this.mark([this.config.persona === "gremlin" ? "I'M BACK!!! did u miss me lol" : "I'm back :)"]);
+    }
+    if (muted) return [];
 
     const transcript = this.transcripts.get(fold(channel)) ?? [];
     if (/^forget( me)?$/i.test(request)) {
@@ -294,10 +415,16 @@ export class CamBrain {
     }
     const mine = (this.perPerson.get(fold(nick)) ?? []).filter((t) => at - t < MINUTE);
     this.hourly = this.hourly.filter((t) => at - t < HOUR);
-    if (mine.length >= PER_PERSON_PER_MINUTE || this.hourly.length >= PER_HOUR) return [];
+    const hourlyCap = this.games.has(fold(channel)) ? PER_HOUR_IN_GAME : PER_HOUR;
+    if (mine.length >= PER_PERSON_PER_MINUTE || this.hourly.length >= hourlyCap) return [];
     mine.push(at);
     this.perPerson.set(fold(nick), mine);
     this.hourly.push(at);
+
+    if (!dailyStarter) {
+      const played = await this.twentyQuestions(channel, nick, request, at);
+      if (played) return played;
+    }
 
     transcript.push({ nick, text: request });
     if (transcript.length > TRANSCRIPT_LINES) transcript.splice(0, transcript.length - TRANSCRIPT_LINES);
@@ -336,7 +463,7 @@ export class CamBrain {
    * channel, and any reply that names a real person is dropped.
    */
   async interject(channel: string, at = Date.now()): Promise<string[]> {
-    if (this.config.persona !== "gremlin") return [];
+    if (this.config.persona !== "gremlin") return this.hostTick(channel, at);
     const key = fold(channel);
     if (this.asleep.has(key) || (this.mutedUntil.get(key) ?? 0) > at) return [];
     const lastHuman = this.lastHumanLine.get(key);
@@ -401,6 +528,91 @@ export class CamBrain {
   }
 
   /** Mark lines as AI output, leading with a one-time daily AI disclosure to this person. */
+  /**
+   * Friendly bot: host 20 questions for the whole room. Returns the lines to
+   * send, or null when this line isn't part of a game (so it's normal chat).
+   */
+  private async twentyQuestions(channel: string, nick: string, request: string, at: number): Promise<string[] | null> {
+    if (this.config.persona === "gremlin") return null;
+    const key = fold(channel);
+    let game = this.games.get(key);
+    if (game && at - game.lastAt > GAME_IDLE_MS) {
+      this.games.delete(key);
+      game = undefined;
+    }
+    const starting = START_GAME.test(request);
+    if (!game) {
+      if (!starting) return null;
+      game = new TwentyQuestionsGame(pickSecret(this.random), at);
+      this.games.set(key, game);
+      this.lastInvite.set(key, at);
+      this.log(`20 questions started in ${channel} by ${nick}`);
+      return this.disclose(nick, [`Okay! I'm thinking of ${game.secret.kind}. Everyone can ask me yes-or-no questions, like "${this.config.nick}: is it bigger than a breadbox?" You have ${TOTAL_QUESTIONS}!`]);
+    }
+    game.lastAt = at;
+    if (starting) return this.mark([`We're already playing! ${game.remaining} questions left. Ask me a yes-or-no question about ${game.secret.kind}.`]);
+    if (GIVE_UP.test(request)) {
+      this.games.delete(key);
+      return this.mark([`It was ${game.secret.answer}! Say "${this.config.nick}: 20 questions" to play again :)`]);
+    }
+    if (game.guessedBy(request)) {
+      this.games.delete(key);
+      game.asked += 1;
+      return this.disclose(nick, [`YES!!! ${nick} got it in ${game.asked}: it was ${game.secret.answer}! :D Say "${this.config.nick}: 20 questions" for another round.`]);
+    }
+    let reply: ModelReply;
+    try {
+      reply = await this.respond(this.system, game.prompt(nick, request));
+    } catch (error) {
+      this.log(`20 questions answer failed: ${error instanceof Error ? error.message : String(error)}`);
+      return this.disclose(nick, ["Hmm, I lost my train of thought. Ask that again? (It didn't count.)"]);
+    }
+    this.spentToday += reply.costUsd;
+    const cleaned = reply.text && !reply.refused ? cleanReply(reply.text, { allowedLinkPrefix: this.config.siteUrl, roomNicks: [...this.memberSet(channel)] }) : null;
+    // The model knows the secret; never let a reply give it away.
+    if (!cleaned || game.leaks(cleaned.join(" "))) {
+      return this.disclose(nick, ["Ooh, I can't answer that one without giving it away! Try asking another way. (It didn't count.)"]);
+    }
+    const answer = readAnswer(cleaned.join(" "));
+    if (!answer.counted) return this.disclose(nick, [`${answer.text} (Still ${game.remaining} questions left.)`]);
+    game.asked += 1;
+    game.history.push({ question: request.slice(0, 200), answer: answer.text });
+    if (game.remaining <= 0) {
+      this.games.delete(key);
+      return this.disclose(nick, [`${answer.text} ...and that was question ${TOTAL_QUESTIONS}! It was ${game.secret.answer}. Good game, everyone :)`]);
+    }
+    const left = game.remaining === 1 ? "Last question!" : `${game.remaining} left.`;
+    return this.disclose(nick, [`${answer.text} (${left})`]);
+  }
+
+  /**
+   * Friendly bot, once a minute: end a game nobody is playing any more, and
+   * now and then offer one when people have been chatting but it's gone quiet.
+   * The invite is a fixed line, so it costs nothing.
+   */
+  private hostTick(channel: string, at: number): string[] {
+    const key = fold(channel);
+    const game = this.games.get(key);
+    if (game && at - game.lastAt > GAME_IDLE_MS) {
+      this.games.delete(key);
+      return this.mark([`Nobody's asked in a while, so our game's over: it was ${game.secret.answer}! Say "${this.config.nick}: 20 questions" to play again.`]);
+    }
+    if (game || this.asleep.has(key) || (this.mutedUntil.get(key) ?? 0) > at) return [];
+    const members = [...this.memberSet(channel)];
+    if (!members.some((member) => fold(member) === fold(this.config.admin))) return [];
+    const humans = members.filter((member) => !looksLikeBot(member, this.ignore) && fold(member) !== fold(this.config.nick));
+    if (humans.length < 2) return [];
+    // A lull: someone spoke in the last 20 minutes, but not in the last 3.
+    const lastHuman = this.lastHumanLine.get(key);
+    if (lastHuman === undefined || at - lastHuman < 3 * MINUTE || at - lastHuman > 20 * MINUTE) return [];
+    if (at - (this.lastInvite.get(key) ?? -Infinity) < INVITE_EVERY) return [];
+    // Not at the first chance, so it doesn't feel like clockwork.
+    if (this.random() >= 0.2) return [];
+    this.lastInvite.set(key, at);
+    this.log(`offered 20 questions in ${channel}`);
+    return this.mark([INVITES[Math.floor(this.random() * INVITES.length) % INVITES.length]]);
+  }
+
   private disclose(nick: string, lines: string[]): string[] {
     const out = [...lines];
     if (!this.disclosed.has(fold(nick))) {

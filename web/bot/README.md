@@ -155,8 +155,23 @@ down real people.
   while people are chatting, and only on half of those chances.
 - Those unprompted lines never read the room: the model is told only which
   bots are present. Any unprompted line that names a real person is dropped.
-- Anyone can say `n00bBot: go away` to mute it for an hour; operators can
-  still use sleep and wake.
+- People can use shorthand when they open a line with it: `TTB`,
+  `tongue tied`, `tongue` for TongueTiedBot; `noob`, `n00b` for n00bBot.
+  Plain words like "tongue" and "noob" only count with punctuation after them,
+  on their own, or after a greeting, so "noob mistake lol" doesn't wake it.
+- TongueTiedBot hosts 20 questions for the whole room: `TTB: 20 questions`.
+  The code keeps the secret (from a family-friendly list in
+  `twenty-questions.ts`), counts questions and recognises right guesses; the
+  model only answers each yes-or-no question, and any answer that would give
+  the secret away is replaced. `give up` reveals it; a game idle for 15
+  minutes ends with a reveal. At most every two hours, in a lull after people
+  have been chatting (two or more people and the admin present), it offers a
+  game with a fixed line, and a plain "yes" or "me" within five minutes
+  starts it. About $0.0014 per question on Haiku, so a full game is ~3-4 cents.
+- Anyone can say `go away`, `shut up`, `stop` or `be quiet` to either AI bot
+  (with its name anywhere in the line) to mute it for an hour. The person who
+  sent it away, or an operator, can say `come back` to end that early.
+  Operators can still use sleep and wake.
 
 Run it with its own settings file (its own NickServ account):
 
