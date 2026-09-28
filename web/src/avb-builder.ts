@@ -317,7 +317,7 @@ export interface CharacterMeta {
   name: string;
   /** Shown as the art's credit, e.g. "© 2026 Jane Doe · CC BY 4.0". */
   copyright?: string;
-  /** Where the finished .avb is published; sent with "# Appears as". */
+  /** Where the finished .avb is published; shared in the official room's avatar metadata. */
   url?: string;
   style?: ArtStyle;
   encode?: EncodeOptions;

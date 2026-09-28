@@ -10,6 +10,13 @@ export const DEFAULT_ROOM_SELECTION: Readonly<RoomSelection> = {
   channel: "#webcomicchat",
 };
 
+/** Comic Chat avatar metadata is welcome only in WebComicChat's own room. */
+export function isAvatarAnnouncementRoom(network: string, rawChannel: string): boolean {
+  const selection = normalizeRoomSelection(network, rawChannel);
+  return selection?.network === DEFAULT_ROOM_SELECTION.network
+    && selection.channel.toLocaleLowerCase() === DEFAULT_ROOM_SELECTION.channel;
+}
+
 // IRC channel names may contain another # after the channel sigil. Libera uses
 // this for topical rooms such as ##apple.
 const channelPattern = /^#[#A-Za-z0-9_+\-]{1,50}$/;

@@ -67,6 +67,13 @@ export function appearanceLine(name: string, url?: string): string {
   return `# Appears as ${name}${url ? `.${url}` : ""}`;
 }
 
+/** Never leak Comic Chat's avatar handshake into unrelated public rooms. */
+export function avatarAnnouncementsAllowed(host: string, channel: string): boolean {
+  const normalizedHost = host.toLocaleLowerCase().replace(/\.$/u, "");
+  return (normalizedHost === "libera.chat" || normalizedHost.endsWith(".libera.chat"))
+    && channel.toLocaleLowerCase() === "#webcomicchat";
+}
+
 export class IrcBot {
   private socket?: Socket | TLSSocket;
   private buffer = "";
@@ -281,7 +288,7 @@ export class IrcBot {
         const who = nicknameFromPrefix(m.prefix);
         if (channel) {
           this.handlers.onJoin?.(channel, who);
-          if (this.options.avatar && this.isMe(who)) {
+          if (this.options.avatar && this.isMe(who) && avatarAnnouncementsAllowed(this.options.host, channel)) {
             this.say(channel, appearanceLine(this.options.avatar.name, this.options.avatar.url));
           }
         }
@@ -343,7 +350,7 @@ export class IrcBot {
         // protocol line from the conversational brain and complete the same
         // handshake so clients joining after this bot still learn its avatar.
         if (parseAvatarAnnouncement(text)) {
-          if (channel && this.options.avatar) {
+          if (channel && this.options.avatar && avatarAnnouncementsAllowed(this.options.host, channel)) {
             this.say(nick, appearanceLine(this.options.avatar.name, this.options.avatar.url));
           }
           return;

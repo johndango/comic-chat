@@ -96,7 +96,7 @@ export interface AvbDocument {
   style?: number;
   flags?: number;
   copyright?: string;
-  /** Where this character can be downloaded (shared with "# Appears as"). */
+  /** Where this character can be downloaded (shared in the official room's avatar metadata). */
   originalUrl?: string;
   overrideUrl?: string;
   usageFlags?: number;

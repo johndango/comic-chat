@@ -2,7 +2,7 @@ import { createServer, type Socket } from "node:net";
 import { afterEach, describe, expect, it } from "vitest";
 import { EM, emotionOptions } from "../src/expression";
 import { BotBrain } from "./brain";
-import { appearanceLine, IrcBot, splitForIrc } from "./irc";
+import { appearanceLine, avatarAnnouncementsAllowed, IrcBot, splitForIrc } from "./irc";
 
 const config = { nick: "BettyBot", siteUrl: "https://webcomicchat.com", schedule: "Chat nights are Fridays at 8pm ET." };
 const T0 = 1_000_000;
@@ -222,6 +222,13 @@ describe("splitForIrc", () => {
     expect(() => appearanceLine("bad name")).toThrow("avatar name");
     expect(() => appearanceLine("Pip", "http://example.com/pip.avb")).toThrow("HTTPS");
   });
+
+  it("permits avatar metadata only in Libera.Chat's WebComicChat room", () => {
+    expect(avatarAnnouncementsAllowed("irc.libera.chat", "#webcomicchat")).toBe(true);
+    expect(avatarAnnouncementsAllowed("IRC.EU.LIBERA.CHAT", "#WebComicChat")).toBe(true);
+    expect(avatarAnnouncementsAllowed("irc.libera.chat", "#videogames")).toBe(false);
+    expect(avatarAnnouncementsAllowed("irc.oftc.net", "#webcomicchat")).toBe(false);
+  });
 });
 
 describe("IrcBot against a fake server", () => {
@@ -283,8 +290,6 @@ describe("IrcBot against a fake server", () => {
     expect(events).toEqual(["names #c BettyBot,Anna", "msg #c Anna BettyBot: help"]);
     const sent = received.filter((l) => l.startsWith("PRIVMSG"));
     expect(sent).toEqual([
-      "PRIVMSG #c :# Appears as Anna",
-      "PRIVMSG Anna :# Appears as Anna",
       "PRIVMSG #c :one",
       "PRIVMSG #c :two",
     ]);

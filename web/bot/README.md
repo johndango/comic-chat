@@ -138,10 +138,11 @@ blips and server restarts need no attention.
 
 ## Appearing as a Comic Chat character
 
-After joining, the bot announces `# Appears as <Name>.<url>` using the original
-1998 convention. The web client consumes that line instead of drawing it as a
-speech balloon. The default `Anna` needs no URL; set both avatar variables once
-the approved custom-art host is available.
+After joining Libera.Chat `#webcomicchat`, the bot announces
+`# Appears as <Name>.<url>` using the original 1998 convention. It never sends
+that metadata in unrelated channels. The web client consumes incoming lines
+instead of drawing them as speech balloons. The default `Anna` needs no URL;
+set both avatar variables once the approved custom-art host is available.
 
 ## n00bBot: the nostalgic gremlin
 

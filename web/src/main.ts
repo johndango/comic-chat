@@ -39,6 +39,7 @@ import {
   createLiberaWebChatUrl,
   createRoomUrl,
   DEFAULT_ROOM_SELECTION,
+  isAvatarAnnouncementRoom,
   normalizeRoomSelection,
   roomSelectionFromUrl,
   type RoomSelection,
@@ -1950,9 +1951,11 @@ async function useCommunityAvatar(entry: HostedCommunityAvatar): Promise<void> {
   updateControls();
   const announced = announceSelectedAvatar();
   communityAvatarsDialog.close();
-  setStatus(liveClient.joined && announced
+  setStatus(announced
     ? `You are now appearing as ${entry.name}. People allowing community art can see it.`
-    : `${entry.name} is selected. It is hosted by WebComicChat and ready for live chat.`);
+    : liveClient.joined && !avatarAnnouncementsEnabled()
+      ? `${entry.name} is selected locally. Avatar announcements are sent only in Libera.Chat ${DEFAULT_ROOM_SELECTION.channel}.`
+      : `${entry.name} is selected. It is hosted by WebComicChat and ready for live chat.`);
 }
 
 function drawCommunityAvatarIcon(canvas: HTMLCanvasElement, source?: HTMLCanvasElement): void {
@@ -2361,6 +2364,11 @@ function selectedAvatarDisplayName(): string | undefined {
   return selectedAvatarAnnouncement()?.name;
 }
 
+function avatarAnnouncementsEnabled(): boolean {
+  return liveClient.joined
+    && isAvatarAnnouncementRoom(networkSelect.value, joinedChannel || channelInput.value);
+}
+
 function preferredAvatarFile(file: string): string {
   return preferAvatarEdition(file, avatarDisplayPolicy.artPreference, avatarEditions);
 }
@@ -2373,7 +2381,7 @@ function applyPreferenceToSelectedCharacter(): boolean {
 }
 
 function announceSelectedAvatar(): boolean {
-  if (!liveClient.joined) return false;
+  if (!avatarAnnouncementsEnabled()) return false;
   const announcement = selectedAvatarAnnouncement();
   if (!announcement) return false;
   liveClient.say(announcement.message);
@@ -2574,7 +2582,7 @@ async function addRemoteMessage(event: LiveMessageEvent, generation: number): Pr
   const announcement = parseAvatarAnnouncement(event.message);
   if (announcement) {
     announcedAvatars.set(memberAvatarRuleKey(event.nickname), announcement);
-    if (!event.whisper) {
+    if (!event.whisper && avatarAnnouncementsEnabled()) {
       const ownAvatar = selectedAvatarAnnouncement();
       if (ownAvatar) liveClient.whisper([event.nickname], ownAvatar.message);
     }
@@ -2888,7 +2896,11 @@ function handleLiveEvent(event: LiveEvent): void {
       if (event.nickname) knownMembers.add(event.nickname);
       renderMembers();
       const announced = announceSelectedAvatar();
-      setStatus(`${event.message}. New channel messages will become panels.${announced ? ` You are appearing as ${selectedAvatarDisplayName()}.` : " Your imported avatar remains local to this tab."}`);
+      setStatus(`${event.message}. New channel messages will become panels.${announced
+        ? ` You are appearing as ${selectedAvatarDisplayName()}.`
+        : !avatarAnnouncementsEnabled()
+          ? ` Avatar announcements are disabled outside Libera.Chat ${DEFAULT_ROOM_SELECTION.channel}.`
+          : " Your imported avatar remains local to this tab."}`);
     }
     return;
   }
@@ -4753,7 +4765,9 @@ characterSelect.addEventListener("change", () => {
     const announced = announceSelectedAvatar();
     setStatus(announced
       ? `You are now appearing as ${selectedAvatarDisplayName()}.`
-      : "Your imported avatar is selected locally, but it cannot be shared until it has an approved webcomicchat.com URL.");
+      : !avatarAnnouncementsEnabled()
+        ? `Your character is selected locally. Avatar announcements are sent only in Libera.Chat ${DEFAULT_ROOM_SELECTION.channel}.`
+        : "Your imported avatar is selected locally, but it cannot be shared until it has an approved webcomicchat.com URL.");
   }).catch(showError);
 });
 communityAvatarsButton.addEventListener("click", showCommunityAvatarGallery);

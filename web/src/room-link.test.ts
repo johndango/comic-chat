@@ -3,6 +3,7 @@ import {
   createLiberaWebChatUrl,
   createRoomUrl,
   DEFAULT_ROOM_SELECTION,
+  isAvatarAnnouncementRoom,
   normalizeRoomSelection,
   roomSelectionFromUrl,
 } from "./room-link";
@@ -10,6 +11,14 @@ import {
 describe("room links", () => {
   it("defines the project room as the default", () => {
     expect(DEFAULT_ROOM_SELECTION).toEqual({ network: "libera", channel: "#webcomicchat" });
+  });
+
+  it("allows avatar announcements only in the WebComicChat Libera room", () => {
+    expect(isAvatarAnnouncementRoom("libera", "#webcomicchat")).toBe(true);
+    expect(isAvatarAnnouncementRoom("libera", "#WebComicChat")).toBe(true);
+    expect(isAvatarAnnouncementRoom("libera", "#videogames")).toBe(false);
+    expect(isAvatarAnnouncementRoom("oftc", "#webcomicchat")).toBe(false);
+    expect(isAvatarAnnouncementRoom("libera", "not a channel")).toBe(false);
   });
 
   it("normalizes a channel without its sigil", () => {
