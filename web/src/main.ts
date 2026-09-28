@@ -53,6 +53,7 @@ import {
   serializeRoomBookmarks,
 } from "./room-bookmarks";
 import { stripExportGrid } from "./strip-export";
+import { comicPngFilename, comicShareTitle, pngDataUrlFile, redditComicSubmitUrl } from "./comic-share";
 import {
   FILTERABLE_COMIC_BOTS,
   isComicBotNickname,
@@ -393,8 +394,9 @@ app.innerHTML = `
         <button type="button" data-command="import-background">Import background…</button>
         <button type="button" data-command="create-avatar">Create character…</button>
         <hr />
-        <button type="button" role="menuitemcheckbox" data-command="select-panels">Select panels to save…</button>
+        <button type="button" role="menuitemcheckbox" data-command="select-panels">Select panels to save or share…</button>
         <button type="button" data-command="save-comic">Save comic…</button>
+        <button type="button" data-command="share-comic">Share comic…</button>
       </div></details>
       <details><summary><u>E</u>dit</summary><div class="classic-menu-popup">
         <button type="button" data-command="undo">Undo last line</button>
@@ -514,12 +516,13 @@ app.innerHTML = `
             </div>
             <strong id="strip-count">0 panels</strong>
           </div>
-          <div id="panel-selection-bar" class="panel-selection-bar" role="toolbar" aria-label="Choose panels for saved comic" hidden>
+          <div id="panel-selection-bar" class="panel-selection-bar" role="toolbar" aria-label="Choose panels for a saved or shared comic" hidden>
             <strong>Choose panels</strong>
-            <span id="panel-selection-count" aria-live="polite">Tap the panels you want to save.</span>
+            <span id="panel-selection-count" aria-live="polite">Tap the panels you want to save or share.</span>
             <button id="select-all-panels" type="button">Select all</button>
             <button id="clear-panel-selection" type="button">Clear</button>
             <button id="save-selected-panels" type="button" disabled>Save selected</button>
+            <button id="share-selected-panels" type="button" disabled>Share selected…</button>
             <button id="finish-panel-selection" type="button">Done</button>
           </div>
           <div id="strip" class="comic-strip"></div>
@@ -587,6 +590,7 @@ app.innerHTML = `
           <button id="clear-strip" class="small-action" type="button">Clear</button>
           <button id="select-panels" class="small-action" type="button" aria-pressed="false">Select Panels…</button>
           <button id="download" class="download-button" type="button" disabled>Save Comic</button>
+          <button id="share-comic" class="download-button" type="button" disabled>Share…</button>
         </div>
       </section>
       <footer class="classic-statusbar">
@@ -955,6 +959,7 @@ const panelSelectionCount = element<HTMLElement>("#panel-selection-count");
 const selectAllPanelsButton = element<HTMLButtonElement>("#select-all-panels");
 const clearPanelSelectionButton = element<HTMLButtonElement>("#clear-panel-selection");
 const saveSelectedPanelsButton = element<HTMLButtonElement>("#save-selected-panels");
+const shareSelectedPanelsButton = element<HTMLButtonElement>("#share-selected-panels");
 const finishPanelSelectionButton = element<HTMLButtonElement>("#finish-panel-selection");
 const panelsAcrossSelect = element<HTMLSelectElement>("#panels-across");
 const balloonFontSelect = element<HTMLSelectElement>("#balloon-font");
@@ -966,6 +971,7 @@ const undoButton = element<HTMLButtonElement>("#undo-panel");
 const clearButton = element<HTMLButtonElement>("#clear-strip");
 const selectPanelsButton = element<HTMLButtonElement>("#select-panels");
 const downloadButton = element<HTMLButtonElement>("#download");
+const shareComicButton = element<HTMLButtonElement>("#share-comic");
 const classicWindow = element<HTMLElement>("#classic-window");
 const classicTitlebar = element<HTMLElement>("#classic-titlebar");
 const systemMenuButton = element<HTMLButtonElement>("#system-menu-button");
@@ -2945,14 +2951,18 @@ function syncPanelSelectionUi(): void {
   selectPanelsButton.setAttribute("aria-pressed", String(panelSelectionMode));
   selectPanelsButton.textContent = panelSelectionMode ? "Cancel Selection" : "Select Panels…";
   panelSelectionCount.textContent = selectedCount === 0
-    ? "Tap the panels you want to save."
+    ? "Tap the panels you want to save or share."
     : `${selectedCount} ${selectedCount === 1 ? "panel" : "panels"} selected.`;
   selectAllPanelsButton.disabled = panelKeys.length === 0 || selectedCount === panelKeys.length;
   clearPanelSelectionButton.disabled = selectedCount === 0;
   saveSelectedPanelsButton.disabled = selectedCount === 0 || isAdding || panelCanvases.length === 0;
+  shareSelectedPanelsButton.disabled = selectedCount === 0 || isAdding || panelCanvases.length === 0;
   downloadButton.textContent = panelSelectionMode
     ? selectedCount > 0 ? `Save Selected (${selectedCount})` : "Save Selected"
     : "Save Comic";
+  shareComicButton.textContent = panelSelectionMode
+    ? selectedCount > 0 ? `Share Selected (${selectedCount})…` : "Share Selected…"
+    : "Share…";
 
   [...strip.querySelectorAll<HTMLElement>(".panel-card")].forEach((card, index) => {
     const key = panelKeys[index];
@@ -3013,6 +3023,7 @@ function updateControls(): void {
   clearButton.disabled = conversation.length === 0 || isAdding;
   const selectedPanelCount = selectedPanelIndexes(panelKeys, selectedPanelKeys).length;
   downloadButton.disabled = panelCanvases.length === 0 || isAdding || (panelSelectionMode && selectedPanelCount === 0);
+  shareComicButton.disabled = downloadButton.disabled;
   selectPanelsButton.disabled = !panelSelectionMode && panelCanvases.length === 0;
   const room = normalizeRoomSelection(networkSelect.value, channelInput.value);
   const busy = liveState === "connecting" || liveState === "joining";
@@ -3046,6 +3057,7 @@ function updateControls(): void {
     if (command === "new-comic" || command === "clear") button.disabled = clearButton.disabled;
     else if (command === "undo") button.disabled = undoButton.disabled;
     else if (command === "save-comic") button.disabled = downloadButton.disabled;
+    else if (command === "share-comic") button.disabled = shareComicButton.disabled;
     else if (command === "join-channel") button.disabled = connectButton.disabled;
     else if (command === "browse-channels") button.disabled = browseRoomsButton.disabled;
     else if (command === "copy-channel") button.disabled = shareRoomButton.disabled;
@@ -4580,12 +4592,19 @@ function runSlashCommand(command: ReturnType<typeof parseSlashCommand>): void {
   }
 }
 
-function downloadStrip(): void {
+interface ComicPngExport {
+  dataUrl: string;
+  filename: string;
+  panelCount: number;
+  selected: boolean;
+}
+
+function renderComicPng(): ComicPngExport | undefined {
   const indexes = panelSelectionMode
     ? selectedPanelIndexes(panelKeys, selectedPanelKeys)
     : panelCanvases.map((_, index) => index);
   const exportCanvases = indexes.map((index) => panelCanvases[index]).filter(Boolean);
-  if (exportCanvases.length === 0) return;
+  if (exportCanvases.length === 0) return undefined;
   const grid = stripExportGrid(exportCanvases.length, PANEL_PIXELS);
   const output = document.createElement("canvas");
   output.width = grid.width;
@@ -4599,13 +4618,73 @@ function downloadStrip(): void {
     context.drawImage(canvas, x, y, PANEL_PIXELS, PANEL_PIXELS);
   });
 
+  return {
+    dataUrl: output.toDataURL("image/png"),
+    filename: comicPngFilename(panelSelectionMode),
+    panelCount: exportCanvases.length,
+    selected: panelSelectionMode,
+  };
+}
+
+function downloadComicPng(comic: ComicPngExport): void {
   const link = document.createElement("a");
-  link.download = `comic-chat-${panelSelectionMode ? "selection" : "strip"}-${Date.now()}.png`;
-  link.href = output.toDataURL("image/png");
+  link.download = comic.filename;
+  link.href = comic.dataUrl;
   link.click();
-  setStatus(panelSelectionMode
-    ? `Saved ${exportCanvases.length} selected ${exportCanvases.length === 1 ? "panel" : "panels"} in comic order.`
-    : `Saved the complete ${exportCanvases.length}-panel comic.`);
+}
+
+function downloadStrip(): void {
+  const comic = renderComicPng();
+  if (!comic) return;
+  downloadComicPng(comic);
+  setStatus(comic.selected
+    ? `Saved ${comic.panelCount} selected ${comic.panelCount === 1 ? "panel" : "panels"} in comic order.`
+    : `Saved the complete ${comic.panelCount}-panel comic.`);
+}
+
+async function shareStrip(): Promise<void> {
+  const comic = renderComicPng();
+  if (!comic) return;
+  const title = comicShareTitle(comicTitleOverride, comic.selected ? comic.panelCount : undefined);
+  const file = pngDataUrlFile(comic.dataUrl, comic.filename);
+  const fullShareData: ShareData = {
+    files: [file],
+    title,
+    text: "Made with WebComicChat — https://webcomicchat.com",
+  };
+  const fileOnlyShareData: ShareData = { files: [file] };
+  let shareData: ShareData | undefined;
+  if (typeof navigator.share === "function" && typeof navigator.canShare === "function") {
+    try {
+      if (navigator.canShare(fullShareData)) shareData = fullShareData;
+      else if (navigator.canShare(fileOnlyShareData)) shareData = fileOnlyShareData;
+    } catch {}
+  }
+  if (shareData) {
+    try {
+      await navigator.share(shareData);
+      setStatus(`Shared the ${comic.panelCount}-panel comic image. The image never passed through the WebComicChat server.`);
+      return;
+    } catch (error) {
+      if (error instanceof Error && error.name === "AbortError") {
+        setStatus("Sharing canceled. Your comic was not uploaded anywhere.");
+        return;
+      }
+    }
+  }
+
+  // Desktop browsers do not consistently support sharing files. Keep the
+  // comic local, download it, and hand the user to Reddit's own composer.
+  const redditWindow = window.open(redditComicSubmitUrl(title), "_blank");
+  if (redditWindow) redditWindow.opener = null;
+  downloadComicPng(comic);
+  let copiedTitle = false;
+  try {
+    await navigator.clipboard?.writeText(title);
+    copiedTitle = true;
+  } catch {}
+  const panelLabel = comic.panelCount === 1 ? "panel" : "panels";
+  setStatus(`Saved ${comic.panelCount} ${panelLabel} as a PNG. ${redditWindow ? "Reddit's post composer opened" : "Your browser blocked the Reddit window"}${copiedTitle ? ", and the suggested title was copied" : ""}; attach the downloaded image there.`);
 }
 
 function setPanelSelectionMode(enabled: boolean): void {
@@ -4614,9 +4693,9 @@ function setPanelSelectionMode(enabled: boolean): void {
   updateControls();
   if (enabled) {
     panelSelectionBar.scrollIntoView({ block: "nearest" });
-    setStatus("Panel selection is on. Tap any title or comic panel to include it, then choose Save selected.");
+    setStatus("Panel selection is on. Tap any title or comic panel to include it, then choose Save selected or Share selected.");
   } else {
-    setStatus("Panel selection closed. Save Comic will save the complete strip.");
+    setStatus("Panel selection closed. Save Comic and Share will use the complete strip.");
   }
 }
 
@@ -4977,6 +5056,7 @@ workshopAddMessage.addEventListener("keydown", (event) => {
   }
 });
 downloadButton.addEventListener("click", downloadStrip);
+shareComicButton.addEventListener("click", () => void shareStrip().catch(showError));
 selectPanelsButton.addEventListener("click", () => setPanelSelectionMode(!panelSelectionMode));
 finishPanelSelectionButton.addEventListener("click", () => setPanelSelectionMode(false));
 selectAllPanelsButton.addEventListener("click", () => {
@@ -4988,6 +5068,7 @@ clearPanelSelectionButton.addEventListener("click", () => {
   updateControls();
 });
 saveSelectedPanelsButton.addEventListener("click", downloadStrip);
+shareSelectedPanelsButton.addEventListener("click", () => void shareStrip().catch(showError));
 strip.addEventListener("click", (event) => {
   if (!panelSelectionMode) return;
   const target = event.target instanceof Element ? event.target : undefined;
@@ -5202,6 +5283,9 @@ function runMenuCommand(command: string): void {
       break;
     case "save-comic":
       downloadButton.click();
+      break;
+    case "share-comic":
+      shareComicButton.click();
       break;
     case "select-panels":
       setPanelSelectionMode(!panelSelectionMode);

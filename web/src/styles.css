@@ -267,7 +267,7 @@ button:disabled { color: #808080; text-shadow: 1px 1px #fff; cursor: not-allowed
 .mode-button[data-mode="whisper"] i { background-position-x: -40px; }
 .mode-button[data-mode="action"] i { background-position-x: -60px; }
 .mode-button.selected { border-top-color: #333; border-left-color: #333; border-right-color: #fff; border-bottom-color: #fff; box-shadow: none; background: #aaa; }
-.strip-actions { grid-column: 3 / -1; display: flex; justify-content: flex-end; gap: 5px; }
+.strip-actions { grid-column: 3 / -1; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 5px; }
 .small-action, .download-button { min-width: 70px; }
 .classic-statusbar { min-height: 28px; padding: 3px; display: grid; grid-template-columns: 1fr auto; gap: 4px; border-top: 1px solid #fff; }
 .classic-statusbar > * { margin: 0; padding: 4px 6px; border-top: 1px solid #808080; border-left: 1px solid #808080; border-right: 1px solid #fff; border-bottom: 1px solid #fff; }
