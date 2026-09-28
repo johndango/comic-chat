@@ -98,7 +98,7 @@ const bot = new IrcBot(
 );
 
 // Once a minute the brain gets a chance to speak unprompted: the gremlin's
-// one-liners (at most every 12 minutes, only while people are chatting), and
+// one-liners (at most every 10 minutes, only while people are chatting), and
 // the friendly bot's occasional 20 questions offer or end of an idle game.
 {
   setInterval(() => {

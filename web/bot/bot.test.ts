@@ -109,12 +109,40 @@ describe("BotBrain answers", () => {
 });
 
 describe("BotBrain company for a lone visitor", () => {
+  it("immediately answers an availability check after an all-day lull", () => {
+    const brain = new BotBrain({ ...config, aiFriend: "TongueTiedBot" });
+    brain.handle({ type: "names", channel: "#c", nicks: ["BettyBot", "TongueTiedBot", "Anna", "Dan"], at: T0 });
+    const [reply] = brain.handle({ type: "message", channel: "#c", nick: "Anna", text: "anyone online?", at: T0 });
+    expect(reply).toMatchObject({ target: "#c", delay: 1200 });
+    expect(reply.text).toContain("I'm a bot");
+    expect(reply.text).toContain('start a line with "TongueTiedBot:"');
+  });
+
+  it("recognises common empty-room checks without barging into other questions", () => {
+    for (const text of ["anyone here?", "is anybody around", "anybody home?", "hello?", "is this room active?"]) {
+      const brain = new BotBrain(config);
+      brain.handle({ type: "names", channel: "#c", nicks: ["BettyBot", "Anna"], at: T0 });
+      expect(brain.handle({ type: "message", channel: "#c", nick: "Anna", text, at: T0 }), text).toHaveLength(1);
+    }
+    const brain = new BotBrain(config);
+    brain.handle({ type: "names", channel: "#c", nicks: ["BettyBot", "Anna"], at: T0 });
+    expect(brain.handle({ type: "message", channel: "#c", nick: "Anna", text: "anyone seen the new comic?", at: T0 })).toEqual([]);
+  });
+
+  it("does not repeat the discovery reply during an active stretch", () => {
+    const brain = new BotBrain(config);
+    brain.handle({ type: "names", channel: "#c", nicks: ["BettyBot", "Anna"], at: T0 });
+    expect(brain.handle({ type: "message", channel: "#c", nick: "Anna", text: "anyone here?", at: T0 })).toHaveLength(1);
+    expect(brain.handle({ type: "message", channel: "#c", nick: "Anna", text: "anyone online?", at: T0 + 60_000 })).toEqual([]);
+    expect(brain.handle({ type: "tick", at: T0 + 5 * 60_000 })).toEqual([]);
+  });
+
   it("speaks up once if someone talks to an empty room", () => {
     const brain = new BotBrain(config);
     brain.handle({ type: "names", channel: "#c", nicks: ["BettyBot", "Anna"], at: T0 });
-    brain.handle({ type: "message", channel: "#c", nick: "Anna", text: "anyone here?", at: T0 });
+    brain.handle({ type: "message", channel: "#c", nick: "Anna", text: "I wonder what this button does", at: T0 });
     expect(brain.handle({ type: "tick", at: T0 + 60_000 })).toEqual([]);
-    const [nudge] = brain.handle({ type: "tick", at: T0 + 4 * 60_000 });
+    const [nudge] = brain.handle({ type: "tick", at: T0 + 2 * 60_000 });
     expect(nudge.text).toMatch(/^Nobody else is around just now, Anna/);
     brain.handle({ type: "message", channel: "#c", nick: "Anna", text: "hello?", at: T0 + 5 * 60_000 });
     expect(brain.handle({ type: "tick", at: T0 + 10 * 60_000 })).toEqual([]);

@@ -36,7 +36,7 @@ export interface CamConfig {
    * nostalgically annoying 1998 kid who also blurts out one-liners on his own.
    */
   persona?: "friendly" | "gremlin";
-  /** Gremlin: minimum time between unprompted one-liners (default 12 minutes). */
+  /** Gremlin: minimum time between unprompted one-liners (default 10 minutes). */
   interjectEveryMs?: number;
 }
 
@@ -472,7 +472,7 @@ export class CamBrain {
     if (this.asleep.has(key) || (this.mutedUntil.get(key) ?? 0) > at) return [];
     const lastHuman = this.lastHumanLine.get(key);
     if (lastHuman === undefined || at - lastHuman > ACTIVE_WINDOW) return [];
-    if (at - (this.lastInterjection.get(key) ?? -Infinity) < (this.config.interjectEveryMs ?? 12 * MINUTE)) return [];
+    if (at - (this.lastInterjection.get(key) ?? -Infinity) < (this.config.interjectEveryMs ?? 10 * MINUTE)) return [];
     const members = [...this.memberSet(channel)];
     if (!members.some((member) => fold(member) === fold(this.config.admin))) return [];
     const today = new Date(at).toISOString().slice(0, 10);

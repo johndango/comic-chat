@@ -55,7 +55,9 @@ const GREET_MEMORY = 12 * HOUR;
 /** Minimum spacing between greetings in one channel. */
 const GREET_SPACING = 20_000;
 /** A lone visitor who speaks and gets no answer for this long hears from the bot once. */
-const LONELY_AFTER = 3 * MINUTE;
+const LONELY_AFTER = 2 * MINUTE;
+/** After a long-empty day, an availability question gets an immediate useful answer. */
+const ROOM_REENGAGE_AFTER = 6 * HOUR;
 /** Answers per person per minute; enough to explore every command, too few to spam. */
 const ANSWERS_PER_MINUTE = 6;
 const DAILY_SPARK_HOUR_UTC = 18;
@@ -69,6 +71,18 @@ function isCyberSolicitation(text: string): boolean {
   return /^(?:cyber|cybersex)$/u.test(q)
     || /\b(?:wanna|want to|anyone wanna|anybody wanna|any1 wanna|who wants to|looking for|up for)\s+cyber(?:sex|ing)?\b/u.test(q)
     || /\bcyber(?:sex|ing)?\s+(?:with me|anyone|anybody|any1)\b/u.test(q);
+}
+
+/**
+ * Narrowly recognise someone checking whether an old, quiet room is alive.
+ * This intentionally does not match ordinary questions such as "anyone seen
+ * the new comic?", so Betty never barges into an active conversation.
+ */
+function isRoomAvailabilityQuestion(text: string): boolean {
+  const q = fold(text).trim().replace(/[!?.,]+$/u, "").replace(/\s+/gu, " ");
+  return /^(?:(?:hey|hi|hello|yo)\s+)?(?:is\s+)?(?:anyone|anybody|any1|someone|somebody)(?:\s+(?:still\s+)?(?:here|online|around|awake|there|home|out there))?$/u.test(q)
+    || /^(?:is\s+)?(?:this|the)\s+(?:room|chat)\s+(?:active|alive|dead|empty)$/u.test(q)
+    || /^(?:hello|hi|hey|yo)(?:\s+(?:everyone|room|all))?$/u.test(q);
 }
 
 /** Rough bot detection: names ending in bot/serv, or ones we were told to ignore. */
@@ -310,9 +324,11 @@ export class BotBrain {
   private onMessage(event: Extract<BotEvent, { type: "message" }>): Say[] {
     if (this.isSelf(event.nick) || looksLikeBot(event.nick, this.ignore)) return [];
     const replyTo = event.channel ?? event.nick;
+    let returningToQuietRoom = false;
     if (event.channel) {
       const state = this.channel(event.channel);
       state.members.add(event.nick);
+      returningToQuietRoom = state.lastHumanLineAt === 0 || event.at - state.lastHumanLineAt >= ROOM_REENGAGE_AFTER;
       const alone = this.humans(state).length <= 1;
       if (alone && !state.lonelyNudged.has(fold(event.nick))) state.loneLineAt = event.at;
       else state.loneLineAt = null;
@@ -320,7 +336,17 @@ export class BotBrain {
     }
     const request = event.channel ? this.addressed(event.text) : event.text.trim();
     const shutDownCyber = !!event.channel && isCyberSolicitation(request ?? event.text);
-    if (request === null && !shutDownCyber) return [];
+    if (request === null && !shutDownCyber) {
+      if (!event.channel || !returningToQuietRoom || !isRoomAvailabilityQuestion(event.text)) return [];
+      const state = this.channel(event.channel);
+      state.loneLineAt = null;
+      state.lonelyNudged.add(fold(event.nick));
+      const aiPresent = !!this.config.aiFriend && this.aiFriendIn(event.channel);
+      const text = aiPresent && this.config.aiFriend
+        ? `I'm a bot, but I'm here to help you try WebComicChat when other people are offline. Select ${this.config.aiFriend} in the member list or start a line with "${this.config.aiFriend}:" and it'll respond.`
+        : `I'm a bot, but I'm here to help you try WebComicChat when other people are offline. Start a line with "${this.config.nick}: help" and I'll show you around.`;
+      return [{ target: replyTo, text, delay: 1200 }];
+    }
     const allowed = this.allowAnswer(event.nick, event.at);
     if (allowed === "quiet") return [];
     if (event.channel) this.channel(event.channel).loneLineAt = null;

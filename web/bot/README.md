@@ -16,8 +16,10 @@ single bot that says it's a bot.
   help, tips on how poses work, expression demonstrations (`show happy`),
   original comic titles, rotating history facts, the site link, the schedule,
   and what Comic Chat was. It admits it's a bot when asked.
+- Reassures someone who asks "anyone here?" after six quiet hours and points
+  them to the conversational AI bot when it is online.
 - Keeps company: if someone speaks in an otherwise empty room and nobody
-  answers within 3 minutes, it replies once with a tip.
+  answers within 2 minutes, it replies once with a tip.
 - Starts one small room spark after 18:00 UTC each day, even if nobody has
   spoken. It alternates between a canned one-liner and addressing an online
   WebComicChat AI bot. AI bots answer only once, only while their required
@@ -151,7 +153,7 @@ down real people.
 
 - It answers when addressed, exactly like TongueTiedBot (same `[AI]` marking,
   disclosure, admin-presence rule, filters and limits).
-- It also blurts out a one-liner on its own at most every 12 minutes, only
+- It also blurts out a one-liner on its own at most every 10 minutes, only
   while people are chatting, and only on half of those chances.
 - Those unprompted lines never read the room: the model is told only which
   bots are present. Any unprompted line that names a real person is dropped.

@@ -396,13 +396,13 @@ describe("gremlin persona (n00bBot)", () => {
     expect(await alone.brain.interject("#c", T0 + MIN)).toEqual([]);
   });
 
-  it("waits at least 12 minutes between chances, and only takes some of them", async () => {
+  it("waits at least 10 minutes between chances, and only takes some of them", async () => {
     const { brain, sent } = gremlin();
     for (let m = 0; m <= 30; m += 1) {
       await brain.message("#c", "Anna", "chatting", T0 + m * MIN);
       await brain.interject("#c", T0 + m * MIN + 1000);
     }
-    expect(sent.length).toBe(3); // minutes 0, 12 and 24
+    expect(sent.length).toBe(4); // minutes 0, 10, 20 and 30
     const coinFlip = gremlin(undefined, () => 0.9);
     await coinFlip.brain.message("#c", "Anna", "hi", T0);
     expect(await coinFlip.brain.interject("#c", T0 + MIN)).toEqual([]);
