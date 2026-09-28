@@ -38,6 +38,8 @@ button, select, textarea, input { border-radius: 0; }
   min-height: calc(100vh - 20px);
   margin: 10px;
   padding: 3px;
+  display: flex;
+  flex-direction: column;
   background: var(--face);
   border-top: 2px solid var(--light);
   border-left: 2px solid var(--light);
@@ -82,7 +84,7 @@ button, select, textarea, input { border-radius: 0; }
 .room-menu-popup { min-width: 270px; }
 .room-bookmark-menu-list { max-height: min(240px, 40vh); overflow-y: auto; }
 .room-bookmark-menu-list:empty::after { content: "No bookmarked rooms"; padding: 5px 25px; display: block; color: #666; font-style: italic; }
-.classic-main { border: 1px solid #808080; background: var(--face); }
+.classic-main { min-height: 0; display: flex; flex: 1 1 auto; flex-direction: column; border: 1px solid #808080; background: var(--face); }
 .live-console {
   padding: 7px;
   display: grid;
@@ -165,7 +167,7 @@ button:disabled { color: #808080; text-shadow: 1px 1px #fff; cursor: not-allowed
 .room-tab { height: 28px; padding: 5px 10px; display: flex; align-items: center; gap: 6px; border-top: 1px solid #fff; border-bottom: 1px solid #808080; background: var(--face); }
 .room-tab span { color: #b09a00; }
 .room-tab button { min-height: 21px; margin-left: auto; padding: 0 9px; font-size: 10px; }
-.workspace { display: grid; grid-template-columns: minmax(0, 1fr) 220px; height: clamp(380px, calc(100vh - 315px), 620px); background: #fff; }
+.workspace { min-height: 380px; display: grid; grid-template-columns: minmax(0, 1fr) 220px; flex: 1 1 auto; background: #fff; }
 .workspace.character-pane-large { grid-template-columns: minmax(0, 1fr) 320px; }
 .stage-wrap { min-width: 0; overflow: auto; border-right: 2px solid #808080; background: #fff; }
 .conversation-stage { padding: 4px; }
@@ -504,6 +506,11 @@ button:disabled { color: #808080; text-shadow: 1px 1px #fff; cursor: not-allowed
 .classic-window.reader-mode .stage-wrap { min-height: 0; height: auto; flex: 1; }
 .classic-window.reader-mode .workspace { display: flex; }
 .classic-window.reader-mode .stage-wrap { width: 100%; max-height: none; border: 0; }
+
+@media (min-width: 901px) {
+  .classic-window { height: calc(100vh - 20px); }
+  .workspace { flex-basis: 0; }
+}
 
 @media (prefers-reduced-motion: no-preference) {
   .shutdown-screen { animation: shutdown-fade .18s ease-out; }
